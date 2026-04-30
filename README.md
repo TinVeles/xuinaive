@@ -1,4 +1,4 @@
-# unified-proxy-manager
+# xuinaive / unified-proxy-manager
 
 First safe version of a bash-based meta-manager for two independent upstream components:
 
@@ -22,7 +22,37 @@ unified-proxy-manager/
     └── PORTS.md
 ```
 
-## Setup
+## Quick Start From VPS
+
+Recommended universal command:
+
+```bash
+wget -qO /tmp/xuinaive-install.sh https://raw.githubusercontent.com/TinVeles/xuinaive/main/install.sh
+bash /tmp/xuinaive-install.sh
+```
+
+If your VPS supports `/dev/fd`, this one-line form can also work:
+
+```bash
+bash <(wget -qO- https://raw.githubusercontent.com/TinVeles/xuinaive/main/install.sh)
+```
+
+If you get `bash: /dev/fd/63: No such file or directory`, use the `/tmp/xuinaive-install.sh` method above.
+
+## Ready Command With Your Domains
+
+```bash
+wget -qO /tmp/xuinaive-install.sh https://raw.githubusercontent.com/TinVeles/xuinaive/main/install.sh && \
+NAIVE_EMAIL="yonkie3762owl765892eagle@gmail.com" bash /tmp/xuinaive-install.sh \
+  --mode both \
+  --xui-domain zaiki.abamikink.zanity.net \
+  --naive-domain sub.abamikink.zanity.net \
+  --reality-dest abamikink.zanity.net
+```
+
+This is still dry-run only. It checks the server and prints the plan.
+
+## Local Setup
 
 ```bash
 cd unified-proxy-manager
@@ -38,24 +68,6 @@ Interactive mode:
 
 ```bash
 sudo ./install.sh
-```
-
-Remote one-liner style, after publishing `install.sh` to a raw GitHub URL:
-
-```bash
-sudo bash <(wget -qO- https://raw.githubusercontent.com/<OWNER>/<REPO>/<BRANCH>/unified-proxy-manager/install.sh)
-```
-
-With flags:
-
-```bash
-sudo bash <(wget -qO- https://raw.githubusercontent.com/<OWNER>/<REPO>/<BRANCH>/unified-proxy-manager/install.sh) --mode xui --xui-domain x.example.com --reality-dest r.example.com
-```
-
-If you run the remote script from outside the project directory, pass `--project-dir` so it can find `config.env` and the local upstream clones:
-
-```bash
-sudo bash <(wget -qO- https://raw.githubusercontent.com/<OWNER>/<REPO>/<BRANCH>/unified-proxy-manager/install.sh) --project-dir /root/3x-ui_plus_naive-proxy/unified-proxy-manager
 ```
 
 The script will ask for:
@@ -110,3 +122,13 @@ sudo ./doctor.sh
 ## Important
 
 The audit found that upstream `x-ui-pro.sh` performs destructive actions early: it removes x-ui/nginx paths and kills listeners on `80/443`. This safe version intentionally does not run it.
+
+## Current Safety Status
+
+This version is intentionally a planner. It is safe to run on a VPS because it only reads system state:
+
+- no package installation;
+- no writes to `/etc`;
+- no service start/stop/restart;
+- no firewall changes;
+- no upstream installer execution.
