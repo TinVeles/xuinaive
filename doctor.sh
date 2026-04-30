@@ -112,7 +112,7 @@ done
 echo
 echo "Services:"
 if command_exists systemctl; then
-  for svc in x-ui nginx caddy ufw; do
+  for svc in x-ui nginx caddy caddy-naive ufw; do
     printf '%-8s active=%-10s enabled=%s\n' \
       "$svc" \
       "$(systemctl is-active "$svc" 2>/dev/null || true)" \
@@ -125,7 +125,9 @@ fi
 echo
 echo "Conflict analysis:"
 if service_active nginx && service_active caddy; then
-  warn "nginx and caddy are both active. On one VPS, only one service should own public 443 unless a single SNI router is configured."
+  warn "nginx and public caddy are both active. On one VPS, only one service should own public 443 unless a single SNI router is configured."
+elif service_active nginx && service_active caddy-naive; then
+  ok "nginx and caddy-naive are both active. This is expected for the unified SNI backend layout."
 else
   ok "No obvious nginx+caddy dual-active conflict"
 fi

@@ -50,11 +50,12 @@ echo "Services:"
 service_line x-ui
 service_line nginx
 service_line caddy
+service_line caddy-naive
 service_line ufw
 
 echo
 echo "Listening ports:"
-for port in 80 443 2053 7443 8080 8443 9443; do
+for port in 80 443 2053 7443 8080 8443 9443 9444; do
   details="$(port_details "$port")"
   if [[ -n "$details" ]]; then
     printf 'port %s: busy\n%s\n' "$port" "$details"
@@ -66,7 +67,7 @@ done
 echo
 echo "Recent logs:"
 if command_exists journalctl && command_exists systemctl; then
-  for svc in x-ui nginx caddy; do
+  for svc in x-ui nginx caddy caddy-naive; do
     if systemctl list-unit-files "${svc}.service" >/dev/null 2>&1; then
       printf '\n-- %s last 30 lines --\n' "$svc"
       journalctl -u "$svc" -n 30 --no-pager 2>/dev/null || true

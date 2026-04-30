@@ -15,6 +15,7 @@ unified-proxy-manager/
 ├── AUDIT.md
 ├── config.example.env
 ├── install.sh
+├── install-unified.sh
 ├── prepare-upstreams.sh
 ├── status.sh
 ├── doctor.sh
@@ -24,6 +25,14 @@ unified-proxy-manager/
 │   └── PORTS.md
 └── upstreams/
     └── README.md
+```
+
+The repository also contains vendored component copies under `components/`:
+
+```text
+components/
+├── x-ui-pro/
+└── naiveproxy/
 ```
 
 ## Quick Start From VPS
@@ -168,10 +177,31 @@ The audit found that upstream `x-ui-pro.sh` performs destructive actions early: 
 
 ## Current Safety Status
 
-This version is intentionally a planner. It is safe to run on a VPS because it only reads system state:
+`install.sh` is intentionally a planner. It is safe to run on a VPS because it only reads system state:
 
 - no package installation;
 - no writes to `/etc`;
 - no service start/stop/restart;
 - no firewall changes;
 - no upstream installer execution.
+
+## Real Unified Installer
+
+The explicit real installer is:
+
+```bash
+sudo ./install-unified.sh --mode both \
+  --xui-domain zaiki.abamikink.zanity.net \
+  --naive-domain sub.abamikink.zanity.net \
+  --reality-dest abamikink.zanity.net \
+  --naive-email yonkie3762owl765892eagle@gmail.com \
+  --yes
+```
+
+This installer uses one public `443` owner:
+
+- x-ui-pro/nginx listens on public `443`;
+- NaiveProxy/Caddy listens on `127.0.0.1:9444`;
+- nginx stream routes the NaiveProxy domain by SNI to `127.0.0.1:9444`.
+
+Warning: `install-unified.sh` runs the vendored x-ui-pro installer, which is destructive like upstream. Use it only on a fresh VPS or after backups.

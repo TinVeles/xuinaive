@@ -1,0 +1,16 @@
+v0.3
+add emoji flag vps country to inbound remarks
+for clash meta config with re-filter ECH+noECH rules use option: -clash 3
+fix sub2sing-box run only localhost
+v0.2
+add new sub page based on https://github.com/streletskiy/marzban-sub-page
+for install classic web sub page use option: -websub 1
+add clash meta config with ru-bundle
+for clash meta config by skrepysh use option: -clash 1
+for clash meta config with fullproxy without ru use option: -clash 2
+change sub2sing-box to fork by legiz
+add link local instance sub2sing-box to output after install
+xhttp packet-up mode
+v0.1
+add web sub page
+local sub2sing-box
