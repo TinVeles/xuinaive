@@ -39,6 +39,8 @@ err() { printf '%s\n' "${RED}ERROR:${NC} $*" >&2; }
 die() { err "$*"; exit 1; }
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
+info "xuinaive installer starting"
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -144,7 +146,7 @@ preparse_project_dir() {
         PROJECT_DIR="${args[$((i + 1))]}"
         ;;
     esac
-    ((i++))
+    i=$((i + 1))
   done
   PROJECT_DIR="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || printf '%s' "$PROJECT_DIR")"
 }
