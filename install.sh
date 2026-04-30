@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE_PATH="${BASH_SOURCE[0]}"
+RUN_FROM_STREAM=0
+if [[ "$SOURCE_PATH" == /dev/fd/* || "$SOURCE_PATH" == /proc/* || ! -f "$SOURCE_PATH" ]]; then
+  SCRIPT_DIR="$(pwd)"
+  RUN_FROM_STREAM=1
+else
+  SCRIPT_DIR="$(cd "$(dirname "$SOURCE_PATH")" && pwd)"
+fi
 
 MODE=""
 XUI_DOMAIN="${XUI_DOMAIN:-}"
 NAIVE_DOMAIN="${NAIVE_DOMAIN:-}"
 REALITY_DEST="${REALITY_DEST:-}"
 NAIVE_EMAIL="${NAIVE_EMAIL:-}"
+PROJECT_DIR="${UPM_PROJECT_DIR:-$SCRIPT_DIR}"
 XUI_UPSTREAM="${XUI_UPSTREAM:-../x-ui-pro/x-ui-pro.sh}"
 NAIVE_UPSTREAM="${NAIVE_UPSTREAM:-../naiveproxy-instant-install-by-Ilya_Rublev/install.sh}"
 DRY_RUN=1
@@ -28,20 +36,97 @@ command_exists() { command -v "$1" >/dev/null 2>&1; }
 usage() {
   cat <<'EOF'
 Usage:
+  ./install.sh
   ./install.sh --mode xui --xui-domain x.example.com --reality-dest r.example.com [--dry-run]
   ./install.sh --mode naive --naive-domain n.example.com [--dry-run]
   ./install.sh --mode both --xui-domain x.example.com --naive-domain n.example.com --reality-dest r.example.com [--dry-run]
+  bash <(wget -qO- RAW_INSTALL_URL)
 
 This first safe version is dry-run only. It never runs upstream installers.
+When values are omitted in an interactive terminal, the script asks for them.
+When run from a URL, relative paths are resolved from the current directory or --project-dir.
 EOF
 }
 
+require_interactive() {
+  [[ -t 0 ]] || die "Missing required arguments and stdin is not interactive. Run ./install.sh in a terminal or pass CLI flags."
+}
+
+prompt_value() {
+  local var_name="$1"
+  local prompt="$2"
+  local current_value="${3:-}"
+  local input=""
+
+  require_interactive
+  while [[ -z "$current_value" ]]; do
+    read -r -p "$prompt: " input
+    current_value="$(printf '%s' "$input" | tr -d '[:space:]')"
+  done
+  printf -v "$var_name" '%s' "$current_value"
+}
+
+prompt_mode() {
+  local input=""
+  require_interactive
+  while [[ -z "$MODE" ]]; do
+    echo "Choose install planning mode:"
+    echo "  1) xui   - x-ui-pro / 3x-ui only"
+    echo "  2) naive - NaiveProxy / Caddy only"
+    echo "  3) both  - analyze both components"
+    read -r -p "Mode [xui/naive/both or 1/2/3]: " input
+    case "$input" in
+      1|xui) MODE="xui" ;;
+      2|naive) MODE="naive" ;;
+      3|both) MODE="both" ;;
+      *) warn "Please enter xui, naive, both, 1, 2, or 3." ;;
+    esac
+  done
+}
+
+collect_interactive_inputs() {
+  [[ -n "$MODE" ]] || prompt_mode
+
+  case "$MODE" in
+    xui)
+      prompt_value XUI_DOMAIN "Enter x-ui domain, for example x.example.com" "$XUI_DOMAIN"
+      prompt_value REALITY_DEST "Enter REALITY destination domain, for example r.example.com" "$REALITY_DEST"
+      ;;
+    naive)
+      prompt_value NAIVE_DOMAIN "Enter NaiveProxy domain, for example n.example.com" "$NAIVE_DOMAIN"
+      prompt_value NAIVE_EMAIL "Enter email for future Caddy/Let's Encrypt planning" "$NAIVE_EMAIL"
+      ;;
+    both)
+      prompt_value XUI_DOMAIN "Enter x-ui domain, for example x.example.com" "$XUI_DOMAIN"
+      prompt_value NAIVE_DOMAIN "Enter NaiveProxy domain, for example n.example.com" "$NAIVE_DOMAIN"
+      prompt_value REALITY_DEST "Enter REALITY destination domain, for example r.example.com" "$REALITY_DEST"
+      prompt_value NAIVE_EMAIL "Enter email for future Caddy/Let's Encrypt planning" "$NAIVE_EMAIL"
+      ;;
+    *) die "--mode must be xui, naive, or both" ;;
+  esac
+}
+
 load_config() {
-  local config_file="$SCRIPT_DIR/config.env"
+  local config_file="$PROJECT_DIR/config.env"
   if [[ -f "$config_file" ]]; then
     # shellcheck disable=SC1090
     source "$config_file"
   fi
+}
+
+preparse_project_dir() {
+  local args=("$@")
+  local i=0
+  while (( i < ${#args[@]} )); do
+    case "${args[$i]}" in
+      --project-dir)
+        (( i + 1 < ${#args[@]} )) || die "--project-dir requires a value"
+        PROJECT_DIR="${args[$((i + 1))]}"
+        ;;
+    esac
+    ((i++))
+  done
+  PROJECT_DIR="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || printf '%s' "$PROJECT_DIR")"
 }
 
 public_ipv4() {
@@ -135,8 +220,14 @@ check_required_commands() {
 
 check_upstream_files() {
   local xui_path naive_path
-  xui_path="$SCRIPT_DIR/$XUI_UPSTREAM"
-  naive_path="$SCRIPT_DIR/$NAIVE_UPSTREAM"
+  case "$XUI_UPSTREAM" in
+    /*) xui_path="$XUI_UPSTREAM" ;;
+    *) xui_path="$PROJECT_DIR/$XUI_UPSTREAM" ;;
+  esac
+  case "$NAIVE_UPSTREAM" in
+    /*) naive_path="$NAIVE_UPSTREAM" ;;
+    *) naive_path="$PROJECT_DIR/$NAIVE_UPSTREAM" ;;
+  esac
   [[ -f "$xui_path" ]] && ok "x-ui-pro upstream found: $XUI_UPSTREAM" || warn "x-ui-pro upstream not found: $XUI_UPSTREAM"
   [[ -f "$naive_path" ]] && ok "NaiveProxy upstream found: $NAIVE_UPSTREAM" || warn "NaiveProxy upstream not found: $NAIVE_UPSTREAM"
 }
@@ -185,6 +276,8 @@ print_plan() {
 Dry-run installation plan
 -------------------------
 Mode:           $MODE
+Project dir:    $PROJECT_DIR
+Run from URL:   $RUN_FROM_STREAM
 x-ui domain:    ${XUI_DOMAIN:-not set}
 Naive domain:   ${NAIVE_DOMAIN:-not set}
 REALITY dest:   ${REALITY_DEST:-not set}
@@ -229,6 +322,7 @@ EOF
   esac
 }
 
+preparse_project_dir "$@"
 load_config
 
 while [[ $# -gt 0 ]]; do
@@ -237,13 +331,14 @@ while [[ $# -gt 0 ]]; do
     --xui-domain) XUI_DOMAIN="${2:-}"; shift 2 ;;
     --naive-domain) NAIVE_DOMAIN="${2:-}"; shift 2 ;;
     --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
+    --project-dir) PROJECT_DIR="${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
 done
 
-[[ -n "$MODE" ]] || { usage; die "--mode is required"; }
+collect_interactive_inputs
 case "$MODE" in xui|naive|both) ;; *) die "--mode must be xui, naive, or both" ;; esac
 
 validate_required_args

@@ -34,6 +34,38 @@ nano config.env
 
 ## Dry-run commands
 
+Interactive mode:
+
+```bash
+sudo ./install.sh
+```
+
+Remote one-liner style, after publishing `install.sh` to a raw GitHub URL:
+
+```bash
+sudo bash <(wget -qO- https://raw.githubusercontent.com/<OWNER>/<REPO>/<BRANCH>/unified-proxy-manager/install.sh)
+```
+
+With flags:
+
+```bash
+sudo bash <(wget -qO- https://raw.githubusercontent.com/<OWNER>/<REPO>/<BRANCH>/unified-proxy-manager/install.sh) --mode xui --xui-domain x.example.com --reality-dest r.example.com
+```
+
+If you run the remote script from outside the project directory, pass `--project-dir` so it can find `config.env` and the local upstream clones:
+
+```bash
+sudo bash <(wget -qO- https://raw.githubusercontent.com/<OWNER>/<REPO>/<BRANCH>/unified-proxy-manager/install.sh) --project-dir /root/3x-ui_plus_naive-proxy/unified-proxy-manager
+```
+
+The script will ask for:
+
+- mode: `xui`, `naive`, or `both`;
+- x-ui domain when needed;
+- NaiveProxy domain when needed;
+- REALITY destination domain when needed;
+- email for future NaiveProxy/Caddy TLS planning.
+
 Only x-ui-pro plan:
 
 ```bash
