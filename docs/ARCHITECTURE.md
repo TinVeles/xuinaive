@@ -4,18 +4,19 @@ This first version is a safe planner, not an installer.
 
 ## Boundary
 
-`unified-proxy-manager` sits next to two cloned upstream repositories:
+`unified-proxy-manager` keeps upstream repositories inside its own `upstreams/` directory:
 
 ```text
-../x-ui-pro
-../naiveproxy-instant-install-by-Ilya_Rublev
+upstreams/x-ui-pro
+upstreams/naiveproxy-instant-install-by-Ilya_Rublev
 ```
 
-It reads system state and prints a plan. It does not modify upstream code and does not execute upstream installers.
+Run `./prepare-upstreams.sh` to clone or refresh those upstream repositories. The manager reads system state and prints a plan. It does not modify upstream code and does not execute upstream installers.
 
 ## Scripts
 
 - `install.sh` accepts `--mode xui`, `--mode naive`, or `--mode both`, validates required domain arguments, checks OS/commands/services/ports/DNS, and prints a dry-run plan.
+- `prepare-upstreams.sh` creates `upstreams/` and clones the upstream projects there.
 - `status.sh` reports configured domains, service states, listening ports, and recent service logs when available.
 - `doctor.sh` performs diagnostic checks and prints recommendations.
 

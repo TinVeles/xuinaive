@@ -2,8 +2,8 @@
 
 First safe version of a bash-based meta-manager for two independent upstream components:
 
-- `../x-ui-pro` for x-ui-pro / 3x-ui / Xray / nginx;
-- `../naiveproxy-instant-install-by-Ilya_Rublev` for NaiveProxy / Caddy.
+- `upstreams/x-ui-pro` for x-ui-pro / 3x-ui / Xray / nginx;
+- `upstreams/naiveproxy-instant-install-by-Ilya_Rublev` for NaiveProxy / Caddy.
 
 This version is dry-run only. It does not install packages, does not write `/etc`, does not start or stop services, and does not execute upstream scripts.
 
@@ -11,25 +11,49 @@ This version is dry-run only. It does not install packages, does not write `/etc
 
 ```text
 unified-proxy-manager/
+├── .gitignore
 ├── AUDIT.md
 ├── config.example.env
 ├── install.sh
+├── prepare-upstreams.sh
 ├── status.sh
 ├── doctor.sh
 ├── README.md
-└── docs/
-    ├── ARCHITECTURE.md
-    └── PORTS.md
+├── docs/
+│   ├── ARCHITECTURE.md
+│   └── PORTS.md
+└── upstreams/
+    └── README.md
 ```
 
 ## Quick Start From VPS
 
-Recommended universal command:
+Recommended full project setup:
+
+```bash
+cd /root
+git clone https://github.com/TinVeles/xuinaive.git
+cd xuinaive/unified-proxy-manager
+chmod +x install.sh status.sh doctor.sh prepare-upstreams.sh
+bash prepare-upstreams.sh
+sudo ./install.sh
+```
+
+This creates:
+
+```text
+unified-proxy-manager/upstreams/x-ui-pro/
+unified-proxy-manager/upstreams/naiveproxy-instant-install-by-Ilya_Rublev/
+```
+
+Quick remote dry-run without cloning the full project:
 
 ```bash
 wget -qO /tmp/xuinaive-install.sh https://raw.githubusercontent.com/TinVeles/xuinaive/main/install.sh
 bash /tmp/xuinaive-install.sh
 ```
+
+The `/tmp` method can analyze the VPS, ports and DNS, but it will not have the local upstream projects unless you also clone the full repository and run `prepare-upstreams.sh`.
 
 If your VPS supports `/dev/fd`, this one-line form can also work:
 
@@ -39,17 +63,6 @@ bash <(wget -qO- https://raw.githubusercontent.com/TinVeles/xuinaive/main/instal
 
 If you get `bash: /dev/fd/63: No such file or directory`, use the `/tmp/xuinaive-install.sh` method above.
 
-## Ready Command With Your Domains
-
-```bash
-wget -qO /tmp/xuinaive-install.sh https://raw.githubusercontent.com/TinVeles/xuinaive/main/install.sh && \
-NAIVE_EMAIL="yonkie3762owl765892eagle@gmail.com" bash /tmp/xuinaive-install.sh \
-  --mode both \
-  --xui-domain zaiki.abamikink.zanity.net \
-  --naive-domain sub.abamikink.zanity.net \
-  --reality-dest abamikink.zanity.net
-```
-
 This is still dry-run only. It checks the server and prints the plan.
 
 ## Local Setup
@@ -58,9 +71,22 @@ This is still dry-run only. It checks the server and prints the plan.
 cd unified-proxy-manager
 cp config.example.env config.env
 nano config.env
+bash prepare-upstreams.sh
 ```
 
 `config.env` is optional. CLI flags override values loaded from it.
+
+`prepare-upstreams.sh` creates this local layout:
+
+```text
+unified-proxy-manager/upstreams/
+├── x-ui-pro/
+│   └── x-ui-pro.sh
+└── naiveproxy-instant-install-by-Ilya_Rublev/
+    └── install.sh
+```
+
+The upstream projects are fetched on the VPS and are not committed into this repository.
 
 ## Dry-run commands
 

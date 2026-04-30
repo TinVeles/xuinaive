@@ -16,8 +16,8 @@ NAIVE_DOMAIN="${NAIVE_DOMAIN:-}"
 REALITY_DEST="${REALITY_DEST:-}"
 NAIVE_EMAIL="${NAIVE_EMAIL:-}"
 PROJECT_DIR="${UPM_PROJECT_DIR:-$SCRIPT_DIR}"
-XUI_UPSTREAM="${XUI_UPSTREAM:-../x-ui-pro/x-ui-pro.sh}"
-NAIVE_UPSTREAM="${NAIVE_UPSTREAM:-../naiveproxy-instant-install-by-Ilya_Rublev/install.sh}"
+XUI_UPSTREAM="${XUI_UPSTREAM:-upstreams/x-ui-pro/x-ui-pro.sh}"
+NAIVE_UPSTREAM="${NAIVE_UPSTREAM:-upstreams/naiveproxy-instant-install-by-Ilya_Rublev/install.sh}"
 DRY_RUN=1
 
 RED=$'\033[0;31m'
@@ -228,8 +228,18 @@ check_upstream_files() {
     /*) naive_path="$NAIVE_UPSTREAM" ;;
     *) naive_path="$PROJECT_DIR/$NAIVE_UPSTREAM" ;;
   esac
-  [[ -f "$xui_path" ]] && ok "x-ui-pro upstream found: $XUI_UPSTREAM" || warn "x-ui-pro upstream not found: $XUI_UPSTREAM"
-  [[ -f "$naive_path" ]] && ok "NaiveProxy upstream found: $NAIVE_UPSTREAM" || warn "NaiveProxy upstream not found: $NAIVE_UPSTREAM"
+  if [[ -f "$xui_path" ]]; then
+    ok "x-ui-pro upstream found: $XUI_UPSTREAM"
+  else
+    warn "x-ui-pro upstream not found: $XUI_UPSTREAM"
+    warn "Run ./prepare-upstreams.sh from unified-proxy-manager to fetch it."
+  fi
+  if [[ -f "$naive_path" ]]; then
+    ok "NaiveProxy upstream found: $NAIVE_UPSTREAM"
+  else
+    warn "NaiveProxy upstream not found: $NAIVE_UPSTREAM"
+    warn "Run ./prepare-upstreams.sh from unified-proxy-manager to fetch it."
+  fi
 }
 
 check_domain() {

@@ -1,0 +1,5 @@
+config.env
+*.log
+upstreams/x-ui-pro/
+upstreams/naiveproxy-instant-install-by-Ilya_Rublev/
+
