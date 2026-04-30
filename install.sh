@@ -22,6 +22,8 @@ XUI_REPO="${XUI_REPO:-https://github.com/mozaroc/x-ui-pro.git}"
 NAIVE_REPO="${NAIVE_REPO:-https://github.com/Rublev13/naiveproxy-instant-install-by-Ilya_Rublev.git}"
 AUTO_FETCH_UPSTREAMS="${AUTO_FETCH_UPSTREAMS:-ask}"
 FETCH_ONLY=0
+REAL_INSTALL=0
+ASSUME_YES=0
 DRY_RUN=1
 
 RED=$'\033[0;31m'
@@ -44,10 +46,11 @@ Usage:
   ./install.sh --mode xui --xui-domain x.example.com --reality-dest r.example.com [--dry-run]
   ./install.sh --mode naive --naive-domain n.example.com [--dry-run]
   ./install.sh --mode both --xui-domain x.example.com --naive-domain n.example.com --reality-dest r.example.com [--dry-run]
+  ./install.sh --mode both --xui-domain x.example.com --naive-domain n.example.com --reality-dest r.example.com --naive-email admin@example.com --install --yes
   ./install.sh --fetch-upstreams
   bash <(wget -qO- RAW_INSTALL_URL)
 
-This first safe version is dry-run only. It never runs upstream installers.
+Default mode is dry-run only. Real install requires --install --yes.
 When values are omitted in an interactive terminal, the script asks for them.
 When run from a URL, relative paths are resolved from the current directory or --project-dir.
 If upstream projects are missing, the script can fetch them into upstreams/.
@@ -110,6 +113,17 @@ collect_interactive_inputs() {
       ;;
     *) die "--mode must be xui, naive, or both" ;;
   esac
+}
+
+collect_real_install_inputs() {
+  if [[ "$REAL_INSTALL" != "1" ]]; then
+    return 0
+  fi
+  [[ "$MODE" == "both" ]] || die "Real unified install currently supports --mode both only"
+  prompt_value XUI_DOMAIN "Enter x-ui domain, for example zaiki.example.com" "$XUI_DOMAIN"
+  prompt_value NAIVE_DOMAIN "Enter NaiveProxy domain, for example sub.example.com" "$NAIVE_DOMAIN"
+  prompt_value REALITY_DEST "Enter REALITY destination domain, for example example.com" "$REALITY_DEST"
+  prompt_value NAIVE_EMAIL "Enter email for Caddy/Let's Encrypt" "$NAIVE_EMAIL"
 }
 
 load_config() {
@@ -318,6 +332,25 @@ check_upstream_files() {
   fi
 }
 
+check_vendored_components() {
+  local missing=0
+  local path
+  for path in \
+    "$PROJECT_DIR/install-unified.sh" \
+    "$PROJECT_DIR/components/x-ui-pro/x-ui-pro.sh" \
+    "$PROJECT_DIR/components/x-ui-pro/apply-naive-sni-route.sh" \
+    "$PROJECT_DIR/components/naiveproxy/install.sh" \
+    "$PROJECT_DIR/components/naiveproxy/install-unified-backend.sh"; do
+    if [[ -f "$path" ]]; then
+      ok "Vendored component found: ${path#$PROJECT_DIR/}"
+    else
+      warn "Vendored component missing: ${path#$PROJECT_DIR/}"
+      missing=1
+    fi
+  done
+  [[ "$missing" == "0" ]] || die "Repository is incomplete. Run git pull or clone the latest TinVeles/xuinaive."
+}
+
 check_domain() {
   local domain="$1"
   local label="$2"
@@ -356,8 +389,36 @@ validate_required_args() {
   esac
 }
 
+validate_real_install_args() {
+  [[ "$REAL_INSTALL" == "1" ]] || return 0
+  [[ "$MODE" == "both" ]] || die "Real unified install currently supports --mode both only"
+  [[ -n "$XUI_DOMAIN" ]] || die "--xui-domain is required for real install"
+  [[ -n "$NAIVE_DOMAIN" ]] || die "--naive-domain is required for real install"
+  [[ -n "$REALITY_DEST" ]] || die "--reality-dest is required for real install"
+  [[ -n "$NAIVE_EMAIL" ]] || die "--naive-email is required for real install"
+  [[ "$ASSUME_YES" == "1" ]] || die "Real install requires --yes"
+}
+
 print_plan() {
-  cat <<EOF
+  if [[ "$REAL_INSTALL" == "1" ]]; then
+    cat <<EOF
+
+Real unified installation plan
+------------------------------
+Mode:           $MODE
+Project dir:    $PROJECT_DIR
+x-ui domain:    ${XUI_DOMAIN:-not set}
+Naive domain:   ${NAIVE_DOMAIN:-not set}
+REALITY dest:   ${REALITY_DEST:-not set}
+Naive email:    ${NAIVE_EMAIL:-not set}
+
+Changes will be made because --install --yes was provided.
+Packages may be installed.
+Services may be started/stopped/restarted.
+Vendored component scripts will be executed.
+EOF
+  else
+    cat <<EOF
 
 Dry-run installation plan
 -------------------------
@@ -375,6 +436,7 @@ No packages will be installed.
 No services will be started/stopped.
 No upstream scripts will be executed.
 EOF
+  fi
 
   case "$MODE" in
     xui)
@@ -398,15 +460,52 @@ Planned NaiveProxy actions for a future real installer:
 EOF
       ;;
     both)
-      cat <<'EOF'
+      if [[ "$REAL_INSTALL" == "1" ]]; then
+        cat <<'EOF'
+
+Unified both-mode layout:
+- nginx/x-ui-pro owns public 443.
+- NaiveProxy/Caddy runs as caddy-naive on 127.0.0.1:9444.
+- nginx stream routes the NaiveProxy domain by SNI to 127.0.0.1:9444.
+EOF
+      else
+        cat <<'EOF'
 
 Both-mode safety decision:
 - x-ui-pro/nginx and NaiveProxy/Caddy both want public 443.
 - This dry-run version will not install both stacks on one VPS.
 - Safe options are separate VPS instances, or a manually reviewed single SNI router on 443 with loopback backends.
 EOF
+      fi
       ;;
   esac
+}
+
+run_real_install() {
+  local installer="$PROJECT_DIR/install-unified.sh"
+  [[ "$REAL_INSTALL" == "1" ]] || return 0
+  [[ -f "$installer" ]] || die "Real installer not found: $installer. Pull latest repository version."
+
+  cat <<EOF
+
+Real install requested
+----------------------
+Installer:      $installer
+Mode:           $MODE
+x-ui domain:    $XUI_DOMAIN
+Naive domain:   $NAIVE_DOMAIN
+REALITY dest:   $REALITY_DEST
+Naive email:    $NAIVE_EMAIL
+
+This will run the vendored x-ui-pro installer and write system configs.
+EOF
+
+  bash "$installer" --mode both \
+    --xui-domain "$XUI_DOMAIN" \
+    --naive-domain "$NAIVE_DOMAIN" \
+    --reality-dest "$REALITY_DEST" \
+    --naive-email "$NAIVE_EMAIL" \
+    --yes
 }
 
 preparse_project_dir "$@"
@@ -418,9 +517,12 @@ while [[ $# -gt 0 ]]; do
     --xui-domain) XUI_DOMAIN="${2:-}"; shift 2 ;;
     --naive-domain) NAIVE_DOMAIN="${2:-}"; shift 2 ;;
     --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
+    --naive-email) NAIVE_EMAIL="${2:-}"; shift 2 ;;
     --project-dir) PROJECT_DIR="${2:-}"; shift 2 ;;
     --fetch-upstreams) AUTO_FETCH_UPSTREAMS=yes; FETCH_ONLY=1; shift ;;
     --no-fetch-upstreams) AUTO_FETCH_UPSTREAMS=no; shift ;;
+    --install) REAL_INSTALL=1; DRY_RUN=0; shift ;;
+    --yes) ASSUME_YES=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
@@ -439,17 +541,31 @@ EOF
   exit 0
 fi
 
-collect_interactive_inputs
+if [[ "$REAL_INSTALL" == "1" ]]; then
+  [[ -n "$MODE" ]] || MODE="both"
+  collect_real_install_inputs
+else
+  collect_interactive_inputs
+fi
 case "$MODE" in xui|naive|both) ;; *) die "--mode must be xui, naive, or both" ;; esac
 
 validate_required_args
+validate_real_install_args
 
-info "Running safe dry-run analysis only"
+if [[ "$REAL_INSTALL" == "1" ]]; then
+  info "Running preflight before real unified install"
+else
+  info "Running safe dry-run analysis only"
+fi
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || warn "Not running as root; port/process details may be incomplete"
 check_os
 check_required_commands
-maybe_fetch_upstreams
-check_upstream_files
+if [[ "$REAL_INSTALL" == "1" ]]; then
+  check_vendored_components
+else
+  maybe_fetch_upstreams
+  check_upstream_files
+fi
 
 echo
 echo "Service status:"
@@ -477,3 +593,4 @@ case "$MODE" in
 esac
 
 print_plan
+run_real_install

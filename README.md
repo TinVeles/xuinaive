@@ -1,18 +1,19 @@
-# xuinaive / unified-proxy-manager
+# xuinaive
 
-First safe version of a bash-based meta-manager for two independent upstream components:
+Unified installer for two components on one VPS:
 
-- `upstreams/x-ui-pro` for x-ui-pro / 3x-ui / Xray / nginx;
-- `upstreams/naiveproxy-instant-install-by-Ilya_Rublev` for NaiveProxy / Caddy.
+- x-ui-pro / 3x-ui / Xray / nginx;
+- NaiveProxy / Caddy backend.
 
-This version is dry-run only. It does not install packages, does not write `/etc`, does not start or stop services, and does not execute upstream scripts.
+Default `install.sh` mode is safe dry-run. Real install requires explicit `--install --yes`.
 
 ## Files
 
 ```text
-unified-proxy-manager/
+Repository root:
 ├── .gitignore
 ├── AUDIT.md
+├── components/
 ├── config.example.env
 ├── install.sh
 ├── install-unified.sh
@@ -37,33 +38,30 @@ components/
 
 ## Quick Start From VPS
 
-Recommended full project setup:
+One command for real unified install on a fresh VPS:
 
 ```bash
 cd /root
+rm -rf xuinaive
 git clone https://github.com/TinVeles/xuinaive.git
-cd xuinaive/unified-proxy-manager
-chmod +x install.sh status.sh doctor.sh prepare-upstreams.sh
-sudo ./install.sh
+cd xuinaive
+sudo bash install.sh --mode both \
+  --xui-domain zaiki.abamikink.zanity.net \
+  --naive-domain sub.abamikink.zanity.net \
+  --reality-dest abamikink.zanity.net \
+  --naive-email yonkie3762owl765892eagle@gmail.com \
+  --install \
+  --yes
 ```
 
-On first run, `install.sh` will ask whether to fetch upstream projects into:
-
-```text
-unified-proxy-manager/upstreams/x-ui-pro/
-unified-proxy-manager/upstreams/naiveproxy-instant-install-by-Ilya_Rublev/
-```
-
-You can also fetch them without the prompt:
+Dry-run only:
 
 ```bash
-sudo ./install.sh --fetch-upstreams
-```
-
-Then run the planner:
-
-```bash
-sudo ./install.sh
+cd /root
+rm -rf xuinaive
+git clone https://github.com/TinVeles/xuinaive.git
+cd xuinaive
+sudo bash install.sh
 ```
 
 Or run the helper directly:
@@ -72,54 +70,12 @@ Or run the helper directly:
 bash prepare-upstreams.sh
 ```
 
-Quick remote dry-run without cloning the full project:
-
-```bash
-wget -qO /tmp/xuinaive-install.sh https://raw.githubusercontent.com/TinVeles/xuinaive/main/install.sh
-bash /tmp/xuinaive-install.sh
-```
-
-The `/tmp` method can analyze the VPS, ports and DNS, but it will not have the local upstream projects unless you also clone the full repository and run `prepare-upstreams.sh`.
-
-If your VPS supports `/dev/fd`, this one-line form can also work:
-
-```bash
-bash <(wget -qO- https://raw.githubusercontent.com/TinVeles/xuinaive/main/install.sh)
-```
-
-If you get `bash: /dev/fd/63: No such file or directory`, use the `/tmp/xuinaive-install.sh` method above.
-
-This is still dry-run only. It checks the server and prints the plan.
-
-## Local Setup
-
-```bash
-cd unified-proxy-manager
-cp config.example.env config.env
-nano config.env
-bash prepare-upstreams.sh
-```
-
-`config.env` is optional. CLI flags override values loaded from it.
-
-`prepare-upstreams.sh` creates this local layout:
-
-```text
-unified-proxy-manager/upstreams/
-├── x-ui-pro/
-│   └── x-ui-pro.sh
-└── naiveproxy-instant-install-by-Ilya_Rublev/
-    └── install.sh
-```
-
-The upstream projects are fetched on the VPS and are not committed into this repository.
-
 ## Dry-run commands
 
 Interactive mode:
 
 ```bash
-sudo ./install.sh
+sudo bash install.sh
 ```
 
 The script will ask for:
@@ -133,19 +89,19 @@ The script will ask for:
 Only x-ui-pro plan:
 
 ```bash
-sudo ./install.sh --mode xui --xui-domain x.example.com --reality-dest r.example.com --dry-run
+sudo bash install.sh --mode xui --xui-domain x.example.com --reality-dest r.example.com --dry-run
 ```
 
 Only NaiveProxy plan:
 
 ```bash
-sudo ./install.sh --mode naive --naive-domain n.example.com --dry-run
+sudo bash install.sh --mode naive --naive-domain n.example.com --dry-run
 ```
 
 Both components plan:
 
 ```bash
-sudo ./install.sh --mode both --xui-domain x.example.com --naive-domain n.example.com --reality-dest r.example.com --dry-run
+sudo bash install.sh --mode both --xui-domain x.example.com --naive-domain n.example.com --reality-dest r.example.com --dry-run
 ```
 
 Status:
@@ -187,14 +143,15 @@ The audit found that upstream `x-ui-pro.sh` performs destructive actions early: 
 
 ## Real Unified Installer
 
-The explicit real installer is:
+Direct real installer command through `install.sh`:
 
 ```bash
-sudo ./install-unified.sh --mode both \
+sudo bash install.sh --mode both \
   --xui-domain zaiki.abamikink.zanity.net \
   --naive-domain sub.abamikink.zanity.net \
   --reality-dest abamikink.zanity.net \
   --naive-email yonkie3762owl765892eagle@gmail.com \
+  --install \
   --yes
 ```
 
