@@ -21,6 +21,7 @@ NAIVE_UPSTREAM="${NAIVE_UPSTREAM:-upstreams/naiveproxy-instant-install-by-Ilya_R
 XUI_REPO="${XUI_REPO:-https://github.com/mozaroc/x-ui-pro.git}"
 NAIVE_REPO="${NAIVE_REPO:-https://github.com/Rublev13/naiveproxy-instant-install-by-Ilya_Rublev.git}"
 AUTO_FETCH_UPSTREAMS="${AUTO_FETCH_UPSTREAMS:-ask}"
+FETCH_ONLY=0
 DRY_RUN=1
 
 RED=$'\033[0;31m'
@@ -198,8 +199,9 @@ maybe_fetch_upstreams() {
         local answer=""
         warn "Upstream projects are missing in $PROJECT_DIR/upstreams."
         read -r -p "Fetch upstream projects now? [y/N]: " answer
+        answer="$(printf '%s' "$answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
         case "$answer" in
-          y|Y|yes|YES) fetch_upstreams ;;
+          y|yes|д|да) fetch_upstreams ;;
           *) warn "Skipping upstream fetch." ;;
         esac
       fi
@@ -417,13 +419,25 @@ while [[ $# -gt 0 ]]; do
     --naive-domain) NAIVE_DOMAIN="${2:-}"; shift 2 ;;
     --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
     --project-dir) PROJECT_DIR="${2:-}"; shift 2 ;;
-    --fetch-upstreams) AUTO_FETCH_UPSTREAMS=yes; shift ;;
+    --fetch-upstreams) AUTO_FETCH_UPSTREAMS=yes; FETCH_ONLY=1; shift ;;
     --no-fetch-upstreams) AUTO_FETCH_UPSTREAMS=no; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
 done
+
+if [[ "$FETCH_ONLY" == "1" && -z "$MODE" && -z "$XUI_DOMAIN" && -z "$NAIVE_DOMAIN" && -z "$REALITY_DEST" ]]; then
+  info "Fetching upstream projects only"
+  fetch_upstreams
+  cat <<EOF
+
+Upstream fetch complete.
+Next step:
+  sudo ./install.sh
+EOF
+  exit 0
+fi
 
 collect_interactive_inputs
 case "$MODE" in xui|naive|both) ;; *) die "--mode must be xui, naive, or both" ;; esac

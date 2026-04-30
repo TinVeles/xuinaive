@@ -51,6 +51,12 @@ You can also fetch them without the prompt:
 sudo ./install.sh --fetch-upstreams
 ```
 
+Then run the planner:
+
+```bash
+sudo ./install.sh
+```
+
 Or run the helper directly:
 
 ```bash
