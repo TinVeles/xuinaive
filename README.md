@@ -35,15 +35,26 @@ cd /root
 git clone https://github.com/TinVeles/xuinaive.git
 cd xuinaive/unified-proxy-manager
 chmod +x install.sh status.sh doctor.sh prepare-upstreams.sh
-bash prepare-upstreams.sh
 sudo ./install.sh
 ```
 
-This creates:
+On first run, `install.sh` will ask whether to fetch upstream projects into:
 
 ```text
 unified-proxy-manager/upstreams/x-ui-pro/
 unified-proxy-manager/upstreams/naiveproxy-instant-install-by-Ilya_Rublev/
+```
+
+You can also fetch them without the prompt:
+
+```bash
+sudo ./install.sh --fetch-upstreams
+```
+
+Or run the helper directly:
+
+```bash
+bash prepare-upstreams.sh
 ```
 
 Quick remote dry-run without cloning the full project:

@@ -18,6 +18,9 @@ NAIVE_EMAIL="${NAIVE_EMAIL:-}"
 PROJECT_DIR="${UPM_PROJECT_DIR:-$SCRIPT_DIR}"
 XUI_UPSTREAM="${XUI_UPSTREAM:-upstreams/x-ui-pro/x-ui-pro.sh}"
 NAIVE_UPSTREAM="${NAIVE_UPSTREAM:-upstreams/naiveproxy-instant-install-by-Ilya_Rublev/install.sh}"
+XUI_REPO="${XUI_REPO:-https://github.com/mozaroc/x-ui-pro.git}"
+NAIVE_REPO="${NAIVE_REPO:-https://github.com/Rublev13/naiveproxy-instant-install-by-Ilya_Rublev.git}"
+AUTO_FETCH_UPSTREAMS="${AUTO_FETCH_UPSTREAMS:-ask}"
 DRY_RUN=1
 
 RED=$'\033[0;31m'
@@ -40,11 +43,13 @@ Usage:
   ./install.sh --mode xui --xui-domain x.example.com --reality-dest r.example.com [--dry-run]
   ./install.sh --mode naive --naive-domain n.example.com [--dry-run]
   ./install.sh --mode both --xui-domain x.example.com --naive-domain n.example.com --reality-dest r.example.com [--dry-run]
+  ./install.sh --fetch-upstreams
   bash <(wget -qO- RAW_INSTALL_URL)
 
 This first safe version is dry-run only. It never runs upstream installers.
 When values are omitted in an interactive terminal, the script asks for them.
 When run from a URL, relative paths are resolved from the current directory or --project-dir.
+If upstream projects are missing, the script can fetch them into upstreams/.
 EOF
 }
 
@@ -127,6 +132,80 @@ preparse_project_dir() {
     ((i++))
   done
   PROJECT_DIR="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || printf '%s' "$PROJECT_DIR")"
+}
+
+resolve_project_path() {
+  local path="$1"
+  case "$path" in
+    /*) printf '%s\n' "$path" ;;
+    *) printf '%s\n' "$PROJECT_DIR/$path" ;;
+  esac
+}
+
+upstream_paths() {
+  XUI_UPSTREAM_PATH="$(resolve_project_path "$XUI_UPSTREAM")"
+  NAIVE_UPSTREAM_PATH="$(resolve_project_path "$NAIVE_UPSTREAM")"
+}
+
+clone_or_update_upstream() {
+  local repo_url="$1"
+  local target_dir="$2"
+  local name="$3"
+
+  command_exists git || die "git is required to fetch upstream projects"
+  mkdir -p "$(dirname "$target_dir")"
+
+  if [[ -d "$target_dir/.git" ]]; then
+    info "$name already exists, fetching latest refs"
+    git -C "$target_dir" fetch --all --prune
+    ok "$name is present: $target_dir"
+    return 0
+  fi
+
+  if [[ -e "$target_dir" ]]; then
+    warn "$target_dir exists but is not a git clone. Leaving it unchanged."
+    return 0
+  fi
+
+  info "Cloning $name from $repo_url"
+  git clone "$repo_url" "$target_dir"
+  ok "$name cloned: $target_dir"
+}
+
+fetch_upstreams() {
+  local upstreams_dir xui_dir naive_dir
+  upstreams_dir="$PROJECT_DIR/upstreams"
+  xui_dir="$upstreams_dir/x-ui-pro"
+  naive_dir="$upstreams_dir/naiveproxy-instant-install-by-Ilya_Rublev"
+
+  clone_or_update_upstream "$XUI_REPO" "$xui_dir" "x-ui-pro"
+  clone_or_update_upstream "$NAIVE_REPO" "$naive_dir" "NaiveProxy installer"
+}
+
+maybe_fetch_upstreams() {
+  upstream_paths
+  [[ -f "$XUI_UPSTREAM_PATH" && -f "$NAIVE_UPSTREAM_PATH" ]] && return 0
+
+  case "$AUTO_FETCH_UPSTREAMS" in
+    yes)
+      fetch_upstreams
+      ;;
+    no)
+      return 0
+      ;;
+    ask)
+      if [[ -t 0 ]]; then
+        local answer=""
+        warn "Upstream projects are missing in $PROJECT_DIR/upstreams."
+        read -r -p "Fetch upstream projects now? [y/N]: " answer
+        case "$answer" in
+          y|Y|yes|YES) fetch_upstreams ;;
+          *) warn "Skipping upstream fetch." ;;
+        esac
+      fi
+      ;;
+    *) die "AUTO_FETCH_UPSTREAMS must be ask, yes, or no" ;;
+  esac
 }
 
 public_ipv4() {
@@ -220,25 +299,20 @@ check_required_commands() {
 
 check_upstream_files() {
   local xui_path naive_path
-  case "$XUI_UPSTREAM" in
-    /*) xui_path="$XUI_UPSTREAM" ;;
-    *) xui_path="$PROJECT_DIR/$XUI_UPSTREAM" ;;
-  esac
-  case "$NAIVE_UPSTREAM" in
-    /*) naive_path="$NAIVE_UPSTREAM" ;;
-    *) naive_path="$PROJECT_DIR/$NAIVE_UPSTREAM" ;;
-  esac
+  upstream_paths
+  xui_path="$XUI_UPSTREAM_PATH"
+  naive_path="$NAIVE_UPSTREAM_PATH"
   if [[ -f "$xui_path" ]]; then
     ok "x-ui-pro upstream found: $XUI_UPSTREAM"
   else
     warn "x-ui-pro upstream not found: $XUI_UPSTREAM"
-    warn "Run ./prepare-upstreams.sh from unified-proxy-manager to fetch it."
+    warn "Run ./prepare-upstreams.sh or rerun ./install.sh --fetch-upstreams to fetch it."
   fi
   if [[ -f "$naive_path" ]]; then
     ok "NaiveProxy upstream found: $NAIVE_UPSTREAM"
   else
     warn "NaiveProxy upstream not found: $NAIVE_UPSTREAM"
-    warn "Run ./prepare-upstreams.sh from unified-proxy-manager to fetch it."
+    warn "Run ./prepare-upstreams.sh or rerun ./install.sh --fetch-upstreams to fetch it."
   fi
 }
 
@@ -288,6 +362,7 @@ Dry-run installation plan
 Mode:           $MODE
 Project dir:    $PROJECT_DIR
 Run from URL:   $RUN_FROM_STREAM
+Upstream fetch: $AUTO_FETCH_UPSTREAMS
 x-ui domain:    ${XUI_DOMAIN:-not set}
 Naive domain:   ${NAIVE_DOMAIN:-not set}
 REALITY dest:   ${REALITY_DEST:-not set}
@@ -342,6 +417,8 @@ while [[ $# -gt 0 ]]; do
     --naive-domain) NAIVE_DOMAIN="${2:-}"; shift 2 ;;
     --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
     --project-dir) PROJECT_DIR="${2:-}"; shift 2 ;;
+    --fetch-upstreams) AUTO_FETCH_UPSTREAMS=yes; shift ;;
+    --no-fetch-upstreams) AUTO_FETCH_UPSTREAMS=no; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
@@ -357,6 +434,7 @@ info "Running safe dry-run analysis only"
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || warn "Not running as root; port/process details may be incomplete"
 check_os
 check_required_commands
+maybe_fetch_upstreams
 check_upstream_files
 
 echo
