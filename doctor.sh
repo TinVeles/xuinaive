@@ -6,6 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 XUI_DOMAIN="${XUI_DOMAIN:-}"
 NAIVE_DOMAIN="${NAIVE_DOMAIN:-}"
 REALITY_DEST="${REALITY_DEST:-}"
+RIXXX_PROXY_DOMAIN="${RIXXX_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
+RIXXX_PANEL_DOMAIN="${RIXXX_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
 
 if [[ -f "$SCRIPT_DIR/config.env" ]]; then
   # shellcheck disable=SC1090
@@ -85,7 +87,7 @@ echo
 echo "DNS:"
 server_ip="$(public_ipv4)"
 [[ -n "$server_ip" ]] && ok "Detected public IPv4: $server_ip" || warn "Could not detect public IPv4"
-for domain in "${XUI_DOMAIN:-}" "${NAIVE_DOMAIN:-}" "${REALITY_DEST:-}"; do
+for domain in "${XUI_DOMAIN:-}" "${NAIVE_DOMAIN:-}" "${REALITY_DEST:-}" "${RIXXX_PROXY_DOMAIN:-}" "${RIXXX_PANEL_DOMAIN:-}"; do
   [[ -n "$domain" ]] || continue
   records="$(domain_a_records "$domain" | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
   if [[ -z "$records" ]]; then
@@ -99,7 +101,7 @@ done
 
 echo
 echo "Ports:"
-for port in 80 443 2053 8443 9443; do
+for port in 80 443 2053 3000 8080 8081 8443 9443 9445; do
   details="$(port_details "$port")"
   if [[ -n "$details" ]]; then
     warn "Port $port is busy:"
@@ -112,7 +114,7 @@ done
 echo
 echo "Services:"
 if command_exists systemctl; then
-  for svc in x-ui nginx caddy caddy-naive ufw; do
+  for svc in x-ui nginx caddy caddy-rixxx hysteria-server panel-naive-hy2 ufw; do
     printf '%-8s active=%-10s enabled=%s\n' \
       "$svc" \
       "$(systemctl is-active "$svc" 2>/dev/null || true)" \
@@ -126,8 +128,10 @@ echo
 echo "Conflict analysis:"
 if service_active nginx && service_active caddy; then
   warn "nginx and public caddy are both active. On one VPS, only one service should own public 443 unless a single SNI router is configured."
-elif service_active nginx && service_active caddy-naive; then
-  ok "nginx and caddy-naive are both active. This is expected for the unified SNI backend layout."
+elif service_active nginx && service_active caddy-rixxx && service_active hysteria-server; then
+  ok "nginx, caddy-rixxx, and hysteria-server are active. This is expected for all-in-one mode."
+elif service_active caddy && service_active hysteria-server; then
+  ok "caddy and hysteria-server are both active. This is expected for RIXXX mode when Caddy owns TCP/443 and Hy2 owns UDP/443."
 else
   ok "No obvious nginx+caddy dual-active conflict"
 fi
@@ -138,3 +142,4 @@ echo "- Run install.sh first in dry-run mode only."
 echo "- Make sure DNS A records point to this VPS before any TLS issuance."
 echo "- Keep public 80/443 free before running any future real upstream installer."
 echo "- Do not run x-ui-pro.sh directly on a server with existing nginx/x-ui data without backups."
+echo "- Use --mode rixxx only as a standalone RIXXX panel deployment unless you have reviewed public 443 ownership."

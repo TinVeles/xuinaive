@@ -5,10 +5,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UPSTREAMS_DIR="$SCRIPT_DIR/upstreams"
 
 XUI_REPO="${XUI_REPO:-https://github.com/mozaroc/x-ui-pro.git}"
-NAIVE_REPO="${NAIVE_REPO:-https://github.com/Rublev13/naiveproxy-instant-install-by-Ilya_Rublev.git}"
+RIXXX_REPO="${RIXXX_REPO:-https://github.com/cwash797-cmd/Panel---Naive-Hy2---by---RIXXX.git}"
 
 XUI_DIR="$UPSTREAMS_DIR/x-ui-pro"
-NAIVE_DIR="$UPSTREAMS_DIR/naiveproxy-instant-install-by-Ilya_Rublev"
+RIXXX_DIR="$UPSTREAMS_DIR/Panel---Naive-Hy2---by---RIXXX"
 
 info() { printf 'INFO: %s\n' "$*"; }
 ok() { printf 'OK: %s\n' "$*"; }
@@ -42,16 +42,15 @@ clone_or_update() {
 }
 
 clone_or_update "$XUI_REPO" "$XUI_DIR" "x-ui-pro"
-clone_or_update "$NAIVE_REPO" "$NAIVE_DIR" "NaiveProxy installer"
+clone_or_update "$RIXXX_REPO" "$RIXXX_DIR" "RIXXX panel"
 
 cat <<EOF
 
 Upstreams are ready:
   x-ui-pro:    $XUI_DIR
-  NaiveProxy:  $NAIVE_DIR
+  RIXXX panel: $RIXXX_DIR
 
 Next safe check:
   cd "$SCRIPT_DIR"
   sudo ./install.sh
 EOF
-

@@ -8,7 +8,7 @@ Expected layout after running `../prepare-upstreams.sh`:
 upstreams/
 ├── x-ui-pro/
 │   └── x-ui-pro.sh
-└── naiveproxy-instant-install-by-Ilya_Rublev/
+└── Panel---Naive-Hy2---by---RIXXX/
     └── install.sh
 ```
 
@@ -18,4 +18,3 @@ The upstream projects are intentionally not committed into this repository. Fetc
 cd unified-proxy-manager
 bash prepare-upstreams.sh
 ```
-

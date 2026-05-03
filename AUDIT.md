@@ -81,9 +81,9 @@ Firewall:
 - Then allows `22/tcp`, `80/tcp`, `443/tcp`.
 - Then `ufw --force enable`.
 
-## NaiveProxy installer
+## Removed legacy NaiveProxy installer
 
-Репозиторий: `../naiveproxy-instant-install-by-Ilya_Rublev`
+The old standalone NaiveProxy component has been removed from the active installer flow. The all-in-one flow now uses the RIXXX Panel NaiveProxy backend on loopback behind nginx stream.
 
 Основной скрипт:
 
@@ -154,4 +154,3 @@ Firewall:
 - Safe deployment choices:
   - Scheme A: x-ui-pro and NaiveProxy on different VPS instances.
   - Scheme B: one VPS with a single front SNI router on 443 and backend services on separate loopback ports. This requires deliberate nginx stream/Caddy bind changes and must not be applied automatically without explicit operator action.
-

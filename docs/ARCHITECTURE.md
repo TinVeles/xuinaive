@@ -1,6 +1,6 @@
 # Architecture
 
-This first version is a safe planner, not an installer.
+This project has a dry-run planner and an explicit real installer.
 
 ## Boundary
 
@@ -8,19 +8,30 @@ This first version is a safe planner, not an installer.
 
 ```text
 upstreams/x-ui-pro
-upstreams/naiveproxy-instant-install-by-Ilya_Rublev
+upstreams/Panel---Naive-Hy2---by---RIXXX
 ```
 
 Run `./prepare-upstreams.sh` to clone or refresh those upstream repositories. The manager reads system state and prints a plan. It does not modify upstream code and does not execute upstream installers.
 
 ## Scripts
 
-- `install.sh` accepts `--mode xui`, `--mode naive`, or `--mode both`, validates required domain arguments, checks OS/commands/services/ports/DNS, and prints a dry-run plan.
+- `install.sh` accepts `--mode xui`, `--mode naive`, `--mode all`, `--mode both`, or `--mode rixxx`, validates required domain arguments, checks OS/commands/services/ports/DNS, and prints a dry-run plan.
 - `prepare-upstreams.sh` creates `upstreams/` and clones the upstream projects there.
 - `status.sh` reports configured domains, service states, listening ports, and recent service logs when available.
 - `doctor.sh` performs diagnostic checks and prints recommendations.
 
-## Future Real Installer Shape
+## Resulting Panels
+
+The current implementation installs the full stack in one command, while keeping the management dashboards separate.
+
+- x-ui-pro / 3x-ui remains the management panel for Xray/3x-ui.
+- RIXXX panel remains the management panel for NaiveProxy + Hysteria2.
+- `--mode all` installs x-ui-pro plus RIXXX Panel, NaiveProxy, and Hysteria2.
+- `--mode rixxx` installs NaiveProxy + Hy2 through the RIXXX panel, without 3x-ui.
+
+A true single dashboard that manages NaiveProxy + Hysteria2 + 3x-ui together would still need a dedicated integration layer.
+
+## Real Installer Safety
 
 A later version can add guarded execution with:
 
@@ -29,18 +40,17 @@ A later version can add guarded execution with:
 - logging;
 - refusal to continue when public `80/443` are already occupied by an incompatible service.
 
-That behavior is intentionally not present in this first safe version.
+Real installation is gated behind `--install --yes`.
 
-## Both Mode
+## All Mode
 
-Both upstream stacks want public `443`:
+`--mode all` resolves the public `443/tcp` conflict this way:
 
-- x-ui-pro uses nginx stream on `443`;
-- NaiveProxy uses Caddy on `443`.
+- x-ui-pro nginx stream owns public `443/tcp`;
+- RIXXX Caddy/NaiveProxy binds only `127.0.0.1:9445`;
+- nginx stream routes the RIXXX/NaiveProxy SNI domain to `127.0.0.1:9445`;
+- Hysteria2 binds public `443/udp`, which does not conflict with nginx TCP.
 
-For one VPS, a future real deployment needs either:
+## RIXXX Standalone Mode
 
-- separate VPS instances; or
-- one reviewed front SNI router on `443`, with x-ui-pro and Caddy moved to loopback backend ports.
-
-This version only warns and explains the conflict.
+`--mode rixxx` remains available for installing only the RIXXX Panel + NaiveProxy + Hysteria2 stack. Use `--mode all` for 3x-ui + RIXXX together.

@@ -15,11 +15,21 @@ XUI_DOMAIN="${XUI_DOMAIN:-}"
 NAIVE_DOMAIN="${NAIVE_DOMAIN:-}"
 REALITY_DEST="${REALITY_DEST:-}"
 NAIVE_EMAIL="${NAIVE_EMAIL:-}"
+RIXXX_PROXY_DOMAIN="${RIXXX_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
+RIXXX_PROXY_EMAIL="${RIXXX_PROXY_EMAIL:-${PROXY_EMAIL:-}}"
+RIXXX_STACK="${RIXXX_STACK:-both}"
+RIXXX_ACCESS="${RIXXX_ACCESS:-nginx8080}"
+RIXXX_PANEL_DOMAIN="${RIXXX_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
+RIXXX_PANEL_EMAIL="${RIXXX_PANEL_EMAIL:-${PANEL_EMAIL:-}}"
+RIXXX_SSH_ONLY="${RIXXX_SSH_ONLY:-0}"
+RIXXX_MASQUERADE="${RIXXX_MASQUERADE:-local}"
+RIXXX_MASQUERADE_URL="${RIXXX_MASQUERADE_URL:-}"
+RIXXX_ALLOW_PORT_CONFLICT="${RIXXX_ALLOW_PORT_CONFLICT:-0}"
 PROJECT_DIR="${UPM_PROJECT_DIR:-$SCRIPT_DIR}"
 XUI_UPSTREAM="${XUI_UPSTREAM:-upstreams/x-ui-pro/x-ui-pro.sh}"
-NAIVE_UPSTREAM="${NAIVE_UPSTREAM:-upstreams/naiveproxy-instant-install-by-Ilya_Rublev/install.sh}"
+RIXXX_UPSTREAM="${RIXXX_UPSTREAM:-upstreams/Panel---Naive-Hy2---by---RIXXX/install.sh}"
 XUI_REPO="${XUI_REPO:-https://github.com/mozaroc/x-ui-pro.git}"
-NAIVE_REPO="${NAIVE_REPO:-https://github.com/Rublev13/naiveproxy-instant-install-by-Ilya_Rublev.git}"
+RIXXX_REPO="${RIXXX_REPO:-https://github.com/cwash797-cmd/Panel---Naive-Hy2---by---RIXXX.git}"
 AUTO_FETCH_UPSTREAMS="${AUTO_FETCH_UPSTREAMS:-ask}"
 FETCH_ONLY=0
 REAL_INSTALL=0
@@ -47,8 +57,8 @@ Usage:
   ./install.sh
   ./install.sh --mode xui --xui-domain x.example.com --reality-dest r.example.com [--dry-run]
   ./install.sh --mode naive --naive-domain n.example.com [--dry-run]
-  ./install.sh --mode both --xui-domain x.example.com --naive-domain n.example.com --reality-dest r.example.com [--dry-run]
-  ./install.sh --mode both --xui-domain x.example.com --naive-domain n.example.com --reality-dest r.example.com --naive-email admin@example.com --install --yes
+  ./install.sh --mode all --xui-domain x.example.com --rixxx-domain n.example.com --reality-dest r.example.com --rixxx-email admin@example.com --install --yes
+  ./install.sh --mode rixxx --domain vpn.example.com --proxy-email admin@example.com --install --yes
   ./install.sh --fetch-upstreams
   bash <(wget -qO- RAW_INSTALL_URL)
 
@@ -56,6 +66,8 @@ Default mode is dry-run only. Real install requires --install --yes.
 When values are omitted in an interactive terminal, the script asks for them.
 When run from a URL, relative paths are resolved from the current directory or --project-dir.
 If upstream projects are missing, the script can fetch them into upstreams/.
+Mode all installs 3x-ui + RIXXX Panel + NaiveProxy + Hysteria2 on one VPS.
+Mode rixxx installs only the standalone RIXXX NaiveProxy + Hysteria2 web panel.
 EOF
 }
 
@@ -84,13 +96,17 @@ prompt_mode() {
     echo "Choose install planning mode:"
     echo "  1) xui   - x-ui-pro / 3x-ui only"
     echo "  2) naive - NaiveProxy / Caddy only"
-    echo "  3) both  - analyze both components"
-    read -r -p "Mode [xui/naive/both or 1/2/3]: " input
+    echo "  3) all   - 3x-ui + RIXXX Panel + NaiveProxy + Hysteria2"
+    echo "  4) both  - legacy x-ui + NaiveProxy plan"
+    echo "  5) rixxx - RIXXX NaiveProxy + Hysteria2 web panel only"
+    read -r -p "Mode [xui/naive/all/both/rixxx or 1/2/3/4/5]: " input
     case "$input" in
       1|xui) MODE="xui" ;;
       2|naive) MODE="naive" ;;
-      3|both) MODE="both" ;;
-      *) warn "Please enter xui, naive, both, 1, 2, or 3." ;;
+      3|all) MODE="all" ;;
+      4|both) MODE="both" ;;
+      5|rixxx) MODE="rixxx" ;;
+      *) warn "Please enter xui, naive, all, both, rixxx, 1, 2, 3, 4, or 5." ;;
     esac
   done
 }
@@ -113,7 +129,17 @@ collect_interactive_inputs() {
       prompt_value REALITY_DEST "Enter REALITY destination domain, for example r.example.com" "$REALITY_DEST"
       prompt_value NAIVE_EMAIL "Enter email for future Caddy/Let's Encrypt planning" "$NAIVE_EMAIL"
       ;;
-    *) die "--mode must be xui, naive, or both" ;;
+    all)
+      prompt_value XUI_DOMAIN "Enter x-ui domain, for example xui.example.com" "$XUI_DOMAIN"
+      prompt_value RIXXX_PROXY_DOMAIN "Enter RIXXX/NaiveProxy domain, for example naive.example.com" "$RIXXX_PROXY_DOMAIN"
+      prompt_value REALITY_DEST "Enter REALITY destination domain, for example reality.example.com" "$REALITY_DEST"
+      prompt_value RIXXX_PROXY_EMAIL "Enter email for Caddy/Let's Encrypt" "$RIXXX_PROXY_EMAIL"
+      ;;
+    rixxx)
+      prompt_value RIXXX_PROXY_DOMAIN "Enter RIXXX proxy domain, for example vpn.example.com" "$RIXXX_PROXY_DOMAIN"
+      prompt_value RIXXX_PROXY_EMAIL "Enter email for Let's Encrypt" "$RIXXX_PROXY_EMAIL"
+      ;;
+    *) die "--mode must be xui, naive, all, both, or rixxx" ;;
   esac
 }
 
@@ -121,11 +147,25 @@ collect_real_install_inputs() {
   if [[ "$REAL_INSTALL" != "1" ]]; then
     return 0
   fi
-  [[ "$MODE" == "both" ]] || die "Real unified install currently supports --mode both only"
-  prompt_value XUI_DOMAIN "Enter x-ui domain, for example zaiki.example.com" "$XUI_DOMAIN"
-  prompt_value NAIVE_DOMAIN "Enter NaiveProxy domain, for example sub.example.com" "$NAIVE_DOMAIN"
-  prompt_value REALITY_DEST "Enter REALITY destination domain, for example example.com" "$REALITY_DEST"
-  prompt_value NAIVE_EMAIL "Enter email for Caddy/Let's Encrypt" "$NAIVE_EMAIL"
+  case "$MODE" in
+    both)
+      prompt_value XUI_DOMAIN "Enter x-ui domain, for example xui.example.com" "$XUI_DOMAIN"
+      prompt_value NAIVE_DOMAIN "Enter NaiveProxy domain, for example naive.example.com" "$NAIVE_DOMAIN"
+      prompt_value REALITY_DEST "Enter REALITY destination domain, for example example.com" "$REALITY_DEST"
+      prompt_value NAIVE_EMAIL "Enter email for Caddy/Let's Encrypt" "$NAIVE_EMAIL"
+      ;;
+    all)
+      prompt_value XUI_DOMAIN "Enter x-ui domain, for example xui.example.com" "$XUI_DOMAIN"
+      prompt_value RIXXX_PROXY_DOMAIN "Enter RIXXX/NaiveProxy domain, for example naive.example.com" "$RIXXX_PROXY_DOMAIN"
+      prompt_value REALITY_DEST "Enter REALITY destination domain, for example reality.example.com" "$REALITY_DEST"
+      prompt_value RIXXX_PROXY_EMAIL "Enter email for Caddy/Let's Encrypt" "$RIXXX_PROXY_EMAIL"
+      ;;
+    rixxx)
+      prompt_value RIXXX_PROXY_DOMAIN "Enter RIXXX proxy domain, for example vpn.example.com" "$RIXXX_PROXY_DOMAIN"
+      prompt_value RIXXX_PROXY_EMAIL "Enter email for Let's Encrypt" "$RIXXX_PROXY_EMAIL"
+      ;;
+    *) die "Real install currently supports --mode all, --mode both, or --mode rixxx" ;;
+  esac
 }
 
 load_config() {
@@ -161,7 +201,7 @@ resolve_project_path() {
 
 upstream_paths() {
   XUI_UPSTREAM_PATH="$(resolve_project_path "$XUI_UPSTREAM")"
-  NAIVE_UPSTREAM_PATH="$(resolve_project_path "$NAIVE_UPSTREAM")"
+  RIXXX_UPSTREAM_PATH="$(resolve_project_path "$RIXXX_UPSTREAM")"
 }
 
 clone_or_update_upstream() {
@@ -190,18 +230,18 @@ clone_or_update_upstream() {
 }
 
 fetch_upstreams() {
-  local upstreams_dir xui_dir naive_dir
+  local upstreams_dir xui_dir rixxx_dir
   upstreams_dir="$PROJECT_DIR/upstreams"
   xui_dir="$upstreams_dir/x-ui-pro"
-  naive_dir="$upstreams_dir/naiveproxy-instant-install-by-Ilya_Rublev"
+  rixxx_dir="$upstreams_dir/Panel---Naive-Hy2---by---RIXXX"
 
   clone_or_update_upstream "$XUI_REPO" "$xui_dir" "x-ui-pro"
-  clone_or_update_upstream "$NAIVE_REPO" "$naive_dir" "NaiveProxy installer"
+  clone_or_update_upstream "$RIXXX_REPO" "$rixxx_dir" "RIXXX panel"
 }
 
 maybe_fetch_upstreams() {
   upstream_paths
-  [[ -f "$XUI_UPSTREAM_PATH" && -f "$NAIVE_UPSTREAM_PATH" ]] && return 0
+  [[ -f "$XUI_UPSTREAM_PATH" && -f "$RIXXX_UPSTREAM_PATH" ]] && return 0
 
   case "$AUTO_FETCH_UPSTREAMS" in
     yes)
@@ -261,7 +301,7 @@ port_details() {
 
 show_port_report() {
   local port details
-  for port in 80 443 2053 8443 9443; do
+  for port in 80 443 2053 3000 8080 8081 8443 9443 9445; do
     details="$(port_details "$port")"
     if [[ -n "$details" ]]; then
       warn "Port $port is busy:"
@@ -288,6 +328,9 @@ show_service_report() {
   service_line x-ui
   service_line nginx
   service_line caddy
+  service_line caddy-rixxx
+  service_line hysteria-server
+  service_line panel-naive-hy2
   service_line ufw
 }
 
@@ -316,20 +359,20 @@ check_required_commands() {
 }
 
 check_upstream_files() {
-  local xui_path naive_path
+  local xui_path rixxx_path
   upstream_paths
   xui_path="$XUI_UPSTREAM_PATH"
-  naive_path="$NAIVE_UPSTREAM_PATH"
+  rixxx_path="$RIXXX_UPSTREAM_PATH"
   if [[ -f "$xui_path" ]]; then
     ok "x-ui-pro upstream found: $XUI_UPSTREAM"
   else
     warn "x-ui-pro upstream not found: $XUI_UPSTREAM"
     warn "Run ./prepare-upstreams.sh or rerun ./install.sh --fetch-upstreams to fetch it."
   fi
-  if [[ -f "$naive_path" ]]; then
-    ok "NaiveProxy upstream found: $NAIVE_UPSTREAM"
+  if [[ -f "$rixxx_path" ]]; then
+    ok "RIXXX panel upstream found: $RIXXX_UPSTREAM"
   else
-    warn "NaiveProxy upstream not found: $NAIVE_UPSTREAM"
+    warn "RIXXX panel upstream not found: $RIXXX_UPSTREAM"
     warn "Run ./prepare-upstreams.sh or rerun ./install.sh --fetch-upstreams to fetch it."
   fi
 }
@@ -341,8 +384,11 @@ check_vendored_components() {
     "$PROJECT_DIR/install-unified.sh" \
     "$PROJECT_DIR/components/x-ui-pro/x-ui-pro.sh" \
     "$PROJECT_DIR/components/x-ui-pro/apply-naive-sni-route.sh" \
-    "$PROJECT_DIR/components/naiveproxy/install.sh" \
-    "$PROJECT_DIR/components/naiveproxy/install-unified-backend.sh"; do
+    "$PROJECT_DIR/components/rixxx-panel/install.sh" \
+    "$PROJECT_DIR/components/rixxx-panel/install-unified-backend.sh" \
+    "$PROJECT_DIR/components/rixxx-panel/update.sh" \
+    "$PROJECT_DIR/components/rixxx-panel/upstream/install.sh" \
+    "$PROJECT_DIR/components/rixxx-panel/upstream/update.sh"; do
     if [[ -f "$path" ]]; then
       ok "Vendored component found: ${path#$PROJECT_DIR/}"
     else
@@ -350,7 +396,7 @@ check_vendored_components() {
       missing=1
     fi
   done
-  [[ "$missing" == "0" ]] || die "Repository is incomplete. Run git pull or clone the latest TinVeles/xuinaive."
+  [[ "$missing" == "0" ]] || die "Repository is incomplete. Pull or clone the latest project version."
 }
 
 check_domain() {
@@ -387,17 +433,41 @@ validate_required_args() {
       [[ -n "$NAIVE_DOMAIN" ]] || die "--naive-domain is required for --mode both"
       [[ -n "$REALITY_DEST" ]] || die "--reality-dest is required for --mode both"
       ;;
-    *) die "--mode must be xui, naive, or both" ;;
+    all)
+      [[ -n "$XUI_DOMAIN" ]] || die "--xui-domain is required for --mode all"
+      [[ -n "$RIXXX_PROXY_DOMAIN" ]] || die "--rixxx-domain is required for --mode all"
+      [[ -n "$RIXXX_PROXY_EMAIL" ]] || die "--rixxx-email is required for --mode all"
+      [[ -n "$REALITY_DEST" ]] || die "--reality-dest is required for --mode all"
+      ;;
+    rixxx)
+      [[ -n "$RIXXX_PROXY_DOMAIN" ]] || die "--domain is required for --mode rixxx"
+      [[ -n "$RIXXX_PROXY_EMAIL" ]] || die "--proxy-email is required for --mode rixxx"
+      ;;
+    *) die "--mode must be xui, naive, all, both, or rixxx" ;;
   esac
 }
 
 validate_real_install_args() {
   [[ "$REAL_INSTALL" == "1" ]] || return 0
-  [[ "$MODE" == "both" ]] || die "Real unified install currently supports --mode both only"
-  [[ -n "$XUI_DOMAIN" ]] || die "--xui-domain is required for real install"
-  [[ -n "$NAIVE_DOMAIN" ]] || die "--naive-domain is required for real install"
-  [[ -n "$REALITY_DEST" ]] || die "--reality-dest is required for real install"
-  [[ -n "$NAIVE_EMAIL" ]] || die "--naive-email is required for real install"
+  case "$MODE" in
+    both)
+      [[ -n "$XUI_DOMAIN" ]] || die "--xui-domain is required for real install"
+      [[ -n "$NAIVE_DOMAIN" ]] || die "--naive-domain is required for real install"
+      [[ -n "$REALITY_DEST" ]] || die "--reality-dest is required for real install"
+      [[ -n "$NAIVE_EMAIL" ]] || die "--naive-email is required for real install"
+      ;;
+    all)
+      [[ -n "$XUI_DOMAIN" ]] || die "--xui-domain is required for real all install"
+      [[ -n "$RIXXX_PROXY_DOMAIN" ]] || die "--rixxx-domain is required for real all install"
+      [[ -n "$RIXXX_PROXY_EMAIL" ]] || die "--rixxx-email is required for real all install"
+      [[ -n "$REALITY_DEST" ]] || die "--reality-dest is required for real all install"
+      ;;
+    rixxx)
+      [[ -n "$RIXXX_PROXY_DOMAIN" ]] || die "--domain is required for real RIXXX install"
+      [[ -n "$RIXXX_PROXY_EMAIL" ]] || die "--proxy-email is required for real RIXXX install"
+      ;;
+    *) die "Real install currently supports --mode all, --mode both, or --mode rixxx" ;;
+  esac
   [[ "$ASSUME_YES" == "1" ]] || die "Real install requires --yes"
 }
 
@@ -413,6 +483,8 @@ x-ui domain:    ${XUI_DOMAIN:-not set}
 Naive domain:   ${NAIVE_DOMAIN:-not set}
 REALITY dest:   ${REALITY_DEST:-not set}
 Naive email:    ${NAIVE_EMAIL:-not set}
+RIXXX domain:   ${RIXXX_PROXY_DOMAIN:-not set}
+RIXXX email:    ${RIXXX_PROXY_EMAIL:-not set}
 
 Changes will be made because --install --yes was provided.
 Packages may be installed.
@@ -432,6 +504,8 @@ x-ui domain:    ${XUI_DOMAIN:-not set}
 Naive domain:   ${NAIVE_DOMAIN:-not set}
 REALITY dest:   ${REALITY_DEST:-not set}
 Naive email:    ${NAIVE_EMAIL:-not set}
+RIXXX domain:   ${RIXXX_PROXY_DOMAIN:-not set}
+RIXXX email:    ${RIXXX_PROXY_EMAIL:-not set}
 
 No changes will be made.
 No packages will be installed.
@@ -454,38 +528,114 @@ EOF
     naive)
       cat <<'EOF'
 
-Planned NaiveProxy actions for a future real installer:
-- verify DNS and free public ports 80/443;
-- require NAIVE_EMAIL for Caddy TLS;
-- backup /etc/caddy and caddy.service before any real run;
-- feed domain/email to upstream install.sh only after explicit confirmation.
+Legacy NaiveProxy-only mode:
+- the old standalone NaiveProxy component has been removed;
+- use --mode rixxx for RIXXX Panel + NaiveProxy + Hysteria2;
+- use --mode all for 3x-ui + RIXXX Panel + NaiveProxy + Hysteria2.
 EOF
       ;;
     both)
-      if [[ "$REAL_INSTALL" == "1" ]]; then
-        cat <<'EOF'
+      cat <<'EOF'
 
-Unified both-mode layout:
-- nginx/x-ui-pro owns public 443.
-- NaiveProxy/Caddy runs as caddy-naive on 127.0.0.1:9444.
-- nginx stream routes the NaiveProxy domain by SNI to 127.0.0.1:9444.
+Legacy both mode:
+- kept as compatibility alias for older commands;
+- new all-in-one installs should use --mode all;
+- the old standalone NaiveProxy backend is not used.
 EOF
-      else
-        cat <<'EOF'
+      ;;
+    all)
+      cat <<EOF
 
-Both-mode safety decision:
-- x-ui-pro/nginx and NaiveProxy/Caddy both want public 443.
-- This dry-run version will not install both stacks on one VPS.
-- Safe options are separate VPS instances, or a manually reviewed single SNI router on 443 with loopback backends.
+All-in-one layout:
+- x-ui-pro/nginx owns public 443/tcp.
+- RIXXX NaiveProxy/Caddy runs as caddy-rixxx on 127.0.0.1:9445.
+- nginx stream routes the RIXXX/NaiveProxy domain by SNI to 127.0.0.1:9445.
+- Hysteria2 listens on public 443/udp.
+- RIXXX panel runs as panel-naive-hy2 and is exposed by nginx on 8081 by default.
 EOF
-      fi
+      ;;
+    rixxx)
+      cat <<EOF
+
+RIXXX standalone panel actions:
+- install the RIXXX Node.js panel from the vendored component;
+- install selected stack: ${RIXXX_STACK};
+- use proxy domain ${RIXXX_PROXY_DOMAIN} and email ${RIXXX_PROXY_EMAIL};
+- expose panel with access mode ${RIXXX_ACCESS};
+- use masquerade mode ${RIXXX_MASQUERADE} ${RIXXX_MASQUERADE_URL};
+- Caddy will own public 443/tcp for NaiveProxy and Hysteria2 will use 443/udp when enabled.
+
+This mode is standalone. Do not combine it with the x-ui/nginx unified layout on the same public 443 without manual review.
+EOF
       ;;
   esac
 }
 
 run_real_install() {
-  local installer="$PROJECT_DIR/install-unified.sh"
   [[ "$REAL_INSTALL" == "1" ]] || return 0
+
+  if [[ "$MODE" == "all" ]]; then
+    local installer="$PROJECT_DIR/install-unified.sh"
+    [[ -f "$installer" ]] || die "Real installer not found: $installer. Pull latest project version."
+
+    cat <<EOF
+
+Real all-in-one install requested
+---------------------------------
+Installer:      $installer
+x-ui domain:    $XUI_DOMAIN
+RIXXX domain:   $RIXXX_PROXY_DOMAIN
+REALITY dest:   $REALITY_DEST
+RIXXX email:    $RIXXX_PROXY_EMAIL
+
+This will install 3x-ui + RIXXX Panel + NaiveProxy + Hysteria2.
+EOF
+
+    bash "$installer" --mode all \
+      --xui-domain "$XUI_DOMAIN" \
+      --rixxx-domain "$RIXXX_PROXY_DOMAIN" \
+      --reality-dest "$REALITY_DEST" \
+      --rixxx-email "$RIXXX_PROXY_EMAIL" \
+      --panel-access "$RIXXX_ACCESS" \
+      --yes
+    return 0
+  fi
+
+  if [[ "$MODE" == "rixxx" ]]; then
+    local rixxx_installer="$PROJECT_DIR/components/rixxx-panel/install.sh"
+    [[ -f "$rixxx_installer" ]] || die "RIXXX installer not found: $rixxx_installer. Pull latest repository version."
+
+    cat <<EOF
+
+Real RIXXX panel install requested
+----------------------------------
+Installer:      $rixxx_installer
+Stack:          $RIXXX_STACK
+Access:         $RIXXX_ACCESS
+Proxy domain:   $RIXXX_PROXY_DOMAIN
+Proxy email:    $RIXXX_PROXY_EMAIL
+Panel domain:   ${RIXXX_PANEL_DOMAIN:-not used}
+EOF
+
+    local -a rixxx_args=(
+      --stack "$RIXXX_STACK"
+      --access "$RIXXX_ACCESS"
+      --domain "$RIXXX_PROXY_DOMAIN"
+      --email "$RIXXX_PROXY_EMAIL"
+      --masquerade "$RIXXX_MASQUERADE"
+      --yes
+    )
+    [[ -n "$RIXXX_PANEL_DOMAIN" ]] && rixxx_args+=(--panel-domain "$RIXXX_PANEL_DOMAIN")
+    [[ -n "$RIXXX_PANEL_EMAIL" ]] && rixxx_args+=(--panel-email "$RIXXX_PANEL_EMAIL")
+    [[ "$RIXXX_SSH_ONLY" == "1" ]] && rixxx_args+=(--ssh-only)
+    [[ -n "$RIXXX_MASQUERADE_URL" ]] && rixxx_args+=(--masquerade-url "$RIXXX_MASQUERADE_URL")
+    [[ "$RIXXX_ALLOW_PORT_CONFLICT" == "1" ]] && rixxx_args+=(--allow-port-conflict)
+
+    bash "$rixxx_installer" "${rixxx_args[@]}"
+    return 0
+  fi
+
+  local installer="$PROJECT_DIR/install-unified.sh"
   [[ -f "$installer" ]] || die "Real installer not found: $installer. Pull latest repository version."
 
   cat <<EOF
@@ -520,6 +670,16 @@ while [[ $# -gt 0 ]]; do
     --naive-domain) NAIVE_DOMAIN="${2:-}"; shift 2 ;;
     --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
     --naive-email) NAIVE_EMAIL="${2:-}"; shift 2 ;;
+    --domain|--proxy-domain|--rixxx-domain) RIXXX_PROXY_DOMAIN="${2:-}"; shift 2 ;;
+    --rixxx-email|--proxy-email) RIXXX_PROXY_EMAIL="${2:-}"; shift 2 ;;
+    --rixxx-stack) RIXXX_STACK="${2:-}"; shift 2 ;;
+    --rixxx-access) RIXXX_ACCESS="${2:-}"; shift 2 ;;
+    --panel-domain|--rixxx-panel-domain) RIXXX_PANEL_DOMAIN="${2:-}"; shift 2 ;;
+    --panel-email|--rixxx-panel-email) RIXXX_PANEL_EMAIL="${2:-}"; shift 2 ;;
+    --ssh-only|--rixxx-ssh-only) RIXXX_SSH_ONLY=1; shift ;;
+    --masquerade|--rixxx-masquerade) RIXXX_MASQUERADE="${2:-}"; shift 2 ;;
+    --masquerade-url|--rixxx-masquerade-url) RIXXX_MASQUERADE_URL="${2:-}"; shift 2 ;;
+    --allow-port-conflict|--rixxx-allow-port-conflict) RIXXX_ALLOW_PORT_CONFLICT=1; shift ;;
     --project-dir) PROJECT_DIR="${2:-}"; shift 2 ;;
     --fetch-upstreams) AUTO_FETCH_UPSTREAMS=yes; FETCH_ONLY=1; shift ;;
     --no-fetch-upstreams) AUTO_FETCH_UPSTREAMS=no; shift ;;
@@ -544,12 +704,12 @@ EOF
 fi
 
 if [[ "$REAL_INSTALL" == "1" ]]; then
-  [[ -n "$MODE" ]] || MODE="both"
+  [[ -n "$MODE" ]] || MODE="all"
   collect_real_install_inputs
 else
   collect_interactive_inputs
 fi
-case "$MODE" in xui|naive|both) ;; *) die "--mode must be xui, naive, or both" ;; esac
+case "$MODE" in xui|naive|all|both|rixxx) ;; *) die "--mode must be xui, naive, all, both, or rixxx" ;; esac
 
 validate_required_args
 validate_real_install_args
@@ -591,6 +751,15 @@ case "$MODE" in
     check_domain "$XUI_DOMAIN" "x-ui"
     check_domain "$NAIVE_DOMAIN" "NaiveProxy"
     check_domain "$REALITY_DEST" "REALITY destination"
+    ;;
+  all)
+    check_domain "$XUI_DOMAIN" "x-ui"
+    check_domain "$RIXXX_PROXY_DOMAIN" "RIXXX/NaiveProxy"
+    check_domain "$REALITY_DEST" "REALITY destination"
+    ;;
+  rixxx)
+    check_domain "$RIXXX_PROXY_DOMAIN" "RIXXX proxy"
+    [[ -n "$RIXXX_PANEL_DOMAIN" ]] && check_domain "$RIXXX_PANEL_DOMAIN" "RIXXX panel"
     ;;
 esac
 

@@ -18,15 +18,26 @@ Based on `AUDIT.md`, these are the important upstream ports to check before any 
 - `443/tcp`: Caddy HTTPS and Naive forward_proxy.
 - `443/udp`: opened for HTTP/3/QUIC.
 
-## Unified Vendored Layout
+## All-In-One Layout
 
 - `443/tcp`: public nginx stream SNI router.
 - `7443/tcp`: x-ui-pro HTTPS/web backend.
 - `8443/tcp`: x-ui-pro REALITY backend.
 - `9443/tcp`: x-ui-pro REALITY destination nginx backend.
-- `9444/tcp` on `127.0.0.1`: NaiveProxy/Caddy backend service `caddy-naive`.
+- `9445/tcp` on `127.0.0.1`: RIXXX NaiveProxy/Caddy backend service `caddy-rixxx`.
+- `443/udp`: Hysteria2 service `hysteria-server`.
+- `3000/tcp`: RIXXX Panel service `panel-naive-hy2`.
+- `8081/tcp`: nginx HTTP proxy to the RIXXX Panel by default.
 
-In unified mode, NaiveProxy clients still connect to external `443`; nginx stream routes the NaiveProxy domain SNI to `127.0.0.1:9444`.
+In all-in-one mode, NaiveProxy clients still connect to external `443`; nginx stream routes the RIXXX/NaiveProxy domain SNI to `127.0.0.1:9445`.
+
+## RIXXX Panel Mode
+
+- `443/tcp`: public Caddy HTTPS and NaiveProxy forward_proxy.
+- `443/udp`: Hysteria2 when enabled.
+- `3000/tcp`: Node.js panel internal/direct port.
+- `8080/tcp`: optional nginx panel proxy mode.
+- `80/tcp`: ACME/HTTP.
 
 ## Checked By This Version
 
@@ -35,12 +46,15 @@ In unified mode, NaiveProxy clients still connect to external `443`; nginx strea
 - `80`;
 - `443`;
 - `2053`;
+- `3000`;
+- `8080`;
+- `8081`;
 - `8443`;
 - `9443`.
-- `9444`.
+- `9445`.
 
 `status.sh` also reports `7443` and `8080` because they are common local x-ui-pro related ports.
 
 ## Conflict Rule
 
-On one VPS, only one process should own public 443. For both stacks, use a single SNI router or split the components across different VPS instances.
+On one VPS, only one process should own public `443/tcp`. In `--mode all`, nginx owns public `443/tcp`; RIXXX Caddy is moved to loopback. Hysteria2 uses `443/udp`, so it can coexist with nginx TCP.
