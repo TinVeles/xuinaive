@@ -15,23 +15,23 @@ XUI_DOMAIN="${XUI_DOMAIN:-}"
 NAIVE_DOMAIN="${NAIVE_DOMAIN:-}"
 REALITY_DEST="${REALITY_DEST:-}"
 NAIVE_EMAIL="${NAIVE_EMAIL:-}"
-RIXXX_PROXY_DOMAIN="${RIXXX_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
-RIXXX_PROXY_EMAIL="${RIXXX_PROXY_EMAIL:-${PROXY_EMAIL:-}}"
-RIXXX_STACK="${RIXXX_STACK:-both}"
-RIXXX_ACCESS="${RIXXX_ACCESS:-nginx8080}"
-RIXXX_PANEL_DOMAIN="${RIXXX_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
-RIXXX_PANEL_EMAIL="${RIXXX_PANEL_EMAIL:-${PANEL_EMAIL:-}}"
-RIXXX_SSH_ONLY="${RIXXX_SSH_ONLY:-0}"
-RIXXX_MASQUERADE="${RIXXX_MASQUERADE:-local}"
-RIXXX_MASQUERADE_URL="${RIXXX_MASQUERADE_URL:-}"
-RIXXX_ALLOW_PORT_CONFLICT="${RIXXX_ALLOW_PORT_CONFLICT:-0}"
+NH_PROXY_DOMAIN="${NH_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
+NH_PROXY_EMAIL="${NH_PROXY_EMAIL:-${PROXY_EMAIL:-}}"
+NH_STACK="${NH_STACK:-both}"
+NH_ACCESS="${NH_ACCESS:-nginx8080}"
+NH_PANEL_DOMAIN="${NH_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
+NH_PANEL_EMAIL="${NH_PANEL_EMAIL:-${PANEL_EMAIL:-}}"
+NH_SSH_ONLY="${NH_SSH_ONLY:-0}"
+NH_MASQUERADE="${NH_MASQUERADE:-local}"
+NH_MASQUERADE_URL="${NH_MASQUERADE_URL:-}"
+NH_ALLOW_PORT_CONFLICT="${NH_ALLOW_PORT_CONFLICT:-0}"
 TLS_CERT="${TLS_CERT:-}"
 TLS_KEY="${TLS_KEY:-}"
 PROJECT_DIR="${UPM_PROJECT_DIR:-$SCRIPT_DIR}"
 XUI_UPSTREAM="${XUI_UPSTREAM:-upstreams/x-ui-pro/x-ui-pro.sh}"
-RIXXX_UPSTREAM="${RIXXX_UPSTREAM:-upstreams/Panel---Naive-Hy2---by---RIXXX/install.sh}"
+NH_UPSTREAM="${NH_UPSTREAM:-components/nh-panel/upstream/install.sh}"
 XUI_REPO="${XUI_REPO:-https://github.com/mozaroc/x-ui-pro.git}"
-RIXXX_REPO="${RIXXX_REPO:-https://github.com/cwash797-cmd/Panel---Naive-Hy2---by---RIXXX.git}"
+NH_REPO="${NH_REPO:-}"
 AUTO_FETCH_UPSTREAMS="${AUTO_FETCH_UPSTREAMS:-ask}"
 FETCH_ONLY=0
 REAL_INSTALL=0
@@ -59,9 +59,9 @@ Usage:
   ./install.sh
   ./install.sh --mode xui --xui-domain x.example.com --reality-dest r.example.com [--dry-run]
   ./install.sh --mode naive --naive-domain n.example.com [--dry-run]
-  ./install.sh --mode all --xui-domain x.example.com --rixxx-domain n.example.com --reality-dest r.example.com --rixxx-email admin@example.com --install --yes
-  ./install.sh --mode all --xui-domain x.example.com --rixxx-domain n.example.com --reality-dest r.example.com --rixxx-email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem --install --yes
-  ./install.sh --mode rixxx --domain vpn.example.com --proxy-email admin@example.com --install --yes
+  ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install --yes
+  ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem --install --yes
+  ./install.sh --mode nh --domain vpn.example.com --proxy-email admin@example.com --install --yes
   ./install.sh --fetch-upstreams
   bash <(wget -qO- RAW_INSTALL_URL)
 
@@ -69,8 +69,8 @@ Default mode is dry-run only. Real install requires --install --yes.
 When values are omitted in an interactive terminal, the script asks for them.
 When run from a URL, relative paths are resolved from the current directory or --project-dir.
 If upstream projects are missing, the script can fetch them into upstreams/.
-Mode all installs 3x-ui + RIXXX Panel + NaiveProxy + Hysteria2 on one VPS.
-Mode rixxx installs only the standalone RIXXX NaiveProxy + Hysteria2 web panel.
+Mode all installs 3x-ui + N+H Panel + NaiveProxy + Hysteria2 on one VPS.
+Mode nh installs only the standalone N+H NaiveProxy + Hysteria2 web panel.
 EOF
 }
 
@@ -99,17 +99,17 @@ prompt_mode() {
     echo "Choose install planning mode:"
     echo "  1) xui   - x-ui-pro / 3x-ui only"
     echo "  2) naive - NaiveProxy / Caddy only"
-    echo "  3) all   - 3x-ui + RIXXX Panel + NaiveProxy + Hysteria2"
+    echo "  3) all   - 3x-ui + N+H Panel + NaiveProxy + Hysteria2"
     echo "  4) both  - legacy x-ui + NaiveProxy plan"
-    echo "  5) rixxx - RIXXX NaiveProxy + Hysteria2 web panel only"
-    read -r -p "Mode [xui/naive/all/both/rixxx or 1/2/3/4/5]: " input
+    echo "  5) nh - N+H NaiveProxy + Hysteria2 web panel only"
+    read -r -p "Mode [xui/naive/all/both/nh or 1/2/3/4/5]: " input
     case "$input" in
       1|xui) MODE="xui" ;;
       2|naive) MODE="naive" ;;
       3|all) MODE="all" ;;
       4|both) MODE="both" ;;
-      5|rixxx) MODE="rixxx" ;;
-      *) warn "Please enter xui, naive, all, both, rixxx, 1, 2, 3, 4, or 5." ;;
+      5|nh) MODE="nh" ;;
+      *) warn "Please enter xui, naive, all, both, nh, 1, 2, 3, 4, or 5." ;;
     esac
   done
 }
@@ -134,15 +134,15 @@ collect_interactive_inputs() {
       ;;
     all)
       prompt_value XUI_DOMAIN "Enter x-ui domain, for example xui.example.com" "$XUI_DOMAIN"
-      prompt_value RIXXX_PROXY_DOMAIN "Enter RIXXX/NaiveProxy domain, for example naive.example.com" "$RIXXX_PROXY_DOMAIN"
+      prompt_value NH_PROXY_DOMAIN "Enter N+H/NaiveProxy domain, for example naive.example.com" "$NH_PROXY_DOMAIN"
       prompt_value REALITY_DEST "Enter REALITY destination domain, for example reality.example.com" "$REALITY_DEST"
-      prompt_value RIXXX_PROXY_EMAIL "Enter email for Caddy/Let's Encrypt" "$RIXXX_PROXY_EMAIL"
+      prompt_value NH_PROXY_EMAIL "Enter email for Caddy/Let's Encrypt" "$NH_PROXY_EMAIL"
       ;;
-    rixxx)
-      prompt_value RIXXX_PROXY_DOMAIN "Enter RIXXX proxy domain, for example vpn.example.com" "$RIXXX_PROXY_DOMAIN"
-      prompt_value RIXXX_PROXY_EMAIL "Enter email for Let's Encrypt" "$RIXXX_PROXY_EMAIL"
+    nh)
+      prompt_value NH_PROXY_DOMAIN "Enter N+H proxy domain, for example vpn.example.com" "$NH_PROXY_DOMAIN"
+      prompt_value NH_PROXY_EMAIL "Enter email for Let's Encrypt" "$NH_PROXY_EMAIL"
       ;;
-    *) die "--mode must be xui, naive, all, both, or rixxx" ;;
+    *) die "--mode must be xui, naive, all, both, or nh" ;;
   esac
 }
 
@@ -159,15 +159,15 @@ collect_real_install_inputs() {
       ;;
     all)
       prompt_value XUI_DOMAIN "Enter x-ui domain, for example xui.example.com" "$XUI_DOMAIN"
-      prompt_value RIXXX_PROXY_DOMAIN "Enter RIXXX/NaiveProxy domain, for example naive.example.com" "$RIXXX_PROXY_DOMAIN"
+      prompt_value NH_PROXY_DOMAIN "Enter N+H/NaiveProxy domain, for example naive.example.com" "$NH_PROXY_DOMAIN"
       prompt_value REALITY_DEST "Enter REALITY destination domain, for example reality.example.com" "$REALITY_DEST"
-      prompt_value RIXXX_PROXY_EMAIL "Enter email for Caddy/Let's Encrypt" "$RIXXX_PROXY_EMAIL"
+      prompt_value NH_PROXY_EMAIL "Enter email for Caddy/Let's Encrypt" "$NH_PROXY_EMAIL"
       ;;
-    rixxx)
-      prompt_value RIXXX_PROXY_DOMAIN "Enter RIXXX proxy domain, for example vpn.example.com" "$RIXXX_PROXY_DOMAIN"
-      prompt_value RIXXX_PROXY_EMAIL "Enter email for Let's Encrypt" "$RIXXX_PROXY_EMAIL"
+    nh)
+      prompt_value NH_PROXY_DOMAIN "Enter N+H proxy domain, for example vpn.example.com" "$NH_PROXY_DOMAIN"
+      prompt_value NH_PROXY_EMAIL "Enter email for Let's Encrypt" "$NH_PROXY_EMAIL"
       ;;
-    *) die "Real install currently supports --mode all, --mode both, or --mode rixxx" ;;
+    *) die "Real install currently supports --mode all, --mode both, or --mode nh" ;;
   esac
 }
 
@@ -204,13 +204,18 @@ resolve_project_path() {
 
 upstream_paths() {
   XUI_UPSTREAM_PATH="$(resolve_project_path "$XUI_UPSTREAM")"
-  RIXXX_UPSTREAM_PATH="$(resolve_project_path "$RIXXX_UPSTREAM")"
+  NH_UPSTREAM_PATH="$(resolve_project_path "$NH_UPSTREAM")"
 }
 
 clone_or_update_upstream() {
   local repo_url="$1"
   local target_dir="$2"
   local name="$3"
+
+  if [[ -z "$repo_url" ]]; then
+    ok "$name is vendored or managed locally; skipping git clone"
+    return 0
+  fi
 
   command_exists git || die "git is required to fetch upstream projects"
   mkdir -p "$(dirname "$target_dir")"
@@ -233,18 +238,18 @@ clone_or_update_upstream() {
 }
 
 fetch_upstreams() {
-  local upstreams_dir xui_dir rixxx_dir
+  local upstreams_dir xui_dir nh_dir
   upstreams_dir="$PROJECT_DIR/upstreams"
   xui_dir="$upstreams_dir/x-ui-pro"
-  rixxx_dir="$upstreams_dir/Panel---Naive-Hy2---by---RIXXX"
+  nh_dir="$upstreams_dir/NH-Panel-Naive-Hy2"
 
   clone_or_update_upstream "$XUI_REPO" "$xui_dir" "x-ui-pro"
-  clone_or_update_upstream "$RIXXX_REPO" "$rixxx_dir" "RIXXX panel"
+  clone_or_update_upstream "$NH_REPO" "$nh_dir" "N+H panel"
 }
 
 maybe_fetch_upstreams() {
   upstream_paths
-  [[ -f "$XUI_UPSTREAM_PATH" && -f "$RIXXX_UPSTREAM_PATH" ]] && return 0
+  [[ -f "$XUI_UPSTREAM_PATH" && -f "$NH_UPSTREAM_PATH" ]] && return 0
 
   case "$AUTO_FETCH_UPSTREAMS" in
     yes)
@@ -331,7 +336,7 @@ show_service_report() {
   service_line x-ui
   service_line nginx
   service_line caddy
-  service_line caddy-rixxx
+  service_line caddy-nh
   service_line hysteria-server
   service_line panel-naive-hy2
   service_line ufw
@@ -362,20 +367,20 @@ check_required_commands() {
 }
 
 check_upstream_files() {
-  local xui_path rixxx_path
+  local xui_path nh_path
   upstream_paths
   xui_path="$XUI_UPSTREAM_PATH"
-  rixxx_path="$RIXXX_UPSTREAM_PATH"
+  nh_path="$NH_UPSTREAM_PATH"
   if [[ -f "$xui_path" ]]; then
     ok "x-ui-pro upstream found: $XUI_UPSTREAM"
   else
     warn "x-ui-pro upstream not found: $XUI_UPSTREAM"
     warn "Run ./prepare-upstreams.sh or rerun ./install.sh --fetch-upstreams to fetch it."
   fi
-  if [[ -f "$rixxx_path" ]]; then
-    ok "RIXXX panel upstream found: $RIXXX_UPSTREAM"
+  if [[ -f "$nh_path" ]]; then
+    ok "N+H panel upstream found: $NH_UPSTREAM"
   else
-    warn "RIXXX panel upstream not found: $RIXXX_UPSTREAM"
+    warn "N+H panel upstream not found: $NH_UPSTREAM"
     warn "Run ./prepare-upstreams.sh or rerun ./install.sh --fetch-upstreams to fetch it."
   fi
 }
@@ -387,11 +392,11 @@ check_vendored_components() {
     "$PROJECT_DIR/install-unified.sh" \
     "$PROJECT_DIR/components/x-ui-pro/x-ui-pro.sh" \
     "$PROJECT_DIR/components/x-ui-pro/apply-naive-sni-route.sh" \
-    "$PROJECT_DIR/components/rixxx-panel/install.sh" \
-    "$PROJECT_DIR/components/rixxx-panel/install-unified-backend.sh" \
-    "$PROJECT_DIR/components/rixxx-panel/update.sh" \
-    "$PROJECT_DIR/components/rixxx-panel/upstream/install.sh" \
-    "$PROJECT_DIR/components/rixxx-panel/upstream/update.sh"; do
+    "$PROJECT_DIR/components/nh-panel/install.sh" \
+    "$PROJECT_DIR/components/nh-panel/install-unified-backend.sh" \
+    "$PROJECT_DIR/components/nh-panel/update.sh" \
+    "$PROJECT_DIR/components/nh-panel/upstream/install.sh" \
+    "$PROJECT_DIR/components/nh-panel/upstream/update.sh"; do
     if [[ -f "$path" ]]; then
       ok "Vendored component found: ${path#$PROJECT_DIR/}"
     else
@@ -438,15 +443,15 @@ validate_required_args() {
       ;;
     all)
       [[ -n "$XUI_DOMAIN" ]] || die "--xui-domain is required for --mode all"
-      [[ -n "$RIXXX_PROXY_DOMAIN" ]] || die "--rixxx-domain is required for --mode all"
-      [[ -n "$RIXXX_PROXY_EMAIL" ]] || die "--rixxx-email is required for --mode all"
+      [[ -n "$NH_PROXY_DOMAIN" ]] || die "--nh-domain is required for --mode all"
+      [[ -n "$NH_PROXY_EMAIL" ]] || die "--nh-email is required for --mode all"
       [[ -n "$REALITY_DEST" ]] || die "--reality-dest is required for --mode all"
       ;;
-    rixxx)
-      [[ -n "$RIXXX_PROXY_DOMAIN" ]] || die "--domain is required for --mode rixxx"
-      [[ -n "$RIXXX_PROXY_EMAIL" ]] || die "--proxy-email is required for --mode rixxx"
+    nh)
+      [[ -n "$NH_PROXY_DOMAIN" ]] || die "--domain is required for --mode nh"
+      [[ -n "$NH_PROXY_EMAIL" ]] || die "--proxy-email is required for --mode nh"
       ;;
-    *) die "--mode must be xui, naive, all, both, or rixxx" ;;
+    *) die "--mode must be xui, naive, all, both, or nh" ;;
   esac
 }
 
@@ -465,15 +470,15 @@ validate_real_install_args() {
       ;;
     all)
       [[ -n "$XUI_DOMAIN" ]] || die "--xui-domain is required for real all install"
-      [[ -n "$RIXXX_PROXY_DOMAIN" ]] || die "--rixxx-domain is required for real all install"
-      [[ -n "$RIXXX_PROXY_EMAIL" ]] || die "--rixxx-email is required for real all install"
+      [[ -n "$NH_PROXY_DOMAIN" ]] || die "--nh-domain is required for real all install"
+      [[ -n "$NH_PROXY_EMAIL" ]] || die "--nh-email is required for real all install"
       [[ -n "$REALITY_DEST" ]] || die "--reality-dest is required for real all install"
       ;;
-    rixxx)
-      [[ -n "$RIXXX_PROXY_DOMAIN" ]] || die "--domain is required for real RIXXX install"
-      [[ -n "$RIXXX_PROXY_EMAIL" ]] || die "--proxy-email is required for real RIXXX install"
+    nh)
+      [[ -n "$NH_PROXY_DOMAIN" ]] || die "--domain is required for real N+H install"
+      [[ -n "$NH_PROXY_EMAIL" ]] || die "--proxy-email is required for real N+H install"
       ;;
-    *) die "Real install currently supports --mode all, --mode both, or --mode rixxx" ;;
+    *) die "Real install currently supports --mode all, --mode both, or --mode nh" ;;
   esac
   [[ "$ASSUME_YES" == "1" ]] || die "Real install requires --yes"
 }
@@ -490,8 +495,8 @@ x-ui domain:    ${XUI_DOMAIN:-not set}
 Naive domain:   ${NAIVE_DOMAIN:-not set}
 REALITY dest:   ${REALITY_DEST:-not set}
 Naive email:    ${NAIVE_EMAIL:-not set}
-RIXXX domain:   ${RIXXX_PROXY_DOMAIN:-not set}
-RIXXX email:    ${RIXXX_PROXY_EMAIL:-not set}
+N+H domain:   ${NH_PROXY_DOMAIN:-not set}
+N+H email:    ${NH_PROXY_EMAIL:-not set}
 TLS cert:       ${TLS_CERT:-auto/ACME}
 TLS key:        ${TLS_KEY:-auto/ACME}
 
@@ -513,8 +518,8 @@ x-ui domain:    ${XUI_DOMAIN:-not set}
 Naive domain:   ${NAIVE_DOMAIN:-not set}
 REALITY dest:   ${REALITY_DEST:-not set}
 Naive email:    ${NAIVE_EMAIL:-not set}
-RIXXX domain:   ${RIXXX_PROXY_DOMAIN:-not set}
-RIXXX email:    ${RIXXX_PROXY_EMAIL:-not set}
+N+H domain:   ${NH_PROXY_DOMAIN:-not set}
+N+H email:    ${NH_PROXY_EMAIL:-not set}
 TLS cert:       ${TLS_CERT:-auto/ACME}
 TLS key:        ${TLS_KEY:-auto/ACME}
 
@@ -541,8 +546,8 @@ EOF
 
 Legacy NaiveProxy-only mode:
 - the old standalone NaiveProxy component has been removed;
-- use --mode rixxx for RIXXX Panel + NaiveProxy + Hysteria2;
-- use --mode all for 3x-ui + RIXXX Panel + NaiveProxy + Hysteria2.
+- use --mode nh for N+H Panel + NaiveProxy + Hysteria2;
+- use --mode all for 3x-ui + N+H Panel + NaiveProxy + Hysteria2.
 EOF
       ;;
     both)
@@ -559,21 +564,23 @@ EOF
 
 All-in-one layout:
 - x-ui-pro/nginx owns public 443/tcp.
-- RIXXX NaiveProxy/Caddy runs as caddy-rixxx on 127.0.0.1:9445.
-- nginx stream routes the RIXXX/NaiveProxy domain by SNI to 127.0.0.1:9445.
+- N+H NaiveProxy/Caddy runs as caddy-nh on 127.0.0.1:9445.
+- nginx stream routes the N+H/NaiveProxy domain by SNI to 127.0.0.1:9445.
+- N+H TLS is issued automatically unless --tls-cert/--tls-key are provided.
+- Caddy accepts nginx stream PROXY protocol on the backend listener.
 - Hysteria2 listens on public 443/udp.
-- RIXXX panel runs as panel-naive-hy2 and is exposed by nginx on 8081 by default.
+- N+H panel runs as panel-naive-hy2 and is exposed by nginx on 8081 by default.
 EOF
       ;;
-    rixxx)
+    nh)
       cat <<EOF
 
-RIXXX standalone panel actions:
-- install the RIXXX Node.js panel from the vendored component;
-- install selected stack: ${RIXXX_STACK};
-- use proxy domain ${RIXXX_PROXY_DOMAIN} and email ${RIXXX_PROXY_EMAIL};
-- expose panel with access mode ${RIXXX_ACCESS};
-- use masquerade mode ${RIXXX_MASQUERADE} ${RIXXX_MASQUERADE_URL};
+N+H standalone panel actions:
+- install the N+H Node.js panel from the vendored component;
+- install selected stack: ${NH_STACK};
+- use proxy domain ${NH_PROXY_DOMAIN} and email ${NH_PROXY_EMAIL};
+- expose panel with access mode ${NH_ACCESS};
+- use masquerade mode ${NH_MASQUERADE} ${NH_MASQUERADE_URL};
 - Caddy will own public 443/tcp for NaiveProxy and Hysteria2 will use 443/udp when enabled.
 
 This mode is standalone. Do not combine it with the x-ui/nginx unified layout on the same public 443 without manual review.
@@ -595,20 +602,20 @@ Real all-in-one install requested
 ---------------------------------
 Installer:      $installer
 x-ui domain:    $XUI_DOMAIN
-RIXXX domain:   $RIXXX_PROXY_DOMAIN
+N+H domain:   $NH_PROXY_DOMAIN
 REALITY dest:   $REALITY_DEST
-RIXXX email:    $RIXXX_PROXY_EMAIL
+N+H email:    $NH_PROXY_EMAIL
 
-This will install 3x-ui + RIXXX Panel + NaiveProxy + Hysteria2.
+This will install 3x-ui + N+H Panel + NaiveProxy + Hysteria2.
 EOF
 
     local -a all_args=(
       --mode all
       --xui-domain "$XUI_DOMAIN"
-      --rixxx-domain "$RIXXX_PROXY_DOMAIN"
+      --nh-domain "$NH_PROXY_DOMAIN"
       --reality-dest "$REALITY_DEST"
-      --rixxx-email "$RIXXX_PROXY_EMAIL"
-      --panel-access "$RIXXX_ACCESS"
+      --nh-email "$NH_PROXY_EMAIL"
+      --panel-access "$NH_ACCESS"
       --yes
     )
     [[ -n "$TLS_CERT" ]] && all_args+=(--tls-cert "$TLS_CERT")
@@ -617,37 +624,37 @@ EOF
     return 0
   fi
 
-  if [[ "$MODE" == "rixxx" ]]; then
-    local rixxx_installer="$PROJECT_DIR/components/rixxx-panel/install.sh"
-    [[ -f "$rixxx_installer" ]] || die "RIXXX installer not found: $rixxx_installer. Pull latest repository version."
+  if [[ "$MODE" == "nh" ]]; then
+    local nh_installer="$PROJECT_DIR/components/nh-panel/install.sh"
+    [[ -f "$nh_installer" ]] || die "N+H installer not found: $nh_installer. Pull latest repository version."
 
     cat <<EOF
 
-Real RIXXX panel install requested
+Real N+H panel install requested
 ----------------------------------
-Installer:      $rixxx_installer
-Stack:          $RIXXX_STACK
-Access:         $RIXXX_ACCESS
-Proxy domain:   $RIXXX_PROXY_DOMAIN
-Proxy email:    $RIXXX_PROXY_EMAIL
-Panel domain:   ${RIXXX_PANEL_DOMAIN:-not used}
+Installer:      $nh_installer
+Stack:          $NH_STACK
+Access:         $NH_ACCESS
+Proxy domain:   $NH_PROXY_DOMAIN
+Proxy email:    $NH_PROXY_EMAIL
+Panel domain:   ${NH_PANEL_DOMAIN:-not used}
 EOF
 
-    local -a rixxx_args=(
-      --stack "$RIXXX_STACK"
-      --access "$RIXXX_ACCESS"
-      --domain "$RIXXX_PROXY_DOMAIN"
-      --email "$RIXXX_PROXY_EMAIL"
-      --masquerade "$RIXXX_MASQUERADE"
+    local -a nh_args=(
+      --stack "$NH_STACK"
+      --access "$NH_ACCESS"
+      --domain "$NH_PROXY_DOMAIN"
+      --email "$NH_PROXY_EMAIL"
+      --masquerade "$NH_MASQUERADE"
       --yes
     )
-    [[ -n "$RIXXX_PANEL_DOMAIN" ]] && rixxx_args+=(--panel-domain "$RIXXX_PANEL_DOMAIN")
-    [[ -n "$RIXXX_PANEL_EMAIL" ]] && rixxx_args+=(--panel-email "$RIXXX_PANEL_EMAIL")
-    [[ "$RIXXX_SSH_ONLY" == "1" ]] && rixxx_args+=(--ssh-only)
-    [[ -n "$RIXXX_MASQUERADE_URL" ]] && rixxx_args+=(--masquerade-url "$RIXXX_MASQUERADE_URL")
-    [[ "$RIXXX_ALLOW_PORT_CONFLICT" == "1" ]] && rixxx_args+=(--allow-port-conflict)
+    [[ -n "$NH_PANEL_DOMAIN" ]] && nh_args+=(--panel-domain "$NH_PANEL_DOMAIN")
+    [[ -n "$NH_PANEL_EMAIL" ]] && nh_args+=(--panel-email "$NH_PANEL_EMAIL")
+    [[ "$NH_SSH_ONLY" == "1" ]] && nh_args+=(--ssh-only)
+    [[ -n "$NH_MASQUERADE_URL" ]] && nh_args+=(--masquerade-url "$NH_MASQUERADE_URL")
+    [[ "$NH_ALLOW_PORT_CONFLICT" == "1" ]] && nh_args+=(--allow-port-conflict)
 
-    bash "$rixxx_installer" "${rixxx_args[@]}"
+    bash "$nh_installer" "${nh_args[@]}"
     return 0
   fi
 
@@ -686,16 +693,16 @@ while [[ $# -gt 0 ]]; do
     --naive-domain) NAIVE_DOMAIN="${2:-}"; shift 2 ;;
     --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
     --naive-email) NAIVE_EMAIL="${2:-}"; shift 2 ;;
-    --domain|--proxy-domain|--rixxx-domain) RIXXX_PROXY_DOMAIN="${2:-}"; shift 2 ;;
-    --rixxx-email|--proxy-email) RIXXX_PROXY_EMAIL="${2:-}"; shift 2 ;;
-    --rixxx-stack) RIXXX_STACK="${2:-}"; shift 2 ;;
-    --rixxx-access) RIXXX_ACCESS="${2:-}"; shift 2 ;;
-    --panel-domain|--rixxx-panel-domain) RIXXX_PANEL_DOMAIN="${2:-}"; shift 2 ;;
-    --panel-email|--rixxx-panel-email) RIXXX_PANEL_EMAIL="${2:-}"; shift 2 ;;
-    --ssh-only|--rixxx-ssh-only) RIXXX_SSH_ONLY=1; shift ;;
-    --masquerade|--rixxx-masquerade) RIXXX_MASQUERADE="${2:-}"; shift 2 ;;
-    --masquerade-url|--rixxx-masquerade-url) RIXXX_MASQUERADE_URL="${2:-}"; shift 2 ;;
-    --allow-port-conflict|--rixxx-allow-port-conflict) RIXXX_ALLOW_PORT_CONFLICT=1; shift ;;
+    --domain|--proxy-domain|--nh-domain) NH_PROXY_DOMAIN="${2:-}"; shift 2 ;;
+    --nh-email|--proxy-email) NH_PROXY_EMAIL="${2:-}"; shift 2 ;;
+    --nh-stack) NH_STACK="${2:-}"; shift 2 ;;
+    --nh-access) NH_ACCESS="${2:-}"; shift 2 ;;
+    --panel-domain|--nh-panel-domain) NH_PANEL_DOMAIN="${2:-}"; shift 2 ;;
+    --panel-email|--nh-panel-email) NH_PANEL_EMAIL="${2:-}"; shift 2 ;;
+    --ssh-only|--nh-ssh-only) NH_SSH_ONLY=1; shift ;;
+    --masquerade|--nh-masquerade) NH_MASQUERADE="${2:-}"; shift 2 ;;
+    --masquerade-url|--nh-masquerade-url) NH_MASQUERADE_URL="${2:-}"; shift 2 ;;
+    --allow-port-conflict|--nh-allow-port-conflict) NH_ALLOW_PORT_CONFLICT=1; shift ;;
     --tls-cert) TLS_CERT="${2:-}"; shift 2 ;;
     --tls-key) TLS_KEY="${2:-}"; shift 2 ;;
     --project-dir) PROJECT_DIR="${2:-}"; shift 2 ;;
@@ -727,7 +734,7 @@ if [[ "$REAL_INSTALL" == "1" ]]; then
 else
   collect_interactive_inputs
 fi
-case "$MODE" in xui|naive|all|both|rixxx) ;; *) die "--mode must be xui, naive, all, both, or rixxx" ;; esac
+case "$MODE" in xui|naive|all|both|nh) ;; *) die "--mode must be xui, naive, all, both, or nh" ;; esac
 
 validate_required_args
 validate_real_install_args
@@ -772,12 +779,12 @@ case "$MODE" in
     ;;
   all)
     check_domain "$XUI_DOMAIN" "x-ui"
-    check_domain "$RIXXX_PROXY_DOMAIN" "RIXXX/NaiveProxy"
+    check_domain "$NH_PROXY_DOMAIN" "N+H/NaiveProxy"
     check_domain "$REALITY_DEST" "REALITY destination"
     ;;
-  rixxx)
-    check_domain "$RIXXX_PROXY_DOMAIN" "RIXXX proxy"
-    [[ -n "$RIXXX_PANEL_DOMAIN" ]] && check_domain "$RIXXX_PANEL_DOMAIN" "RIXXX panel"
+  nh)
+    check_domain "$NH_PROXY_DOMAIN" "N+H proxy"
+    [[ -n "$NH_PANEL_DOMAIN" ]] && check_domain "$NH_PANEL_DOMAIN" "N+H panel"
     ;;
 esac
 

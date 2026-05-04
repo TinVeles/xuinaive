@@ -8,7 +8,7 @@ Expected layout after running `../prepare-upstreams.sh`:
 upstreams/
 ├── x-ui-pro/
 │   └── x-ui-pro.sh
-└── Panel---Naive-Hy2---by---RIXXX/
+└── NH-Panel-Naive-Hy2/
     └── install.sh
 ```
 

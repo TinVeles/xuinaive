@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   Panel Naive + Hysteria2 by RIXXX — Backend
+   N+H Panel — Backend
    ═══════════════════════════════════════════════════════════ */
 
 'use strict';
@@ -23,9 +23,14 @@ const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 3000;
 const CADDY_SERVICE = process.env.CADDY_SERVICE || 'caddy';
+const CADDY_BIN = process.env.CADDY_BIN || 'caddy';
 const CADDYFILE_PATH = process.env.CADDYFILE_PATH || '/etc/caddy/Caddyfile';
 const CADDY_SITE_TEMPLATE = process.env.CADDY_SITE_TEMPLATE || ':443, {domain}';
 const CADDY_BIND = process.env.CADDY_BIND || '';
+const CADDY_LISTENER_SERVER = process.env.CADDY_LISTENER_SERVER || '';
+const CADDY_PROXY_PROTOCOL = process.env.CADDY_PROXY_PROTOCOL === '1';
+const CADDY_TLS_CERT = process.env.CADDY_TLS_CERT || '';
+const CADDY_TLS_KEY = process.env.CADDY_TLS_KEY || '';
 // LISTEN_HOST: 0.0.0.0 (по умолчанию — публично) | 127.0.0.1 (SSH-only режим).
 // Управляется через Environment=LISTEN_HOST=... в systemd-юните или
 // --env LISTEN_HOST=... в PM2. Дефолт сохраняет обратную совместимость
@@ -130,7 +135,7 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(bodyParser.json({ limit: '256kb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '256kb' }));
 app.use(session({
-  name: 'rixxx_sid',
+  name: 'nh_sid',
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
@@ -243,10 +248,10 @@ app.get('/api/config', requireAuth, (req, res) => {
   res.json(loadConfig());
 });
 
-// Динамическая версия панели — читается из /etc/rixxx-panel/version (обновляется update.sh).
+// Динамическая версия панели — читается из /etc/nh-panel/version (обновляется update.sh).
 // Fallback: '1.0.0' если файл недоступен (например, на dev-окружении или сразу после установки).
 app.get('/api/system/version', requireAuth, (req, res) => {
-  const VERSION_FILE = '/etc/rixxx-panel/version';
+  const VERSION_FILE = '/etc/nh-panel/version';
   const FALLBACK = '1.0.0';
   try {
     if (fs.existsSync(VERSION_FILE)) {
@@ -333,17 +338,32 @@ function writeCaddyfile(cfg) {
   // КРИТИЧНО: если Hy2 тоже установлен — отключаем HTTP/3 в Caddy,
   // иначе он займёт UDP/443 и Hy2 не запустится.
   const disableH3 = cfg.stack && cfg.stack.hy2;
-  const globalBlock = disableH3
-    ? `{
-  auto_https disable_redirects
-  order forward_proxy before file_server
+  let serversBlock = '';
+  if (CADDY_PROXY_PROTOCOL && CADDY_LISTENER_SERVER) {
+    serversBlock = `
+
+  servers ${CADDY_LISTENER_SERVER} {
+    listener_wrappers {
+      proxy_protocol {
+        timeout 2s
+        allow 127.0.0.1/32
+        fallback_policy skip
+      }
+      tls
+    }
+    protocols h1 h2
+  }`;
+  } else if (disableH3) {
+    serversBlock = `
+
   servers {
     protocols h1 h2
+  }`;
   }
-}`
-    : `{
+
+  const globalBlock = `{
   auto_https disable_redirects
-  order forward_proxy before file_server
+  order forward_proxy before file_server${serversBlock}
 }`;
 
   // Маскировка: local → file_server, mirror → reverse_proxy <url>.
@@ -358,12 +378,15 @@ function writeCaddyfile(cfg) {
 
   const siteAddress = CADDY_SITE_TEMPLATE.replace(/\{domain\}/g, cfg.domain);
   const bindLine = CADDY_BIND ? `  bind ${CADDY_BIND}\n` : '';
+  const tlsLine = (CADDY_TLS_CERT && CADDY_TLS_KEY)
+    ? `  tls ${CADDY_TLS_CERT} ${CADDY_TLS_KEY}`
+    : `  tls ${cfg.email}`;
 
   // Основной site-блок: домен прокси
   let content = `${globalBlock}
 
 ${siteAddress} {
-${bindLine}  tls ${cfg.email}
+${bindLine}${tlsLine}
 
   forward_proxy {
 ${lines || '    # no users yet'}
@@ -420,7 +443,7 @@ ${cfg.panelDomain} {
     // 3) Валидация через caddy validate (если caddy доступен).
     try {
       const { execSync } = require('child_process');
-      execSync(`caddy validate --config ${tmpPath}`, { stdio: 'pipe', timeout: 10000 });
+      execSync(`${CADDY_BIN} validate --config ${tmpPath}`, { stdio: 'pipe', timeout: 10000 });
     } catch (validateErr) {
       // caddy либо не установлен, либо validate упал.
       // Если ошибка — НЕ stderr пустой → это реальная невалидность.
@@ -453,7 +476,7 @@ ${cfg.panelDomain} {
 function reloadCaddy() {
   return new Promise((resolve) => {
     const p = spawn('bash', ['-c',
-      `caddy reload --config ${CADDYFILE_PATH} 2>/dev/null || systemctl reload ${CADDY_SERVICE} 2>/dev/null || systemctl restart ${CADDY_SERVICE} 2>/dev/null`
+      `${CADDY_BIN} reload --config ${CADDYFILE_PATH} 2>/dev/null || systemctl reload ${CADDY_SERVICE} 2>/dev/null || systemctl restart ${CADDY_SERVICE} 2>/dev/null`
     ]);
     p.on('close', () => resolve());
     p.on('error', () => resolve());
@@ -1099,7 +1122,7 @@ app.post('/api/tuning/apply', requireAuth, (req, res) => {
 wss.on('connection', (ws, req) => {
   // Минимальная защита: проверим session cookie
   const cookie = (req.headers.cookie || '');
-  if (!cookie.includes('rixxx_sid=')) {
+  if (!cookie.includes('nh_sid=')) {
     ws.send(JSON.stringify({ type: 'error', message: 'unauthorized' }));
     ws.close();
     return;
@@ -1252,7 +1275,7 @@ function handleInstallHy2(ws, data) {
       ws.send(JSON.stringify({
         type: 'install_done',
         links: {
-          hy2: `hysteria2://default:${encodeURIComponent(password)}@${domain}:443?sni=${domain}&insecure=0#RIXXX`
+          hy2: `hysteria2://default:${encodeURIComponent(password)}@${domain}:443?sni=${domain}&insecure=0#N+H`
         }
       }));
     } else {
@@ -1307,7 +1330,7 @@ function handleInstallBoth(ws, data) {
           type: 'install_done',
           links: {
             naive: `naive+https://${naiveLogin}:${naivePassword}@${domain}:443`,
-            hy2:   `hysteria2://default:${encodeURIComponent(hy2Password)}@${domain}:443?sni=${domain}&insecure=0#RIXXX`
+            hy2:   `hysteria2://default:${encodeURIComponent(hy2Password)}@${domain}:443?sni=${domain}&insecure=0#N+H`
           }
         }));
       } else {
@@ -1362,7 +1385,7 @@ app.get(/^(?!\/api).*/, (req, res) => {
 server.listen(PORT, LISTEN_HOST, () => {
   const isLocal = LISTEN_HOST === '127.0.0.1' || LISTEN_HOST === 'localhost';
   console.log(`\n╔═══════════════════════════════════════════════╗`);
-  console.log(`║   Panel Naive + Hysteria2 by RIXXX            ║`);
+  console.log(`║   N+H Panel            ║`);
   console.log(`║   Running on http://${LISTEN_HOST}:${PORT}${' '.repeat(Math.max(0, 14 - LISTEN_HOST.length))}║`);
   if (isLocal) {
     console.log(`║   SSH-only mode (доступ через ssh -L)         ║`);

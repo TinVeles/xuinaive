@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   Panel Naive + Hy2 by RIXXX — Frontend App
+   N+H Panel — Frontend App
    ═══════════════════════════════════════════════════════════ */
 
 'use strict';
@@ -121,9 +121,9 @@ async function loadSettingsInfo() {
     const d = await res.json();
     el.textContent = d.version || '—';
     if (d.source === 'fallback') {
-      el.title = 'Файл /etc/rixxx-panel/version не найден — показана версия по умолчанию';
+      el.title = 'Файл /etc/nh-panel/version не найден — показана версия по умолчанию';
     } else {
-      el.title = 'Из /etc/rixxx-panel/version';
+      el.title = 'Из /etc/nh-panel/version';
     }
   } catch (e) {
     el.textContent = '—';

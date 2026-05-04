@@ -14,9 +14,9 @@ LISTEN_HOST="0.0.0.0"
 INTERNAL_PORT="3000"
 PANEL_PUBLIC_PORT="8081"
 CADDY_LISTEN="127.0.0.1:9445"
-CADDY_SERVICE="caddy-rixxx"
-CADDY_BIN="/usr/bin/caddy-rixxx"
-CADDY_DIR="/etc/caddy-rixxx"
+CADDY_SERVICE="caddy-nh"
+CADDY_BIN="/usr/bin/caddy-nh"
+CADDY_DIR="/etc/caddy-nh"
 PANEL_DIR="/opt/panel-naive-hy2"
 TLS_CERT=""
 TLS_KEY=""
@@ -27,9 +27,9 @@ Usage:
   sudo ./install-unified-backend.sh --domain naive.example.com --email admin@example.com [--panel-public-port 8081]
   sudo ./install-unified-backend.sh --domain naive.example.com --email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem
 
-Installs RIXXX Panel + NaiveProxy + Hysteria2 as a backend for the x-ui-pro nginx stream layout:
+Installs N+H Panel + NaiveProxy + Hysteria2 as a backend for the x-ui-pro nginx stream layout:
 - nginx owns public 443/tcp;
-- caddy-rixxx listens on 127.0.0.1:9445 for NaiveProxy;
+- caddy-nh listens on 127.0.0.1:9445 for NaiveProxy;
 - Hysteria2 listens on public 443/udp;
 - panel-naive-hy2 listens on 3000 and can be exposed through nginx on 8081.
 EOF
@@ -70,10 +70,62 @@ wait_http() {
   done
 
   printf 'ERROR: %s is not responding at %s\n' "$label" "$url" >&2
-  if [[ "$label" == *"RIXXX panel"* ]]; then
+  if [[ "$label" == *"N+H panel"* ]]; then
     journalctl -u panel-naive-hy2 -n 80 --no-pager -l >&2 || true
   fi
   return 1
+}
+
+check_tls() {
+  local target="$1"
+  local server_name="$2"
+  local label="$3"
+  local output=""
+
+  if ! command -v openssl >/dev/null 2>&1; then
+    warn "openssl is missing; skipping $label TLS check"
+    return 0
+  fi
+
+  output="$(timeout 12 openssl s_client \
+    -connect "$target" \
+    -servername "$server_name" \
+    -alpn http/1.1 \
+    -brief </dev/null 2>&1 || true)"
+
+  if grep -Eq 'Protocol version: TLSv1\.[23]' <<<"$output" && grep -q 'Verification: OK' <<<"$output"; then
+    ok "$label TLS is valid for $server_name at $target"
+    return 0
+  fi
+
+  printf 'ERROR: %s TLS check failed for %s at %s\n' "$label" "$server_name" "$target" >&2
+  printf '%s\n' "$output" >&2
+  return 1
+}
+
+restore_nginx_after_acme() {
+  if systemctl list-unit-files nginx.service >/dev/null 2>&1; then
+    systemctl start nginx >/dev/null 2>&1 || true
+  fi
+}
+
+port80_busy_details() {
+  if command -v ss >/dev/null 2>&1; then
+    ss -H -ltnp 'sport = :80' 2>/dev/null || true
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:80 -sTCP:LISTEN 2>/dev/null || true
+  fi
+}
+
+install_certbot_deploy_hook() {
+  mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+  cat > /etc/letsencrypt/renewal-hooks/deploy/nh-unified-reload.sh <<EOF
+#!/usr/bin/env bash
+systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1 || true
+systemctl reload ${CADDY_SERVICE} >/dev/null 2>&1 || systemctl restart ${CADDY_SERVICE} >/dev/null 2>&1 || true
+systemctl restart hysteria-server >/dev/null 2>&1 || true
+EOF
+  chmod +x /etc/letsencrypt/renewal-hooks/deploy/nh-unified-reload.sh
 }
 
 random_alpha() {
@@ -112,7 +164,7 @@ done
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "Run as root"
 [[ -n "$DOMAIN" ]] || die "--domain is required"
 [[ -n "$EMAIL" ]] || die "--email is required"
-[[ -d "$UPSTREAM_DIR/panel" ]] || die "Missing vendored RIXXX panel: $UPSTREAM_DIR/panel"
+[[ -d "$UPSTREAM_DIR/panel" ]] || die "Missing vendored N+H panel: $UPSTREAM_DIR/panel"
 if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
   [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
   [[ -f "$TLS_KEY" ]] || die "--tls-key file not found: $TLS_KEY"
@@ -183,7 +235,7 @@ EOF
 if [[ -z "$TLS_CERT" && -z "$TLS_KEY" ]]; then
   info "Issuing TLS certificate for $DOMAIN through nginx HTTP-01"
   mkdir -p /var/www/html/.well-known/acme-challenge /etc/nginx/sites-available /etc/nginx/sites-enabled
-  cat > /etc/nginx/sites-available/rixxx-acme <<EOF
+  cat > /etc/nginx/sites-available/nh-acme <<EOF
 server {
     listen 80;
     server_name ${DOMAIN};
@@ -198,7 +250,7 @@ server {
     }
 }
 EOF
-  ln -sf /etc/nginx/sites-available/rixxx-acme /etc/nginx/sites-enabled/rixxx-acme
+  ln -sf /etc/nginx/sites-available/nh-acme /etc/nginx/sites-enabled/nh-acme
   nginx -t || die "nginx config test failed before ACME issuance"
   systemctl reload nginx || die "nginx reload failed before ACME issuance"
 
@@ -212,24 +264,62 @@ EOF
     TLS_KEY="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
     ok "Certificate issued: $TLS_CERT"
   else
-    warn "Certificate was not issued by certbot."
-    warn "Reason is usually DNS mismatch or blocked public port 80."
-    warn "NaiveProxy/Hysteria2 may not work until TLS is fixed. You can rerun with --tls-cert and --tls-key."
+    warn "nginx HTTP-01 issuance failed; trying automatic standalone fallback"
+    systemctl stop "$CADDY_SERVICE" >/dev/null 2>&1 || true
+    systemctl stop nginx >/dev/null 2>&1 || true
+    sleep 2
+
+    busy80="$(port80_busy_details)"
+    if [[ -n "$busy80" ]]; then
+      restore_nginx_after_acme
+      printf 'ERROR: port 80 is busy; standalone certificate issuance cannot continue.\n' >&2
+      printf '%s\n' "$busy80" >&2
+      die "Stop the process that owns port 80 or rerun with --tls-cert and --tls-key."
+    fi
+
+    if certbot certonly --standalone \
+        --preferred-challenges http \
+        --http-01-port 80 \
+        -d "$DOMAIN" \
+        --email "$EMAIL" \
+        --agree-tos \
+        --non-interactive; then
+      TLS_CERT="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
+      TLS_KEY="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
+      ok "Certificate issued through standalone fallback: $TLS_CERT"
+    else
+      restore_nginx_after_acme
+      die "Certificate was not issued automatically. Check DNS, public firewall for 80/tcp, and provider security groups."
+    fi
+
+    restore_nginx_after_acme
   fi
 fi
+[[ -f "$TLS_CERT" ]] || die "TLS cert is required for unified N+H backend: $TLS_CERT"
+[[ -f "$TLS_KEY" ]] || die "TLS key is required for unified N+H backend: $TLS_KEY"
+install_certbot_deploy_hook
 
 cat > "$CADDY_DIR/Caddyfile" <<EOF
 {
   auto_https disable_redirects
   order forward_proxy before file_server
-  servers {
+
+  servers ${CADDY_HOST}:${CADDY_PORT} {
+    listener_wrappers {
+      proxy_protocol {
+        timeout 2s
+        allow 127.0.0.1/32
+        fallback_policy skip
+      }
+      tls
+    }
     protocols h1 h2
   }
 }
 
 https://${DOMAIN}:${CADDY_PORT} {
   bind ${CADDY_HOST}
-  tls ${TLS_CERT:-$EMAIL}${TLS_KEY:+ $TLS_KEY}
+  tls ${TLS_CERT} ${TLS_KEY}
 
   forward_proxy {
     basic_auth ${NAIVE_LOGIN} ${NAIVE_PASS}
@@ -248,7 +338,7 @@ EOF
 
 cat > "/etc/systemd/system/${CADDY_SERVICE}.service" <<EOF
 [Unit]
-Description=Caddy RIXXX NaiveProxy Backend
+Description=Caddy N+H NaiveProxy Backend
 After=network.target network-online.target
 Requires=network-online.target
 
@@ -275,16 +365,11 @@ systemctl daemon-reload
 systemctl enable "$CADDY_SERVICE"
 systemctl restart "$CADDY_SERVICE"
 require_active "$CADDY_SERVICE"
+check_tls "127.0.0.1:${CADDY_PORT}" "$DOMAIN" "Caddy backend" || die "Caddy backend TLS is not usable. Check cert/key and proxy_protocol listener wrapper."
 
 CADDY_CERT=""
-if [[ -n "$TLS_CERT" ]]; then
-  CADDY_CERT="$TLS_CERT"
-  CADDY_KEY="$TLS_KEY"
-else
-  warn "No TLS certificate is available for $DOMAIN."
-  warn "Reason: certbot did not issue one and no --tls-cert/--tls-key was provided."
-  warn "NaiveProxy/Hysteria2 may not work until TLS is fixed."
-fi
+CADDY_CERT="$TLS_CERT"
+CADDY_KEY="$TLS_KEY"
 
 case "$(uname -m)" in
   x86_64) HY_ARCH="amd64" ;;
@@ -352,9 +437,9 @@ EOF
 
 cat > /etc/systemd/system/hysteria-server.service <<'EOF'
 [Unit]
-Description=Hysteria2 Server (RIXXX unified)
-After=network.target network-online.target caddy-rixxx.service
-Wants=caddy-rixxx.service
+Description=Hysteria2 Server (N+H unified)
+After=network.target network-online.target caddy-nh.service
+Wants=caddy-nh.service
 Requires=network-online.target
 
 [Service]
@@ -376,12 +461,7 @@ EOF
 systemctl daemon-reload
 systemctl enable hysteria-server
 systemctl restart hysteria-server || true
-if [[ -n "$CADDY_CERT" ]]; then
-  require_active hysteria-server
-else
-  warn "Skipping fatal Hysteria2 active check because no TLS certificate is available."
-  warn "Fix TLS and then run: systemctl restart hysteria-server"
-fi
+require_active hysteria-server
 
 rm -rf "$PANEL_DIR"
 mkdir -p "$PANEL_DIR"
@@ -401,6 +481,8 @@ cat > "$PANEL_DIR/panel/data/config.json" <<EOF
   "email": "${EMAIL}",
   "panelDomain": "${PANEL_DOMAIN}",
   "panelEmail": "${PANEL_EMAIL}",
+  "tlsCert": "${TLS_CERT}",
+  "tlsKey": "${TLS_KEY}",
   "accessMode": "${PANEL_ACCESS}",
   "sshOnly": 0,
   "listenHost": "${LISTEN_HOST}",
@@ -428,7 +510,7 @@ chmod 600 "$PANEL_DIR/panel/data/config.json"
 
 cat > /etc/systemd/system/panel-naive-hy2.service <<EOF
 [Unit]
-Description=RIXXX Panel Naive + Hysteria2
+Description=N+H Panel Naive + Hysteria2
 After=network.target ${CADDY_SERVICE}.service hysteria-server.service
 
 [Service]
@@ -438,9 +520,14 @@ Environment=NODE_ENV=production
 Environment=PORT=${INTERNAL_PORT}
 Environment=LISTEN_HOST=${LISTEN_HOST}
 Environment=CADDY_SERVICE=${CADDY_SERVICE}
+Environment=CADDY_BIN=${CADDY_BIN}
 Environment=CADDYFILE_PATH=${CADDY_DIR}/Caddyfile
 Environment=CADDY_SITE_TEMPLATE=https://{domain}:${CADDY_PORT}
 Environment=CADDY_BIND=${CADDY_HOST}
+Environment=CADDY_LISTENER_SERVER=${CADDY_HOST}:${CADDY_PORT}
+Environment=CADDY_PROXY_PROTOCOL=1
+Environment=CADDY_TLS_CERT=${TLS_CERT}
+Environment=CADDY_TLS_KEY=${TLS_KEY}
 ExecStart=/usr/bin/node server/index.js
 Restart=always
 RestartSec=5
@@ -475,9 +562,15 @@ EOF
   systemctl reload nginx || die "nginx reload failed after panel proxy creation"
 fi
 
-wait_http "http://127.0.0.1:${INTERNAL_PORT}/" "RIXXX panel backend" 45 1 || die "RIXXX panel is not responding on 127.0.0.1:${INTERNAL_PORT}"
+if systemctl is-active --quiet nginx 2>/dev/null; then
+  check_tls "${DOMAIN}:443" "$DOMAIN" "Public nginx stream" || die "Public NaiveProxy TLS is not usable. Check nginx stream SNI route and PROXY protocol."
+else
+  warn "nginx is not active; skipping public TLS check for ${DOMAIN}:443"
+fi
+
+wait_http "http://127.0.0.1:${INTERNAL_PORT}/" "N+H panel backend" 45 1 || die "N+H panel is not responding on 127.0.0.1:${INTERNAL_PORT}"
 if [[ "$PANEL_ACCESS" == "nginx8080" ]]; then
-  wait_http "http://127.0.0.1:${PANEL_PUBLIC_PORT}/" "RIXXX panel nginx proxy" 30 1 || die "RIXXX panel is not available through nginx on 127.0.0.1:${PANEL_PUBLIC_PORT}"
+  wait_http "http://127.0.0.1:${PANEL_PUBLIC_PORT}/" "N+H panel nginx proxy" 30 1 || die "N+H panel is not available through nginx on 127.0.0.1:${PANEL_PUBLIC_PORT}"
 fi
 
 ufw allow 22/tcp >/dev/null 2>&1 || true
@@ -486,18 +579,29 @@ ufw allow 443/tcp >/dev/null 2>&1 || true
 ufw allow 443/udp >/dev/null 2>&1 || true
 [[ "$PANEL_ACCESS" == "nginx8080" ]] && ufw allow "${PANEL_PUBLIC_PORT}/tcp" >/dev/null 2>&1 || true
 
-mkdir -p /etc/rixxx-panel
-echo "1.4.0-unified" > /etc/rixxx-panel/version
+mkdir -p /etc/nh-panel
+echo "1.4.0-unified" > /etc/nh-panel/version
 
 cat > "$PROJECT_DIR/config.env" <<EOF
 NAIVE_DOMAIN="${DOMAIN}"
-RIXXX_PROXY_DOMAIN="${DOMAIN}"
-RIXXX_PANEL_DOMAIN="${PANEL_DOMAIN}"
-RIXXX_EMAIL="${EMAIL}"
-RIXXX_PANEL_PORT="${PANEL_PUBLIC_PORT}"
-RIXXX_BACKEND_LISTEN="${CADDY_LISTEN}"
+NH_PROXY_DOMAIN="${DOMAIN}"
+NH_PANEL_DOMAIN="${PANEL_DOMAIN}"
+NH_EMAIL="${EMAIL}"
+NH_PANEL_PORT="${PANEL_PUBLIC_PORT}"
+NH_BACKEND_LISTEN="${CADDY_LISTEN}"
+NH_TLS_CERT="${TLS_CERT}"
+NH_TLS_KEY="${TLS_KEY}"
+NH_PANEL_URL="http://SERVER_IP:${PANEL_PUBLIC_PORT}"
+NH_PANEL_LOGIN="admin"
+NH_PANEL_PASSWORD="admin"
+NH_NAIVE_LOGIN="${NAIVE_LOGIN}"
+NH_NAIVE_PASSWORD="${NAIVE_PASS}"
+NH_NAIVE_LINK="naive+https://${NAIVE_LOGIN}:${NAIVE_PASS}@${DOMAIN}:443"
+NH_HY2_USER="default"
+NH_HY2_PASSWORD="${HY2_PASS}"
+NH_HY2_LINK="hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#N+H"
 EOF
-ok "Saved RIXXX configuration: $PROJECT_DIR/config.env"
+ok "Saved N+H configuration: $PROJECT_DIR/config.env"
 
 service_state() {
   local svc="$1"
@@ -512,7 +616,7 @@ service_state() {
 
 cat <<EOF
 
-RIXXX unified backend installed
+N+H unified backend installed
 -------------------------------
 
 Panel:
@@ -522,7 +626,7 @@ Panel:
 
 Links:
   Naive: naive+https://${NAIVE_LOGIN}:${NAIVE_PASS}@${DOMAIN}:443
-  Hy2:   hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#RIXXX
+  Hy2:   hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#N+H
 
 Services:
   ${CADDY_SERVICE}:     $(service_state "$CADDY_SERVICE")
@@ -536,5 +640,5 @@ Ports:
 
 Warnings:
   - Change default panel password admin/admin.
-  - If ACME certificate was not issued, NaiveProxy/Hysteria2 may not work until TLS is fixed.
+  - N+H/Naive TLS was checked locally and through public nginx stream during install.
 EOF

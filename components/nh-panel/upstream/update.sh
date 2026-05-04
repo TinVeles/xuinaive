@@ -1,11 +1,11 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════
-#  Panel Naive + Hysteria2 by RIXXX — Update Script
+#  N+H Panel — Update Script
 #  Применяет инкрементальные патчи поверх существующей установки.
 #  НЕ трогает: пользователей, сертификаты, домены, sysctl, активные сервисы.
 #
 #  Запуск:
-#    bash <(curl -fsSL https://raw.githubusercontent.com/cwash797-cmd/Panel---Naive-Hy2---by---RIXXX/main/update.sh)
+#    bash <(curl -fsSL https://raw.githubusercontent.com/cwash797-cmd/NH-Panel-Naive-Hy2/main/update.sh)
 #
 #  Флаги:
 #    --dry-run            показать что будет сделано, ничего не менять
@@ -23,7 +23,7 @@
 #                         Caddyfile и Hy2 config, перезапускает сервисы.
 #    --repair             регенерация Caddyfile и /etc/hysteria/config.yaml из
 #                         config.json. Перед изменениями автоматически делает
-#                         бэкап в /etc/rixxx-panel/backups/YYYY-MM-DD/.
+#                         бэкап в /etc/nh-panel/backups/YYYY-MM-DD/.
 #                         При невалидном результате — откат из бэкапа.
 #    --status             вывести состояние установки: версия, статус сервисов
 #                         (caddy/hysteria/panel), TLS-сертификаты, открытые
@@ -45,7 +45,7 @@ CADDYFILE="/etc/caddy/Caddyfile"
 HY2_CONFIG="/etc/hysteria/config.yaml"
 PANEL_SERVICE_NAME="panel-naive-hy2"
 
-VERSION_DIR="/etc/rixxx-panel"
+VERSION_DIR="/etc/nh-panel"
 VERSION_FILE="${VERSION_DIR}/version"
 
 # ── Флаги командной строки ──────────────────────────────────────────────
@@ -107,7 +107,7 @@ header() {
   clear 2>/dev/null || true
   echo ""
   echo -e "${PURPLE}${BOLD}╔══════════════════════════════════════════════════════════╗${RESET}"
-  echo -e "${PURPLE}${BOLD}║   Panel Naive + Hy2 by RIXXX — Update                    ║${RESET}"
+  echo -e "${PURPLE}${BOLD}║   N+H Panel — Update                    ║${RESET}"
   echo -e "${PURPLE}${BOLD}║   Применение инкрементальных патчей                      ║${RESET}"
   echo -e "${PURPLE}${BOLD}╚══════════════════════════════════════════════════════════╝${RESET}"
   echo ""
@@ -164,7 +164,7 @@ if [[ ${#MISSING[@]} -gt 0 ]]; then
     echo ""
     log_warn "Похоже, панель ещё не установлена на этом сервере."
     log_info "Запустите основной установщик:"
-    log_info "  bash <(curl -fsSL https://raw.githubusercontent.com/cwash797-cmd/Panel---Naive-Hy2---by---RIXXX/main/install.sh)"
+    log_info "  bash <(curl -fsSL https://raw.githubusercontent.com/cwash797-cmd/NH-Panel-Naive-Hy2/main/install.sh)"
     exit 1
   fi
 fi
@@ -327,7 +327,7 @@ migrate_masquerade_default() {
 #     вся новая инфраструктура (атомарная запись Caddyfile, --repair, --status,
 #     автобэкап, smoke-test в install.sh) живёт в коде update.sh / install.sh
 #     и не требует изменений в config.json.
-#   • Создаёт каталог /etc/rixxx-panel/backups/ заранее, чтобы первый --repair
+#   • Создаёт каталог /etc/nh-panel/backups/ заранее, чтобы первый --repair
 #     не выводил предупреждение про отсутствие папки.
 #   • Информирует пользователя о новых возможностях.
 #
@@ -1014,7 +1014,7 @@ do_ssh_only() {
   else
     log_err "Панель НЕ отвечает на http://127.0.0.1:3000! Откат:"
     log_info "  bash update.sh --expose ${CUR_PANEL_DOMAIN:-<panel-domain>}"
-    log_info "  Или восстановите из бэкапа: ${BACKUP_DIR:-/etc/rixxx-panel/backups/}"
+    log_info "  Или восстановите из бэкапа: ${BACKUP_DIR:-/etc/nh-panel/backups/}"
     return 1
   fi
 
@@ -1032,7 +1032,7 @@ do_ssh_only() {
 # ─────────────────────────────────────────────────────────────────────────
 # Утилита: auto_backup <tag>
 # ─────────────────────────────────────────────────────────────────────────
-# Делает снимок ключевых файлов в /etc/rixxx-panel/backups/YYYY-MM-DD-HHMMSS-<tag>/.
+# Делает снимок ключевых файлов в /etc/nh-panel/backups/YYYY-MM-DD-HHMMSS-<tag>/.
 # Снимок включает: config.json, Caddyfile, /etc/hysteria/config.yaml,
 # systemd-юнит панели. Это даёт точку отката после --repair или ручных правок.
 # Никогда не падает: если файла нет — просто пропускает.
@@ -1103,7 +1103,7 @@ rollback_from_backup() {
 # Режим --repair: регенерация Caddyfile + Hy2 config из config.json.
 # ─────────────────────────────────────────────────────────────────────────
 # Алгоритм:
-#   1) auto_backup "repair" → /etc/rixxx-panel/backups/...
+#   1) auto_backup "repair" → /etc/nh-panel/backups/...
 #   2) Регенерируем Caddyfile из config.json (NaiveProxy + панель + masquerade).
 #   3) Регенерируем /etc/hysteria/config.yaml (auth + masquerade + TLS-block).
 #   4) caddy validate. Если упал — rollback_from_backup, exit 1.

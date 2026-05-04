@@ -10,7 +10,7 @@ usage() {
   cat <<'EOF'
 Usage:
   ./apply-naive-sni-route.sh --naive-domain n.example.com [--backend 127.0.0.1:9445]
-  ./apply-naive-sni-route.sh --domain n.example.com --backend 127.0.0.1:9445 --name rixxx_naive
+  ./apply-naive-sni-route.sh --domain n.example.com --backend 127.0.0.1:9445 --name nh_naive
 EOF
 }
 

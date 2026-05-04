@@ -1,9 +1,9 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════
-#  Panel Naive + Hysteria2 by RIXXX — Полный установщик
+#  N+H Panel — Полный установщик
 #  Устанавливает: панель управления + NaiveProxy (Caddy) + Hysteria2
 #  Запуск:
-#    bash <(curl -fsSL https://raw.githubusercontent.com/cwash797-cmd/Panel---Naive-Hy2---by---RIXXX/main/install.sh)
+#    sudo ./components/nh-panel/install.sh
 #  Требования: Ubuntu 22.04 / 24.04 / Debian 11+ / root / amd64|arm64|armv7
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -12,7 +12,7 @@ export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 export NEEDRESTART_SUSPEND=1
 
-REPO_URL="${REPO_URL:-https://github.com/cwash797-cmd/Panel---Naive-Hy2---by---RIXXX}"
+REPO_URL="${REPO_URL:-}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 PANEL_DIR="/opt/panel-naive-hy2"
 LOCAL_PANEL_SOURCE="${LOCAL_PANEL_SOURCE:-}"
@@ -28,7 +28,7 @@ header() {
   clear
   echo ""
   echo -e "${PURPLE}${BOLD}╔══════════════════════════════════════════════════════════╗${RESET}"
-  echo -e "${PURPLE}${BOLD}║   Panel Naive + Hysteria2 by RIXXX — Установщик          ║${RESET}"
+  echo -e "${PURPLE}${BOLD}║   N+H Panel — Установщик                              ║${RESET}"
   echo -e "${PURPLE}${BOLD}╚══════════════════════════════════════════════════════════╝${RESET}"
   echo ""
 }
@@ -303,8 +303,8 @@ log_ok "Система подготовлена"
 # ── Б2. BBR + UDP-буферы ────────────────────────────────────────────────
 next_step "Включение BBR и UDP-оптимизации..."
 
-cat > /etc/sysctl.d/99-rixxx-tune.conf << 'SYSCTLEOF'
-# by RIXXX — сетевой тюнинг для Naive (TCP) + Hy2 (UDP)
+cat > /etc/sysctl.d/99-nh-tune.conf << 'SYSCTLEOF'
+# N+H Panel — сетевой тюнинг для Naive (TCP) + Hy2 (UDP)
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 # UDP буферы для Hysteria2 (рекомендация apernet)
@@ -485,7 +485,7 @@ HTMLEOF
   # эти правки ломали Caddy (серт не получается, сервис не стартует).
   cat > /etc/systemd/system/caddy.service << 'SVCEOF'
 [Unit]
-Description=Caddy with NaiveProxy (by RIXXX)
+Description=Caddy with NaiveProxy (N+H Panel)
 Documentation=https://caddyserver.com/docs/
 After=network.target network-online.target
 Requires=network-online.target
@@ -588,7 +588,7 @@ if [[ $INSTALL_HY2 -eq 1 ]]; then
 
   cat > /etc/hysteria/config.yaml << HYCFGEOF
 # ═══════════════════════════════════════════════
-#  Hysteria2 config — by RIXXX
+#  Hysteria2 config — N+H Panel
 #  https://v2.hysteria.network/
 # ═══════════════════════════════════════════════
 
@@ -752,7 +752,7 @@ HYBWEOF
 
   cat > /etc/systemd/system/hysteria-server.service << HYSVCEOF
 [Unit]
-Description=Hysteria2 Server (by RIXXX)
+Description=Hysteria2 Server (N+H Panel)
 Documentation=https://v2.hysteria.network/
 ${HY_UNIT_AFTER}
 ${HY_UNIT_WANTS}
@@ -885,6 +885,10 @@ elif [[ -d "${PANEL_DIR}/.git" ]]; then
   log_warn "Панель уже установлена — обновляем..."
   cd "${PANEL_DIR}" && git fetch --all && git reset --hard "origin/${REPO_BRANCH}" 2>&1 | tail -2 || true
 else
+  [[ -n "$REPO_URL" ]] || {
+    log_err "REPO_URL не задан. Запускайте через components/nh-panel/install.sh, который использует vendored source."
+    exit 1
+  }
   rm -rf "${PANEL_DIR}"
   git clone -b "${REPO_BRANCH}" "${REPO_URL}" "${PANEL_DIR}" 2>&1 || {
     log_err "Не удалось клонировать репозиторий"
@@ -997,7 +1001,7 @@ else
   # Fallback: создаём systemd-юнит и запускаем напрямую через Node.js
   cat > /etc/systemd/system/panel-naive-hy2.service << SVCFALLBACKEOF
 [Unit]
-Description=Panel Naive + Hy2 by RIXXX (fallback)
+Description=N+H Panel (fallback)
 After=network.target
 
 [Service]
@@ -1413,7 +1417,7 @@ fi
 if [[ $INSTALL_HY2 -eq 1 ]]; then
   # ВАЖНО: при userpass-авторизации в URI auth = username:password
   # (см. https://v2.hysteria.network/docs/developers/URI-Scheme/)
-  HY2_LINK="hysteria2://default:${HY2_PASS}@${PROXY_DOMAIN}:443?sni=${PROXY_DOMAIN}&insecure=0#RIXXX"
+  HY2_LINK="hysteria2://default:${HY2_PASS}@${PROXY_DOMAIN}:443?sni=${PROXY_DOMAIN}&insecure=0#N+H"
   echo -e "${PURPLE}${BOLD}║                                                               ║${RESET}"
   echo -e "${PURPLE}${BOLD}║   ⚡  Hysteria2                                               ║${RESET}"
   echo -e "${PURPLE}${BOLD}║   Домен:  ${PROXY_DOMAIN}                                     ║${RESET}"
@@ -1436,11 +1440,11 @@ echo ""
 # пытаться повторно применять миграции, которые install.sh уже сделал.
 # Должно совпадать с TARGET_VERSION в update.sh.
 PANEL_PATCH_VERSION="1.0.0"
-mkdir -p /etc/rixxx-panel
-echo "$PANEL_PATCH_VERSION" > /etc/rixxx-panel/version
-chmod 644 /etc/rixxx-panel/version
-log_info "Версия патчей: ${PANEL_PATCH_VERSION} (см. /etc/rixxx-panel/version)"
-log_info "Для будущих обновлений: bash <(curl -fsSL https://raw.githubusercontent.com/cwash797-cmd/Panel---Naive-Hy2---by---RIXXX/main/update.sh)"
+mkdir -p /etc/nh-panel
+echo "$PANEL_PATCH_VERSION" > /etc/nh-panel/version
+chmod 644 /etc/nh-panel/version
+log_info "Версия патчей: ${PANEL_PATCH_VERSION} (см. /etc/nh-panel/version)"
+log_info "Для будущих обновлений: bash <(curl -fsSL https://raw.githubusercontent.com/cwash797-cmd/NH-Panel-Naive-Hy2/main/update.sh)"
 echo ""
 
 echo -e "${GREEN}${BOLD}   Удачи! Telegram: https://t.me/russian_paradice_vpn${RESET}"

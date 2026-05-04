@@ -3,7 +3,7 @@
 Unified installer for all components on one VPS:
 
 - x-ui-pro / 3x-ui / Xray / nginx;
-- RIXXX Panel / NaiveProxy / Caddy backend;
+- N+H Panel / NaiveProxy / Caddy backend;
 - Hysteria2.
 
 Default `install.sh` mode is safe dry-run. Real install requires explicit `--install --yes`.
@@ -34,16 +34,17 @@ The repository also contains vendored component copies under `components/`:
 ```text
 components/
 ├── x-ui-pro/
-└── rixxx-panel/
+└── nh-panel/
 ```
 
 ## What You Get
 
-- `--mode all`: installs 3x-ui / x-ui-pro plus RIXXX Panel, NaiveProxy, and Hysteria2 on one VPS.
+- `--mode all`: installs 3x-ui / x-ui-pro plus N+H Panel, NaiveProxy, and Hysteria2 on one VPS.
 - nginx from x-ui-pro owns public `443/tcp`.
-- RIXXX Caddy/NaiveProxy runs behind nginx on `127.0.0.1:9445`.
+- N+H Caddy/NaiveProxy runs behind nginx on `127.0.0.1:9445`.
 - Hysteria2 uses public `443/udp`.
-- You still get two web panels: 3x-ui for Xray/3x-ui and RIXXX Panel for NaiveProxy + Hysteria2.
+- N+H Caddy uses a ready certificate/key and accepts nginx stream PROXY protocol on the backend listener.
+- You still get two web panels: 3x-ui for Xray/3x-ui and N+H Panel for NaiveProxy + Hysteria2.
 
 ## Quick Start From VPS
 
@@ -56,26 +57,28 @@ git clone https://github.com/TinVeles/xuinaive.git unified-proxy-manager
 cd unified-proxy-manager
 sudo bash install.sh --mode all \
   --xui-domain xui.example.com \
-  --rixxx-domain naive.example.com \
+  --nh-domain naive.example.com \
   --reality-dest reality.example.com \
-  --rixxx-email admin@example.com \
+  --nh-email admin@example.com \
   --install \
   --yes
 ```
 
-If you already have a certificate for the RIXXX/NaiveProxy domain, pass it explicitly:
+If you already have a certificate for the N+H/NaiveProxy domain, pass it explicitly:
 
 ```bash
 sudo bash install.sh --mode all \
   --xui-domain xui.example.com \
-  --rixxx-domain naive.example.com \
+  --nh-domain naive.example.com \
   --reality-dest reality.example.com \
-  --rixxx-email admin@example.com \
+  --nh-email admin@example.com \
   --tls-cert /etc/letsencrypt/live/naive.example.com/fullchain.pem \
   --tls-key /etc/letsencrypt/live/naive.example.com/privkey.pem \
   --install \
   --yes
 ```
+
+In `--mode all`, the installer does not let Caddy issue its own certificate on `127.0.0.1:9445`. If `--tls-cert` and `--tls-key` are omitted, it first issues the N+H/NaiveProxy certificate through nginx HTTP-01 on port `80`; if that fails, it automatically tries a standalone certbot fallback after stopping nginx/caddy and checking that `80/tcp` is free. It then configures both Caddy and Hysteria2 to use the same cert/key, installs a renewal deploy hook, and stops the install if backend TLS or public nginx stream TLS does not pass `openssl s_client` checks.
 
 Dry-run only:
 
@@ -103,7 +106,7 @@ sudo bash install.sh
 
 The script will ask for:
 
-- mode: `xui`, `naive`, `all`, `both`, or `rixxx`;
+- mode: `xui`, `naive`, `all`, `both`, or `nh`;
 - x-ui domain when needed;
 - NaiveProxy domain when needed;
 - REALITY destination domain when needed;
@@ -126,29 +129,29 @@ All components plan:
 ```bash
 sudo bash install.sh --mode all \
   --xui-domain x.example.com \
-  --rixxx-domain n.example.com \
+  --nh-domain n.example.com \
   --reality-dest r.example.com \
-  --rixxx-email admin@example.com \
+  --nh-email admin@example.com \
   --dry-run
 ```
 
-Standalone RIXXX panel plan:
+Standalone N+H panel plan:
 
 ```bash
-sudo bash install.sh --mode rixxx \
+sudo bash install.sh --mode nh \
   --domain vpn.example.com \
   --proxy-email admin@example.com \
   --dry-run
 ```
 
-Real RIXXX panel install:
+Real N+H panel install:
 
 ```bash
-sudo bash install.sh --mode rixxx \
+sudo bash install.sh --mode nh \
   --domain vpn.example.com \
   --proxy-email admin@example.com \
-  --rixxx-stack both \
-  --rixxx-access nginx8080 \
+  --nh-stack both \
+  --nh-access nginx8080 \
   --install \
   --yes
 ```
@@ -156,10 +159,10 @@ sudo bash install.sh --mode rixxx \
 With a separate HTTPS panel subdomain:
 
 ```bash
-sudo bash install.sh --mode rixxx \
+sudo bash install.sh --mode nh \
   --domain vpn.example.com \
   --proxy-email admin@example.com \
-  --rixxx-access subdomain \
+  --nh-access subdomain \
   --panel-domain panel.example.com \
   --panel-email admin@example.com \
   --install \
@@ -170,6 +173,12 @@ Status:
 
 ```bash
 sudo ./status.sh
+```
+
+Copy-friendly access info after installation:
+
+```bash
+sudo cat ./access-info.txt
 ```
 
 Doctor:
@@ -184,11 +193,11 @@ sudo ./doctor.sh
 - OS support: Ubuntu 22.04, Ubuntu 24.04, Debian 12;
 - required commands: `curl`, `wget`, `git`, `systemctl`;
 - upstream script presence;
-- service states for `x-ui`, `nginx`, `caddy-rixxx`, `ufw`;
+- service states for `x-ui`, `nginx`, `caddy-nh`, `ufw`;
 - service states for `hysteria-server` and `panel-naive-hy2` when present;
 - listeners on `80`, `443`, `2053`, `8443`, `9443`;
 - DNS A records for provided domains against current public IPv4;
-- 443 conflict risk and SNI backend layout for `all` mode.
+- N+H backend/public TLS checks and SNI backend layout for `all` mode.
 
 ## Important
 
@@ -211,9 +220,9 @@ Direct all-in-one installer command through `install.sh`:
 ```bash
 sudo bash install.sh --mode all \
   --xui-domain xui.example.com \
-  --rixxx-domain naive.example.com \
+  --nh-domain naive.example.com \
   --reality-dest reality.example.com \
-  --rixxx-email admin@example.com \
+  --nh-email admin@example.com \
   --install \
   --yes
 ```
@@ -221,13 +230,13 @@ sudo bash install.sh --mode all \
 This installer uses one public `443` owner:
 
 - x-ui-pro/nginx listens on public `443`;
-- RIXXX NaiveProxy/Caddy listens on `127.0.0.1:9445`;
-- nginx stream routes the RIXXX/NaiveProxy domain by SNI to `127.0.0.1:9445`;
+- N+H NaiveProxy/Caddy listens on `127.0.0.1:9445`;
+- nginx stream routes the N+H/NaiveProxy domain by SNI to `127.0.0.1:9445` and Caddy accepts the stream PROXY protocol before TLS;
 - Hysteria2 listens on public `443/udp`;
-- RIXXX Panel is available through nginx on `8081` by default.
+- N+H Panel is available through nginx on `8081` by default.
 
 Warning: `install-unified.sh` runs the vendored x-ui-pro installer, which is destructive like upstream. Use it only on a fresh VPS or after backups.
 
 ## Legacy / Standalone Modes
 
-`--mode rixxx` still exists for a standalone RIXXX Panel install without 3x-ui. For one-command 3x-ui + RIXXX, use `--mode all`.
+`--mode nh` still exists for a standalone N+H Panel install without 3x-ui. For one-command 3x-ui + N+H, use `--mode all`.

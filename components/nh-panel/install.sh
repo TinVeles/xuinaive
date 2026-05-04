@@ -5,15 +5,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UPSTREAM_DIR="$SCRIPT_DIR/upstream"
 UPSTREAM_INSTALL="$UPSTREAM_DIR/install.sh"
 
-STACK="${RIXXX_STACK:-both}"
-ACCESS="${RIXXX_ACCESS:-nginx8080}"
-PROXY_DOMAIN="${RIXXX_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
-PROXY_EMAIL="${RIXXX_PROXY_EMAIL:-${PROXY_EMAIL:-}}"
-PANEL_DOMAIN="${RIXXX_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
-PANEL_EMAIL="${RIXXX_PANEL_EMAIL:-${PANEL_EMAIL:-}}"
-SSH_ONLY="${RIXXX_SSH_ONLY:-0}"
-MASQUERADE="${RIXXX_MASQUERADE:-local}"
-MASQUERADE_URL="${RIXXX_MASQUERADE_URL:-}"
+STACK="${NH_STACK:-both}"
+ACCESS="${NH_ACCESS:-nginx8080}"
+PROXY_DOMAIN="${NH_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
+PROXY_EMAIL="${NH_PROXY_EMAIL:-${PROXY_EMAIL:-}}"
+PANEL_DOMAIN="${NH_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
+PANEL_EMAIL="${NH_PANEL_EMAIL:-${PANEL_EMAIL:-}}"
+SSH_ONLY="${NH_SSH_ONLY:-0}"
+MASQUERADE="${NH_MASQUERADE:-local}"
+MASQUERADE_URL="${NH_MASQUERADE_URL:-}"
 ASSUME_YES=0
 DRY_RUN=0
 ALLOW_PORT_CONFLICT=0
@@ -21,7 +21,7 @@ ALLOW_PORT_CONFLICT=0
 usage() {
   cat <<'EOF'
 Usage:
-  sudo ./components/rixxx-panel/install.sh --domain vpn.example.com --email admin@example.com --yes
+  sudo ./components/nh-panel/install.sh --domain vpn.example.com --email admin@example.com --yes
 
 Options:
   --stack both|naive|hy2
@@ -104,7 +104,7 @@ port_443_busy() {
 }
 
 if [[ "$ASSUME_YES" != "1" ]]; then
-  warn "Starting the original interactive RIXXX installer."
+  warn "Starting the original interactive N+H installer."
   warn "It installs a public Caddy/NaiveProxy/Hy2 stack and can change packages, firewall, services, and /etc configs."
   export LOCAL_PANEL_SOURCE="$UPSTREAM_DIR"
   exec bash "$UPSTREAM_INSTALL"
@@ -132,7 +132,7 @@ if port_443_busy && [[ "$ALLOW_PORT_CONFLICT" != "1" ]]; then
 fi
 
 cat <<EOF
-RIXXX panel install plan
+N+H panel install plan
 ------------------------
 Stack:       $STACK
 Access:      $ACCESS
@@ -142,7 +142,7 @@ Panel domain: ${PANEL_DOMAIN:-not used}
 SSH-only:    $SSH_ONLY
 Masquerade:  $MASQUERADE ${MASQUERADE_URL:-}
 
-This will run the vendored RIXXX installer with LOCAL_PANEL_SOURCE=$UPSTREAM_DIR.
+This will run the vendored N+H installer with LOCAL_PANEL_SOURCE=$UPSTREAM_DIR.
 EOF
 
 if [[ "$DRY_RUN" == "1" ]]; then

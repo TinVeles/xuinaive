@@ -6,11 +6,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 XUI_DOMAIN="${XUI_DOMAIN:-}"
 NAIVE_DOMAIN="${NAIVE_DOMAIN:-}"
 REALITY_DEST="${REALITY_DEST:-}"
-RIXXX_PROXY_DOMAIN="${RIXXX_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
-RIXXX_PANEL_DOMAIN="${RIXXX_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
-RIXXX_EMAIL="${RIXXX_EMAIL:-${RIXXX_PROXY_EMAIL:-}}"
-RIXXX_PANEL_PORT="${RIXXX_PANEL_PORT:-8081}"
-RIXXX_BACKEND_LISTEN="${RIXXX_BACKEND_LISTEN:-127.0.0.1:9445}"
+NH_PROXY_DOMAIN="${NH_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
+NH_PANEL_DOMAIN="${NH_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
+NH_EMAIL="${NH_EMAIL:-${NH_PROXY_EMAIL:-}}"
+NH_PANEL_PORT="${NH_PANEL_PORT:-8081}"
+NH_BACKEND_LISTEN="${NH_BACKEND_LISTEN:-127.0.0.1:9445}"
+NH_TLS_CERT="${NH_TLS_CERT:-}"
+NH_TLS_KEY="${NH_TLS_KEY:-}"
 
 if [[ -f "$SCRIPT_DIR/config.env" ]]; then
   # shellcheck disable=SC1090
@@ -49,18 +51,23 @@ echo "Configured domains:"
 echo "  XUI_DOMAIN=${XUI_DOMAIN:-not set}"
 echo "  NAIVE_DOMAIN=${NAIVE_DOMAIN:-not set}"
 echo "  REALITY_DEST=${REALITY_DEST:-not set}"
-echo "  RIXXX_PROXY_DOMAIN=${RIXXX_PROXY_DOMAIN:-not set}"
-echo "  RIXXX_PANEL_DOMAIN=${RIXXX_PANEL_DOMAIN:-not set}"
-echo "  RIXXX_EMAIL=${RIXXX_EMAIL:-not set}"
-echo "  RIXXX_PANEL_PORT=${RIXXX_PANEL_PORT:-not set}"
-echo "  RIXXX_BACKEND_LISTEN=${RIXXX_BACKEND_LISTEN:-not set}"
+echo "  NH_PROXY_DOMAIN=${NH_PROXY_DOMAIN:-not set}"
+echo "  NH_PANEL_DOMAIN=${NH_PANEL_DOMAIN:-not set}"
+echo "  NH_EMAIL=${NH_EMAIL:-not set}"
+echo "  NH_PANEL_PORT=${NH_PANEL_PORT:-not set}"
+echo "  NH_BACKEND_LISTEN=${NH_BACKEND_LISTEN:-not set}"
+echo "  NH_TLS_CERT=${NH_TLS_CERT:-not set}"
+echo "  NH_TLS_KEY=${NH_TLS_KEY:-not set}"
+if [[ -f "$SCRIPT_DIR/access-info.txt" ]]; then
+  echo "  ACCESS_INFO=$SCRIPT_DIR/access-info.txt"
+fi
 
 echo
 echo "Services:"
 service_line x-ui
 service_line nginx
 service_line caddy
-service_line caddy-rixxx
+service_line caddy-nh
 service_line hysteria-server
 service_line panel-naive-hy2
 service_line ufw
@@ -79,7 +86,7 @@ done
 echo
 echo "Recent logs:"
 if command_exists journalctl && command_exists systemctl; then
-  for svc in x-ui nginx caddy caddy-rixxx hysteria-server panel-naive-hy2; do
+  for svc in x-ui nginx caddy caddy-nh hysteria-server panel-naive-hy2; do
     if systemctl list-unit-files "${svc}.service" >/dev/null 2>&1; then
       printf '\n-- %s last 30 lines --\n' "$svc"
       journalctl -u "$svc" -n 30 --no-pager 2>/dev/null || true

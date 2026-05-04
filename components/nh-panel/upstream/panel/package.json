@@ -1,7 +1,7 @@
 {
   "name": "panel-naive-hy2",
   "version": "1.0.0",
-  "description": "Panel Naive + Hysteria2 by RIXXX — управление NaiveProxy и Hysteria2 через веб-интерфейс",
+  "description": "N+H Panel — управление NaiveProxy и Hysteria2 через веб-интерфейс",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",

@@ -83,7 +83,7 @@ Firewall:
 
 ## Removed legacy NaiveProxy installer
 
-The old standalone NaiveProxy component has been removed from the active installer flow. The all-in-one flow now uses the RIXXX Panel NaiveProxy backend on loopback behind nginx stream.
+The old standalone NaiveProxy component has been removed from the active installer flow. The all-in-one flow now uses the N+H Panel NaiveProxy backend on loopback behind nginx stream.
 
 Основной скрипт:
 

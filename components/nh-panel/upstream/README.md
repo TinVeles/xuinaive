@@ -1,4 +1,4 @@
-# Panel Naive + Hysteria2 by RIXXX
+# N+H Panel
 
 > Веб-панель для быстрой установки и управления **NaiveProxy** и **Hysteria2** на одном VPS — в **2 клика**
 
@@ -7,7 +7,7 @@
 ## 🚀 Быстрая установка
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/cwash797-cmd/Panel---Naive-Hy2---by---RIXXX/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/cwash797-cmd/NH-Panel-Naive-Hy2/main/install.sh)
 ```
 
 После установки панель будет доступна:
@@ -24,11 +24,11 @@ http://YOUR_SERVER_IP:3000
 Для применения новых патчей (улучшения, новые опции) **без полной переустановки** используйте `update.sh`:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/cwash797-cmd/Panel---Naive-Hy2---by---RIXXX/main/update.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/cwash797-cmd/NH-Panel-Naive-Hy2/main/update.sh)
 ```
 
 **Что делает скрипт:**
-- ✅ Применяет только новые изменения с момента последнего запуска (версионирование через `/etc/rixxx-panel/version`)
+- ✅ Применяет только новые изменения с момента последнего запуска (версионирование через `/etc/nh-panel/version`)
 - ✅ **НЕ трогает** существующих пользователей, пароли, домены, сертификаты, sysctl-настройки
 - ✅ В конце выводит сводку: что обновлено, что пропущено, версия до/после
 - ✅ Безопасно запускать повторно (idempotent — уже применённые миграции пропускаются)
@@ -346,7 +346,7 @@ sudo bash update.sh --repair
 ```
 
 **Что происходит:**
-1. **Автобэкап** в `/etc/rixxx-panel/backups/YYYY-MM-DD-HHMMSS-repair/` — сохраняются Caddyfile, hysteria config, panel config, systemd-юнит. Хранятся последние 10 бэкапов, старые удаляются.
+1. **Автобэкап** в `/etc/nh-panel/backups/YYYY-MM-DD-HHMMSS-repair/` — сохраняются Caddyfile, hysteria config, panel config, systemd-юнит. Хранятся последние 10 бэкапов, старые удаляются.
 2. **Регенерация** Caddyfile и Hy2 config из шаблонов на основе текущего `config.json`.
 3. **Валидация** — `caddy validate` для Caddyfile, YAML-парсинг для Hy2. Если новый конфиг невалиден → автоматический rollback из бэкапа.
 4. **Atomic rename** временных файлов в рабочие пути (на ext4/xfs это атомарная операция).
@@ -377,7 +377,7 @@ sudo bash update.sh --repair
 
 ### v1.4.0 — Hotfix: SSH-only режим (PR #7)
 - 🔒 **Закрыта дыра в SSH-only режиме**: при `ACCESS_MODE=1 + SSH_ONLY=1` финальный UFW-блок в `install.sh` перетирал ранний `deny` командой `ufw allow 8080/tcp`, а Nginx биндился на `0.0.0.0:8080` — панель оставалась доступной из Интернета, несмотря на `LISTEN_HOST=127.0.0.1` у бэкенда. Теперь `SSH_ONLY=1` принудительно переводит установку в режим прямого bind на `127.0.0.1:${INTERNAL_PORT}` (без Nginx), а финальный UFW-блок проверяет `SSH_ONLY` первым приоритетом и наглухо закрывает 8080/tcp + 3000/tcp.
-- 🔧 **Migration 1.4.0** (`migrate_ssh_only_close_ports`) — для уже установленных серверов с `sshOnly=1`: автоматически закрывает 8080/tcp и 3000/tcp в UFW (и удаляет старые `allow`-правила), останавливает и отключает `nginx`, гарантирует `LISTEN_HOST=127.0.0.1` в systemd-юните и PM2-env, перезапускает панель и финально проверяет, что внешний IP не отвечает на этих портах. Применяется одной командой: `bash <(curl -fsSL https://raw.githubusercontent.com/cwash797-cmd/Panel---Naive-Hy2---by---RIXXX/main/update.sh)`.
+- 🔧 **Migration 1.4.0** (`migrate_ssh_only_close_ports`) — для уже установленных серверов с `sshOnly=1`: автоматически закрывает 8080/tcp и 3000/tcp в UFW (и удаляет старые `allow`-правила), останавливает и отключает `nginx`, гарантирует `LISTEN_HOST=127.0.0.1` в systemd-юните и PM2-env, перезапускает панель и финально проверяет, что внешний IP не отвечает на этих портах. Применяется одной командой: `bash <(curl -fsSL https://raw.githubusercontent.com/cwash797-cmd/NH-Panel-Naive-Hy2/main/update.sh)`.
 - ✅ **Контракт миграции**: если `sshOnly=0` — миграция no-op (легитимный публичный режим `ACCESS_MODE=1` через Nginx-прокси не ломается).
 
 ### v1.3.2 — Hotfix: masquerade (PR #6)
@@ -386,14 +386,14 @@ sudo bash update.sh --repair
 - ⚠️ **Предупреждение в установщике**: при выборе режима mirror теперь показывается явное сообщение про крупные сайты и риск 502/EOF — пользователи больше не будут случайно ставить github.com.
 
 ### v1.3.1 — UI-хотфикс (PR #5)
-- 🆕 **Динамическая версия в панели**: новый эндпоинт `GET /api/system/version` читает `/etc/rixxx-panel/version`, на странице «Настройки → Информация о панели» теперь отображается актуальная версия (раньше было захардкожено `1.0.0`).
+- 🆕 **Динамическая версия в панели**: новый эндпоинт `GET /api/system/version` читает `/etc/nh-panel/version`, на странице «Настройки → Информация о панели» теперь отображается актуальная версия (раньше было захардкожено `1.0.0`).
 - 🆕 **Подсказки в «Диагностике»**: добавлен блок CLI-инструментов со ссылками на `bash update.sh --status` и `sudo bash update.sh --repair` (с примером `--dry-run`).
 - ⚠️ **Пометка в разделе Bypass**: явное предупреждение, что функция в активном тестировании — обязательно проверять на своём клиенте перед использованием в продакшне.
 
 ### v1.3 — Стабильность и диагностика (PR #4)
 - 🆕 **`update.sh --repair`** — регенерация Caddyfile + Hy2 config из `config.json` с автобэкапом, валидацией и rollback при ошибке
 - 🆕 **`update.sh --status`** — одна команда показывает всё состояние (версия, сервисы, TLS, порты, режимы); работает без root
-- 🆕 **Автобэкап** в `/etc/rixxx-panel/backups/` — все ключевые файлы сохраняются перед изменениями, хранятся последние 10
+- 🆕 **Автобэкап** в `/etc/nh-panel/backups/` — все ключевые файлы сохраняются перед изменениями, хранятся последние 10
 - 🆕 **Smoke-test в `install.sh`** — после установки автоматически проверяется работоспособность (caddy validate, systemctl is-active, curl на домены)
 - 🐞 **Атомарная защита `writeCaddyfile()`**: запись через temp-файл → `caddy validate` → `atomic rename`. На любой ошибке — автоматический rollback из `.last`-бэкапа. Это окончательно закрывает баг с потерей panel-блока при добавлении Naive-юзеров.
 - 🐞 **Атомарная защита `writeHysteriaConfig()`**: temp-файл + self-validate (yaml.load) + atomic rename + rollback из `.last`.
@@ -421,4 +421,4 @@ sudo bash update.sh --repair
 
 ---
 
-*by RIXXX — мультипротокольная прокси-панель с удобным интерфейсом*
+*N+H Panel — мультипротокольная прокси-панель с удобным интерфейсом*

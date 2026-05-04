@@ -5,10 +5,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UPSTREAMS_DIR="$SCRIPT_DIR/upstreams"
 
 XUI_REPO="${XUI_REPO:-https://github.com/mozaroc/x-ui-pro.git}"
-RIXXX_REPO="${RIXXX_REPO:-https://github.com/cwash797-cmd/Panel---Naive-Hy2---by---RIXXX.git}"
+NH_REPO="${NH_REPO:-}"
 
 XUI_DIR="$UPSTREAMS_DIR/x-ui-pro"
-RIXXX_DIR="$UPSTREAMS_DIR/Panel---Naive-Hy2---by---RIXXX"
+NH_DIR="$UPSTREAMS_DIR/NH-Panel-Naive-Hy2"
 
 info() { printf 'INFO: %s\n' "$*"; }
 ok() { printf 'OK: %s\n' "$*"; }
@@ -23,6 +23,11 @@ clone_or_update() {
   local repo_url="$1"
   local target_dir="$2"
   local name="$3"
+
+  if [[ -z "$repo_url" ]]; then
+    ok "$name is vendored in components/nh-panel; skipping git clone"
+    return 0
+  fi
 
   if [[ -d "$target_dir/.git" ]]; then
     info "$name already exists, fetching latest refs"
@@ -42,13 +47,13 @@ clone_or_update() {
 }
 
 clone_or_update "$XUI_REPO" "$XUI_DIR" "x-ui-pro"
-clone_or_update "$RIXXX_REPO" "$RIXXX_DIR" "RIXXX panel"
+clone_or_update "$NH_REPO" "$NH_DIR" "N+H panel"
 
 cat <<EOF
 
 Upstreams are ready:
   x-ui-pro:    $XUI_DIR
-  RIXXX panel: $RIXXX_DIR
+  N+H panel: $NH_DIR
 
 Next safe check:
   cd "$SCRIPT_DIR"

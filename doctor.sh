@@ -6,8 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 XUI_DOMAIN="${XUI_DOMAIN:-}"
 NAIVE_DOMAIN="${NAIVE_DOMAIN:-}"
 REALITY_DEST="${REALITY_DEST:-}"
-RIXXX_PROXY_DOMAIN="${RIXXX_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
-RIXXX_PANEL_DOMAIN="${RIXXX_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
+NH_PROXY_DOMAIN="${NH_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
+NH_PANEL_DOMAIN="${NH_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
+NH_BACKEND_LISTEN="${NH_BACKEND_LISTEN:-127.0.0.1:9445}"
 
 if [[ -f "$SCRIPT_DIR/config.env" ]]; then
   # shellcheck disable=SC1090
@@ -60,6 +61,31 @@ service_active() {
   command_exists systemctl && systemctl is-active --quiet "$svc" 2>/dev/null
 }
 
+tls_check() {
+  local target="$1"
+  local server_name="$2"
+  local label="$3"
+  local output=""
+
+  if ! command_exists openssl; then
+    warn "openssl missing; cannot check $label TLS"
+    return 0
+  fi
+
+  output="$(timeout 12 openssl s_client \
+    -connect "$target" \
+    -servername "$server_name" \
+    -alpn http/1.1 \
+    -brief </dev/null 2>&1 || true)"
+
+  if grep -Eq 'Protocol version: TLSv1\.[23]' <<<"$output" && grep -q 'Verification: OK' <<<"$output"; then
+    ok "$label TLS works for $server_name at $target"
+  else
+    bad "$label TLS failed for $server_name at $target"
+    printf '%s\n' "$output"
+  fi
+}
+
 echo "Unified Proxy Manager doctor"
 echo "============================"
 echo
@@ -87,7 +113,7 @@ echo
 echo "DNS:"
 server_ip="$(public_ipv4)"
 [[ -n "$server_ip" ]] && ok "Detected public IPv4: $server_ip" || warn "Could not detect public IPv4"
-for domain in "${XUI_DOMAIN:-}" "${NAIVE_DOMAIN:-}" "${REALITY_DEST:-}" "${RIXXX_PROXY_DOMAIN:-}" "${RIXXX_PANEL_DOMAIN:-}"; do
+for domain in "${XUI_DOMAIN:-}" "${NAIVE_DOMAIN:-}" "${REALITY_DEST:-}" "${NH_PROXY_DOMAIN:-}" "${NH_PANEL_DOMAIN:-}"; do
   [[ -n "$domain" ]] || continue
   records="$(domain_a_records "$domain" | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
   if [[ -z "$records" ]]; then
@@ -114,7 +140,7 @@ done
 echo
 echo "Services:"
 if command_exists systemctl; then
-  for svc in x-ui nginx caddy caddy-rixxx hysteria-server panel-naive-hy2 ufw; do
+  for svc in x-ui nginx caddy caddy-nh hysteria-server panel-naive-hy2 ufw; do
     printf '%-8s active=%-10s enabled=%s\n' \
       "$svc" \
       "$(systemctl is-active "$svc" 2>/dev/null || true)" \
@@ -128,18 +154,25 @@ echo
 echo "Conflict analysis:"
 if service_active nginx && service_active caddy; then
   warn "nginx and public caddy are both active. On one VPS, only one service should own public 443 unless a single SNI router is configured."
-elif service_active nginx && service_active caddy-rixxx && service_active hysteria-server; then
-  ok "nginx, caddy-rixxx, and hysteria-server are active. This is expected for all-in-one mode."
+elif service_active nginx && service_active caddy-nh && service_active hysteria-server; then
+  ok "nginx, caddy-nh, and hysteria-server are active. This is expected for all-in-one mode."
 elif service_active caddy && service_active hysteria-server; then
-  ok "caddy and hysteria-server are both active. This is expected for RIXXX mode when Caddy owns TCP/443 and Hy2 owns UDP/443."
+  ok "caddy and hysteria-server are both active. This is expected for N+H mode when Caddy owns TCP/443 and Hy2 owns UDP/443."
 else
   ok "No obvious nginx+caddy dual-active conflict"
+fi
+
+if [[ -n "${NH_PROXY_DOMAIN:-}" ]]; then
+  echo
+  echo "N+H/Naive TLS:"
+  tls_check "${NH_BACKEND_LISTEN:-127.0.0.1:9445}" "$NH_PROXY_DOMAIN" "Caddy backend"
+  tls_check "${NH_PROXY_DOMAIN}:443" "$NH_PROXY_DOMAIN" "Public nginx stream"
 fi
 
 echo
 echo "Recommendations:"
 echo "- Run install.sh first in dry-run mode only."
 echo "- Make sure DNS A records point to this VPS before any TLS issuance."
-echo "- Keep public 80/443 free before running any future real upstream installer."
+echo "- In --mode all, keep DNS and public 80/tcp reachable; the installer handles nginx webroot ACME and standalone fallback automatically."
 echo "- Do not run x-ui-pro.sh directly on a server with existing nginx/x-ui data without backups."
-echo "- Use --mode rixxx only as a standalone RIXXX panel deployment unless you have reviewed public 443 ownership."
+echo "- Use --mode nh only as a standalone N+H panel deployment unless you have reviewed public 443 ownership."

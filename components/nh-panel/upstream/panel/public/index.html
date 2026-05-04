@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Panel Naive + Hy2 by RIXXX</title>
+  <title>N+H Panel</title>
   <link rel="stylesheet" href="/css/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -39,7 +39,7 @@
       </div>
       <div>
         <div class="logo-title">Naive + Hy2</div>
-        <div class="logo-sub">Panel by RIXXX</div>
+        <div class="logo-sub">N+H Panel</div>
       </div>
     </div>
     <h2 class="login-heading">Добро пожаловать</h2>
@@ -93,7 +93,7 @@
       </div>
       <div>
         <div class="sidebar-title">Naive + Hy2</div>
-        <div class="sidebar-sub">by RIXXX</div>
+        <div class="sidebar-sub">N+H Panel</div>
       </div>
     </div>
 
@@ -549,8 +549,8 @@
             <li><strong>conntrack 1M</strong> — повышает лимит одновременных соединений (для 100+ пользователей).</li>
           </ul>
           <p style="color:var(--text-muted);font-size:13px;margin:10px 0 0 0">
-            Параметры сохраняются в <code>/etc/sysctl.d/99-rixxx-tune.conf</code> и применяются мгновенно,
-            а также автоматически после перезагрузки. Откатить: <code>rm /etc/sysctl.d/99-rixxx-tune.conf && sysctl --system</code>.
+            Параметры сохраняются в <code>/etc/sysctl.d/99-nh-tune.conf</code> и применяются мгновенно,
+            а также автоматически после перезагрузки. Откатить: <code>rm /etc/sysctl.d/99-nh-tune.conf && sysctl --system</code>.
           </p>
         </div>
       </div>
@@ -793,7 +793,7 @@
             <li><strong>Проверить состояние всей установки</strong> (версия, сервисы, TLS, порты, masquerade, режим доступа):
               <code>bash update.sh --status</code> — работает без root, безопасно запускать в любой момент.</li>
             <li><strong>Восстановить сломанную установку</strong> (регенерация Caddyfile и Hysteria-конфига из <code>config.json</code>,
-              авто-бэкап в <code>/etc/rixxx-panel/backups/</code>, валидация и откат при ошибке):
+              авто-бэкап в <code>/etc/nh-panel/backups/</code>, валидация и откат при ошибке):
               <code>sudo bash update.sh --repair</code>. Перед запуском полезно сделать
               <code>sudo bash update.sh --repair --dry-run</code> — покажет что будет сделано без изменений.</li>
             <li><strong>Применить накопительные патчи</strong> (без переустановки): <code>sudo bash update.sh</code>.
@@ -845,7 +845,7 @@
           <div class="card-body">
             <div class="info-rows">
               <div class="info-row"><span class="info-key">Версия</span><span class="info-val">1.0.0</span></div>
-              <div class="info-row"><span class="info-key">Автор</span><span class="info-val">RIXXX</span></div>
+              <div class="info-row"><span class="info-key">Панель</span><span class="info-val">N+H Panel</span></div>
               <div class="info-row"><span class="info-key">Стек</span><span class="info-val">Node.js + Caddy + Hysteria2</span></div>
               <div class="info-row"><span class="info-key">GitHub</span><a href="https://github.com/cwash797-cmd" target="_blank" class="info-val link">cwash797-cmd</a></div>
             </div>
