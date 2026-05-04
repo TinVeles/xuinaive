@@ -25,6 +25,8 @@ RIXXX_SSH_ONLY="${RIXXX_SSH_ONLY:-0}"
 RIXXX_MASQUERADE="${RIXXX_MASQUERADE:-local}"
 RIXXX_MASQUERADE_URL="${RIXXX_MASQUERADE_URL:-}"
 RIXXX_ALLOW_PORT_CONFLICT="${RIXXX_ALLOW_PORT_CONFLICT:-0}"
+TLS_CERT="${TLS_CERT:-}"
+TLS_KEY="${TLS_KEY:-}"
 PROJECT_DIR="${UPM_PROJECT_DIR:-$SCRIPT_DIR}"
 XUI_UPSTREAM="${XUI_UPSTREAM:-upstreams/x-ui-pro/x-ui-pro.sh}"
 RIXXX_UPSTREAM="${RIXXX_UPSTREAM:-upstreams/Panel---Naive-Hy2---by---RIXXX/install.sh}"
@@ -58,6 +60,7 @@ Usage:
   ./install.sh --mode xui --xui-domain x.example.com --reality-dest r.example.com [--dry-run]
   ./install.sh --mode naive --naive-domain n.example.com [--dry-run]
   ./install.sh --mode all --xui-domain x.example.com --rixxx-domain n.example.com --reality-dest r.example.com --rixxx-email admin@example.com --install --yes
+  ./install.sh --mode all --xui-domain x.example.com --rixxx-domain n.example.com --reality-dest r.example.com --rixxx-email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem --install --yes
   ./install.sh --mode rixxx --domain vpn.example.com --proxy-email admin@example.com --install --yes
   ./install.sh --fetch-upstreams
   bash <(wget -qO- RAW_INSTALL_URL)
@@ -449,6 +452,10 @@ validate_required_args() {
 
 validate_real_install_args() {
   [[ "$REAL_INSTALL" == "1" ]] || return 0
+  if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
+    [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
+    [[ -f "$TLS_KEY" ]] || die "--tls-key file not found: $TLS_KEY"
+  fi
   case "$MODE" in
     both)
       [[ -n "$XUI_DOMAIN" ]] || die "--xui-domain is required for real install"
@@ -485,6 +492,8 @@ REALITY dest:   ${REALITY_DEST:-not set}
 Naive email:    ${NAIVE_EMAIL:-not set}
 RIXXX domain:   ${RIXXX_PROXY_DOMAIN:-not set}
 RIXXX email:    ${RIXXX_PROXY_EMAIL:-not set}
+TLS cert:       ${TLS_CERT:-auto/ACME}
+TLS key:        ${TLS_KEY:-auto/ACME}
 
 Changes will be made because --install --yes was provided.
 Packages may be installed.
@@ -506,6 +515,8 @@ REALITY dest:   ${REALITY_DEST:-not set}
 Naive email:    ${NAIVE_EMAIL:-not set}
 RIXXX domain:   ${RIXXX_PROXY_DOMAIN:-not set}
 RIXXX email:    ${RIXXX_PROXY_EMAIL:-not set}
+TLS cert:       ${TLS_CERT:-auto/ACME}
+TLS key:        ${TLS_KEY:-auto/ACME}
 
 No changes will be made.
 No packages will be installed.
@@ -591,13 +602,18 @@ RIXXX email:    $RIXXX_PROXY_EMAIL
 This will install 3x-ui + RIXXX Panel + NaiveProxy + Hysteria2.
 EOF
 
-    bash "$installer" --mode all \
-      --xui-domain "$XUI_DOMAIN" \
-      --rixxx-domain "$RIXXX_PROXY_DOMAIN" \
-      --reality-dest "$REALITY_DEST" \
-      --rixxx-email "$RIXXX_PROXY_EMAIL" \
-      --panel-access "$RIXXX_ACCESS" \
+    local -a all_args=(
+      --mode all
+      --xui-domain "$XUI_DOMAIN"
+      --rixxx-domain "$RIXXX_PROXY_DOMAIN"
+      --reality-dest "$REALITY_DEST"
+      --rixxx-email "$RIXXX_PROXY_EMAIL"
+      --panel-access "$RIXXX_ACCESS"
       --yes
+    )
+    [[ -n "$TLS_CERT" ]] && all_args+=(--tls-cert "$TLS_CERT")
+    [[ -n "$TLS_KEY" ]] && all_args+=(--tls-key "$TLS_KEY")
+    bash "$installer" "${all_args[@]}"
     return 0
   fi
 
@@ -680,6 +696,8 @@ while [[ $# -gt 0 ]]; do
     --masquerade|--rixxx-masquerade) RIXXX_MASQUERADE="${2:-}"; shift 2 ;;
     --masquerade-url|--rixxx-masquerade-url) RIXXX_MASQUERADE_URL="${2:-}"; shift 2 ;;
     --allow-port-conflict|--rixxx-allow-port-conflict) RIXXX_ALLOW_PORT_CONFLICT=1; shift ;;
+    --tls-cert) TLS_CERT="${2:-}"; shift 2 ;;
+    --tls-key) TLS_KEY="${2:-}"; shift 2 ;;
     --project-dir) PROJECT_DIR="${2:-}"; shift 2 ;;
     --fetch-upstreams) AUTO_FETCH_UPSTREAMS=yes; FETCH_ONLY=1; shift ;;
     --no-fetch-upstreams) AUTO_FETCH_UPSTREAMS=no; shift ;;

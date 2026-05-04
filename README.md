@@ -63,6 +63,20 @@ sudo bash install.sh --mode all \
   --yes
 ```
 
+If you already have a certificate for the RIXXX/NaiveProxy domain, pass it explicitly:
+
+```bash
+sudo bash install.sh --mode all \
+  --xui-domain xui.example.com \
+  --rixxx-domain naive.example.com \
+  --reality-dest reality.example.com \
+  --rixxx-email admin@example.com \
+  --tls-cert /etc/letsencrypt/live/naive.example.com/fullchain.pem \
+  --tls-key /etc/letsencrypt/live/naive.example.com/privkey.pem \
+  --install \
+  --yes
+```
+
 Dry-run only:
 
 ```bash

@@ -14,6 +14,8 @@ ASSUME_YES=0
 RIXXX_BACKEND="127.0.0.1:9445"
 PANEL_ACCESS="nginx8080"
 PANEL_PUBLIC_PORT="8081"
+TLS_CERT=""
+TLS_KEY=""
 
 usage() {
   cat <<'EOF'
@@ -23,6 +25,7 @@ Usage:
     --rixxx-domain naive.example.com \
     --reality-dest reality.example.com \
     --rixxx-email admin@example.com \
+    [--tls-cert /path/fullchain.pem --tls-key /path/privkey.pem] \
     --yes
 
 This is the explicit real installer. It runs vendored component scripts.
@@ -34,6 +37,16 @@ info() { printf 'INFO: %s\n' "$*"; }
 ok() { printf 'OK: %s\n' "$*"; }
 warn() { printf 'WARN: %s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+require_active() {
+  local svc="$1"
+  if ! systemctl is-active --quiet "$svc"; then
+    printf 'ERROR: %s failed to start\n' "$svc" >&2
+    journalctl -u "$svc" -n 80 --no-pager -l >&2 || true
+    exit 1
+  fi
+  ok "$svc is active"
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -48,6 +61,8 @@ while [[ $# -gt 0 ]]; do
     --rixxx-backend) RIXXX_BACKEND="${2:-}"; shift 2 ;;
     --panel-access) PANEL_ACCESS="${2:-}"; shift 2 ;;
     --panel-public-port) PANEL_PUBLIC_PORT="${2:-}"; shift 2 ;;
+    --tls-cert) TLS_CERT="${2:-}"; shift 2 ;;
+    --tls-key) TLS_KEY="${2:-}"; shift 2 ;;
     --yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
@@ -62,6 +77,10 @@ done
 [[ -n "$RIXXX_DOMAIN" ]] || die "--rixxx-domain is required"
 [[ -n "$REALITY_DEST" ]] || die "--reality-dest is required"
 [[ -n "$RIXXX_EMAIL" ]] || die "--rixxx-email is required"
+if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
+  [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
+  [[ -f "$TLS_KEY" ]] || die "--tls-key file not found: $TLS_KEY"
+fi
 [[ "$ASSUME_YES" == "1" ]] || die "Add --yes after reading the plan. This installer runs destructive upstream x-ui-pro code."
 
 XUI_SCRIPT="$SCRIPT_DIR/components/x-ui-pro/x-ui-pro.sh"
@@ -73,6 +92,17 @@ RIXXX_BACKEND_INSTALL="$SCRIPT_DIR/components/rixxx-panel/install-unified-backen
 [[ -f "$RIXXX_BACKEND_INSTALL" ]] || die "Missing $RIXXX_BACKEND_INSTALL"
 
 cat <<EOF
+Final configuration
+-------------------
+XUI domain:          ${XUI_DOMAIN}
+RIXXX/Naive domain: ${RIXXX_DOMAIN}
+Reality dest:        ${REALITY_DEST}
+RIXXX email:         ${RIXXX_EMAIL}
+Panel port:          ${PANEL_PUBLIC_PORT}
+Backend listen:      ${RIXXX_BACKEND}
+TLS cert:            ${TLS_CERT:-auto/ACME}
+TLS key:             ${TLS_KEY:-auto/ACME}
+
 Unified all-in-one real install plan
 ------------------------------------
 1. Run vendored x-ui-pro installer.
@@ -101,12 +131,39 @@ ok "Backup directory: $backup_dir"
 
 info "Running x-ui-pro installer"
 bash "$XUI_SCRIPT" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
+require_active x-ui
+require_active nginx
 
 info "Adding nginx stream route for RIXXX NaiveProxy"
 bash "$SNI_PATCH" --domain "$RIXXX_DOMAIN" --backend "$RIXXX_BACKEND" --name rixxx_naive
 
 info "Installing RIXXX Panel + NaiveProxy + Hysteria2 backend"
-bash "$RIXXX_BACKEND_INSTALL" --domain "$RIXXX_DOMAIN" --email "$RIXXX_EMAIL" --listen "$RIXXX_BACKEND" --panel-access "$PANEL_ACCESS" --panel-public-port "$PANEL_PUBLIC_PORT"
+rixxx_args=(
+  --domain "$RIXXX_DOMAIN"
+  --email "$RIXXX_EMAIL"
+  --listen "$RIXXX_BACKEND"
+  --panel-access "$PANEL_ACCESS"
+  --panel-public-port "$PANEL_PUBLIC_PORT"
+)
+[[ -n "$TLS_CERT" ]] && rixxx_args+=(--tls-cert "$TLS_CERT")
+[[ -n "$TLS_KEY" ]] && rixxx_args+=(--tls-key "$TLS_KEY")
+bash "$RIXXX_BACKEND_INSTALL" "${rixxx_args[@]}"
+
+require_active caddy-rixxx
+require_active hysteria-server
+require_active panel-naive-hy2
+
+cat > "$SCRIPT_DIR/config.env" <<EOF
+XUI_DOMAIN="${XUI_DOMAIN}"
+NAIVE_DOMAIN="${RIXXX_DOMAIN}"
+REALITY_DEST="${REALITY_DEST}"
+RIXXX_PROXY_DOMAIN="${RIXXX_DOMAIN}"
+RIXXX_PANEL_DOMAIN=""
+RIXXX_EMAIL="${RIXXX_EMAIL}"
+RIXXX_PANEL_PORT="${PANEL_PUBLIC_PORT}"
+RIXXX_BACKEND_LISTEN="${RIXXX_BACKEND}"
+EOF
+ok "Saved final configuration: $SCRIPT_DIR/config.env"
 
 ok "Unified install completed"
 systemctl status x-ui --no-pager || true

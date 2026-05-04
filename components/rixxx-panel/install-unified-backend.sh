@@ -17,11 +17,14 @@ CADDY_SERVICE="caddy-rixxx"
 CADDY_BIN="/usr/bin/caddy-rixxx"
 CADDY_DIR="/etc/caddy-rixxx"
 PANEL_DIR="/opt/panel-naive-hy2"
+TLS_CERT=""
+TLS_KEY=""
 
 usage() {
   cat <<'EOF'
 Usage:
   sudo ./install-unified-backend.sh --domain naive.example.com --email admin@example.com [--panel-public-port 8081]
+  sudo ./install-unified-backend.sh --domain naive.example.com --email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem
 
 Installs RIXXX Panel + NaiveProxy + Hysteria2 as a backend for the x-ui-pro nginx stream layout:
 - nginx owns public 443/tcp;
@@ -35,6 +38,21 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 info() { printf 'INFO: %s\n' "$*"; }
 ok() { printf 'OK: %s\n' "$*"; }
 warn() { printf 'WARN: %s\n' "$*"; }
+
+fail_service() {
+  local svc="$1"
+  printf 'ERROR: %s failed to start\n' "$svc" >&2
+  journalctl -u "$svc" -n 80 --no-pager -l >&2 || true
+  exit 1
+}
+
+require_active() {
+  local svc="$1"
+  if ! systemctl is-active --quiet "$svc"; then
+    fail_service "$svc"
+  fi
+  ok "$svc is active"
+}
 
 random_alpha() {
   local value
@@ -62,6 +80,8 @@ while [[ $# -gt 0 ]]; do
     --panel-public-port) PANEL_PUBLIC_PORT="${2:-}"; shift 2 ;;
     --listen) CADDY_LISTEN="${2:-}"; shift 2 ;;
     --panel-listen-host) LISTEN_HOST="${2:-}"; shift 2 ;;
+    --tls-cert) TLS_CERT="${2:-}"; shift 2 ;;
+    --tls-key) TLS_KEY="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
@@ -71,6 +91,10 @@ done
 [[ -n "$DOMAIN" ]] || die "--domain is required"
 [[ -n "$EMAIL" ]] || die "--email is required"
 [[ -d "$UPSTREAM_DIR/panel" ]] || die "Missing vendored RIXXX panel: $UPSTREAM_DIR/panel"
+if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
+  [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
+  [[ -f "$TLS_KEY" ]] || die "--tls-key file not found: $TLS_KEY"
+fi
 
 CADDY_HOST="${CADDY_LISTEN%:*}"
 CADDY_PORT="${CADDY_LISTEN##*:}"
@@ -136,6 +160,7 @@ EOF
 
 cat > "$CADDY_DIR/Caddyfile" <<EOF
 {
+  auto_https disable_redirects
   order forward_proxy before file_server
   servers {
     protocols h1 h2
@@ -144,7 +169,7 @@ cat > "$CADDY_DIR/Caddyfile" <<EOF
 
 https://${DOMAIN}:${CADDY_PORT} {
   bind ${CADDY_HOST}
-  tls ${EMAIL}
+  tls ${TLS_CERT:-$EMAIL}${TLS_KEY:+ $TLS_KEY}
 
   forward_proxy {
     basic_auth ${NAIVE_LOGIN} ${NAIVE_PASS}
@@ -189,15 +214,25 @@ EOF
 systemctl daemon-reload
 systemctl enable "$CADDY_SERVICE"
 systemctl restart "$CADDY_SERVICE"
+require_active "$CADDY_SERVICE"
 
-info "Waiting for Caddy certificate for $DOMAIN"
 CADDY_CERT=""
-for _ in $(seq 1 90); do
-  CADDY_CERT="$(find /root/.local/share/caddy /var/lib/caddy/.local/share/caddy -type f -name "${DOMAIN}.crt" 2>/dev/null | head -1 || true)"
-  [[ -n "$CADDY_CERT" && -f "${CADDY_CERT%.crt}.key" ]] && break
-  sleep 2
-done
-[[ -n "$CADDY_CERT" ]] || warn "Caddy certificate was not detected yet. Hy2 config will include ACME fallback."
+if [[ -n "$TLS_CERT" ]]; then
+  CADDY_CERT="$TLS_CERT"
+  CADDY_KEY="$TLS_KEY"
+else
+  info "Waiting for Caddy certificate for $DOMAIN"
+  for _ in $(seq 1 45); do
+    CADDY_CERT="$(find /root/.local/share/caddy /var/lib/caddy/.local/share/caddy -type f -name "${DOMAIN}.crt" 2>/dev/null | head -1 || true)"
+    [[ -n "$CADDY_CERT" && -f "${CADDY_CERT%.crt}.key" ]] && break
+    sleep 2
+  done
+  if [[ -z "$CADDY_CERT" ]]; then
+    warn "Certificate was not detected."
+    warn "Reason: nginx owns public 80/443, while caddy-rixxx listens on ${CADDY_LISTEN}."
+    warn "NaiveProxy/Hysteria2 may not work until TLS is fixed. Prefer --tls-cert and --tls-key."
+  fi
+fi
 
 case "$(uname -m)" in
   x86_64) HY_ARCH="amd64" ;;
@@ -227,7 +262,7 @@ masquerade:
 EOF
 
 if [[ -n "$CADDY_CERT" ]]; then
-  CADDY_KEY="${CADDY_CERT%.crt}.key"
+  CADDY_KEY="${CADDY_KEY:-${CADDY_CERT%.crt}.key}"
   chmod -R 755 "$(dirname "$(dirname "$(dirname "$CADDY_CERT")")")" 2>/dev/null || true
   chmod 644 "$CADDY_CERT" 2>/dev/null || true
   chmod 640 "$CADDY_KEY" 2>/dev/null || true
@@ -288,11 +323,13 @@ EOF
 
 systemctl daemon-reload
 systemctl enable hysteria-server
-systemctl restart hysteria-server || warn "hysteria-server did not start yet. Check journalctl -u hysteria-server -n 50"
+systemctl restart hysteria-server || true
+require_active hysteria-server
 
 rm -rf "$PANEL_DIR"
 mkdir -p "$PANEL_DIR"
 cp -a "$UPSTREAM_DIR/." "$PANEL_DIR/"
+[[ -d "$PANEL_DIR" ]] || die "ERROR: $PANEL_DIR was not created"
 cd "$PANEL_DIR/panel"
 npm install --omit=dev
 mkdir -p "$PANEL_DIR/panel/data"
@@ -358,6 +395,7 @@ EOF
 systemctl daemon-reload
 systemctl enable panel-naive-hy2
 systemctl restart panel-naive-hy2
+require_active panel-naive-hy2
 
 if [[ "$PANEL_ACCESS" == "nginx8080" ]]; then
   cat > /etc/nginx/sites-available/panel-naive-hy2 <<EOF
@@ -376,7 +414,13 @@ server {
 }
 EOF
   ln -sf /etc/nginx/sites-available/panel-naive-hy2 /etc/nginx/sites-enabled/panel-naive-hy2
-  nginx -t && systemctl reload nginx
+  nginx -t || die "nginx config test failed after panel proxy creation"
+  systemctl reload nginx || die "nginx reload failed after panel proxy creation"
+fi
+
+curl -fsS "http://127.0.0.1:${INTERNAL_PORT}/" >/dev/null || die "RIXXX panel is not responding on 127.0.0.1:${INTERNAL_PORT}"
+if [[ "$PANEL_ACCESS" == "nginx8080" ]]; then
+  curl -fsS "http://127.0.0.1:${PANEL_PUBLIC_PORT}/" >/dev/null || die "RIXXX panel is not available through nginx on 127.0.0.1:${PANEL_PUBLIC_PORT}"
 fi
 
 ufw allow 22/tcp >/dev/null 2>&1 || true
@@ -388,17 +432,35 @@ ufw allow 443/udp >/dev/null 2>&1 || true
 mkdir -p /etc/rixxx-panel
 echo "1.4.0-unified" > /etc/rixxx-panel/version
 
+service_state() {
+  systemctl is-active "$1" 2>/dev/null || true
+}
+
 cat <<EOF
 
 RIXXX unified backend installed
 -------------------------------
-Panel:       http://SERVER_IP:${PANEL_PUBLIC_PORT}
-Panel login: admin / admin
-Naive link:  naive+https://${NAIVE_LOGIN}:${NAIVE_PASS}@${DOMAIN}:443
-Hy2 link:    hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#RIXXX
+
+Panel:
+  URL:   http://SERVER_IP:${PANEL_PUBLIC_PORT}
+  Login: admin
+  Pass:  admin
+
+Links:
+  Naive: naive+https://${NAIVE_LOGIN}:${NAIVE_PASS}@${DOMAIN}:443
+  Hy2:   hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#RIXXX
 
 Services:
-  systemctl status ${CADDY_SERVICE}
-  systemctl status hysteria-server
-  systemctl status panel-naive-hy2
+  ${CADDY_SERVICE}:     $(service_state "$CADDY_SERVICE")
+  panel-naive-hy2:      $(service_state panel-naive-hy2)
+  hysteria-server:      $(service_state hysteria-server)
+
+Ports:
+  panel backend:        ${LISTEN_HOST}:${INTERNAL_PORT}
+  panel public:         0.0.0.0:${PANEL_PUBLIC_PORT}
+  caddy backend:        ${CADDY_LISTEN}
+
+Warnings:
+  - Change default panel password admin/admin.
+  - If ACME certificate was not issued, NaiveProxy/Hysteria2 may not work until TLS is fixed.
 EOF

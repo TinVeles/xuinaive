@@ -335,12 +335,14 @@ function writeCaddyfile(cfg) {
   const disableH3 = cfg.stack && cfg.stack.hy2;
   const globalBlock = disableH3
     ? `{
+  auto_https disable_redirects
   order forward_proxy before file_server
   servers {
     protocols h1 h2
   }
 }`
     : `{
+  auto_https disable_redirects
   order forward_proxy before file_server
 }`;
 
