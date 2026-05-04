@@ -24,7 +24,14 @@ load_naive_from_caddyfile() {
   [[ -f "$caddyfile" ]] || return 0
 
   if [[ -z "${NH_PROXY_DOMAIN:-}" ]]; then
-    NH_PROXY_DOMAIN="$(awk '/^https:\/\// {gsub(/^https:\/\//,"",$1); split($1,a,":"); print a[1]; exit}' "$caddyfile" 2>/dev/null || true)"
+    NH_PROXY_DOMAIN="$(awk '
+      /^[[:space:]]*https:\/\// {
+        gsub(/^https:\/\//,"",$1); split($1,a,":"); print a[1]; exit
+      }
+      /^[[:space:]]*:[0-9]+,/ {
+        host=$2; gsub(/[,{]/,"",host); split(host,a,":"); print a[1]; exit
+      }
+    ' "$caddyfile" 2>/dev/null || true)"
   fi
   if [[ -z "${NH_NAIVE_LOGIN:-}" ]]; then
     NH_NAIVE_LOGIN="$(awk '/basic_auth/{print $2; exit}' "$caddyfile" 2>/dev/null || true)"

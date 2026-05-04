@@ -332,7 +332,7 @@ cat > "$CADDY_DIR/Caddyfile" <<EOF
   }
 }
 
-https://${DOMAIN}:${CADDY_PORT} {
+:${CADDY_PORT}, ${DOMAIN}:${CADDY_PORT} {
   bind ${CADDY_HOST}
   tls ${TLS_CERT} ${TLS_KEY}
 
@@ -537,7 +537,7 @@ Environment=LISTEN_HOST=${LISTEN_HOST}
 Environment=CADDY_SERVICE=${CADDY_SERVICE}
 Environment=CADDY_BIN=${CADDY_BIN}
 Environment=CADDYFILE_PATH=${CADDY_DIR}/Caddyfile
-Environment=CADDY_SITE_TEMPLATE=https://{domain}:${CADDY_PORT}
+Environment=CADDY_SITE_TEMPLATE=:${CADDY_PORT}, {domain}:${CADDY_PORT}
 Environment=CADDY_BIND=${CADDY_HOST}
 Environment=CADDY_LISTENER_SERVER=${CADDY_HOST}:${CADDY_PORT}
 Environment=CADDY_PROXY_PROTOCOL=1
