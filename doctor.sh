@@ -9,6 +9,9 @@ REALITY_DEST="${REALITY_DEST:-}"
 NH_PROXY_DOMAIN="${NH_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
 NH_PANEL_DOMAIN="${NH_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
 NH_BACKEND_LISTEN="${NH_BACKEND_LISTEN:-127.0.0.1:9445}"
+NH_NAIVE_LOGIN="${NH_NAIVE_LOGIN:-}"
+NH_NAIVE_PASSWORD="${NH_NAIVE_PASSWORD:-}"
+NH_NAIVE_LINK="${NH_NAIVE_LINK:-}"
 
 if [[ -f "$SCRIPT_DIR/config.env" ]]; then
   # shellcheck disable=SC1090
@@ -83,6 +86,43 @@ tls_check() {
   else
     bad "$label TLS failed for $server_name at $target"
     printf '%s\n' "$output"
+  fi
+}
+
+naive_proxy_check() {
+  local domain="${NH_PROXY_DOMAIN:-}"
+  local user="${NH_NAIVE_LOGIN:-}"
+  local pass="${NH_NAIVE_PASSWORD:-}"
+  local output=""
+
+  [[ -n "$domain" ]] || return 0
+
+  if [[ -z "$user" || -z "$pass" ]]; then
+    warn "NaiveProxy credentials are missing in config.env; cannot run end-to-end proxy check"
+    [[ -n "${NH_NAIVE_LINK:-}" ]] && echo "Saved Naive link: ${NH_NAIVE_LINK}"
+    return 0
+  fi
+
+  if ! command_exists curl; then
+    warn "curl missing; cannot run NaiveProxy end-to-end check"
+    return 0
+  fi
+
+  output="$(curl -fsS \
+    --connect-timeout 10 \
+    --max-time 25 \
+    -x "https://${user}:${pass}@${domain}:443" \
+    https://www.cloudflare.com/cdn-cgi/trace 2>&1 || true)"
+
+  if grep -q '^colo=' <<<"$output" && grep -q '^tls=' <<<"$output"; then
+    ok "NaiveProxy end-to-end check works through https://${domain}:443"
+  else
+    bad "NaiveProxy end-to-end check failed through https://${domain}:443"
+    printf '%s\n' "$output"
+    echo "Check these next:"
+    echo "- sudo nginx -T | grep -E '${domain}|nh_naive|proxy_protocol|9445'"
+    echo "- sudo journalctl -u caddy-nh -n 80 --no-pager -l"
+    echo "- sudo /usr/bin/caddy-nh validate --config /etc/caddy-nh/Caddyfile"
   fi
 }
 
@@ -167,6 +207,10 @@ if [[ -n "${NH_PROXY_DOMAIN:-}" ]]; then
   echo "N+H/Naive TLS:"
   tls_check "${NH_BACKEND_LISTEN:-127.0.0.1:9445}" "$NH_PROXY_DOMAIN" "Caddy backend"
   tls_check "${NH_PROXY_DOMAIN}:443" "$NH_PROXY_DOMAIN" "Public nginx stream"
+
+  echo
+  echo "NaiveProxy end-to-end:"
+  naive_proxy_check
 fi
 
 echo
