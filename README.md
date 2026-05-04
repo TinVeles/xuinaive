@@ -52,7 +52,7 @@ One command for real unified install on a fresh VPS:
 ```bash
 cd /root
 rm -rf unified-proxy-manager
-git clone https://github.com/YOUR_USER/YOUR_REPO.git unified-proxy-manager
+git clone https://github.com/TinVeles/xuinaive.git unified-proxy-manager
 cd unified-proxy-manager
 sudo bash install.sh --mode all \
   --xui-domain xui.example.com \
