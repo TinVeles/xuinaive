@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UPSTREAM_DIR="$SCRIPT_DIR/upstream"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 DOMAIN=""
 EMAIL=""
@@ -52,6 +53,27 @@ require_active() {
     fail_service "$svc"
   fi
   ok "$svc is active"
+}
+
+wait_http() {
+  local url="$1"
+  local label="$2"
+  local attempts="${3:-30}"
+  local delay="${4:-1}"
+
+  for _ in $(seq 1 "$attempts"); do
+    if curl -fsS --max-time 3 "$url" >/dev/null; then
+      ok "$label is responding at $url"
+      return 0
+    fi
+    sleep "$delay"
+  done
+
+  printf 'ERROR: %s is not responding at %s\n' "$label" "$url" >&2
+  if [[ "$label" == *"RIXXX panel"* ]]; then
+    journalctl -u panel-naive-hy2 -n 80 --no-pager -l >&2 || true
+  fi
+  return 1
 }
 
 random_alpha() {
@@ -418,9 +440,9 @@ EOF
   systemctl reload nginx || die "nginx reload failed after panel proxy creation"
 fi
 
-curl -fsS "http://127.0.0.1:${INTERNAL_PORT}/" >/dev/null || die "RIXXX panel is not responding on 127.0.0.1:${INTERNAL_PORT}"
+wait_http "http://127.0.0.1:${INTERNAL_PORT}/" "RIXXX panel backend" 45 1 || die "RIXXX panel is not responding on 127.0.0.1:${INTERNAL_PORT}"
 if [[ "$PANEL_ACCESS" == "nginx8080" ]]; then
-  curl -fsS "http://127.0.0.1:${PANEL_PUBLIC_PORT}/" >/dev/null || die "RIXXX panel is not available through nginx on 127.0.0.1:${PANEL_PUBLIC_PORT}"
+  wait_http "http://127.0.0.1:${PANEL_PUBLIC_PORT}/" "RIXXX panel nginx proxy" 30 1 || die "RIXXX panel is not available through nginx on 127.0.0.1:${PANEL_PUBLIC_PORT}"
 fi
 
 ufw allow 22/tcp >/dev/null 2>&1 || true
@@ -431,6 +453,16 @@ ufw allow 443/udp >/dev/null 2>&1 || true
 
 mkdir -p /etc/rixxx-panel
 echo "1.4.0-unified" > /etc/rixxx-panel/version
+
+cat > "$PROJECT_DIR/config.env" <<EOF
+NAIVE_DOMAIN="${DOMAIN}"
+RIXXX_PROXY_DOMAIN="${DOMAIN}"
+RIXXX_PANEL_DOMAIN="${PANEL_DOMAIN}"
+RIXXX_EMAIL="${EMAIL}"
+RIXXX_PANEL_PORT="${PANEL_PUBLIC_PORT}"
+RIXXX_BACKEND_LISTEN="${CADDY_LISTEN}"
+EOF
+ok "Saved RIXXX configuration: $PROJECT_DIR/config.env"
 
 service_state() {
   systemctl is-active "$1" 2>/dev/null || true
