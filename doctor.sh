@@ -19,6 +19,23 @@ if [[ -f "$SCRIPT_DIR/config.env" ]]; then
   source "$SCRIPT_DIR/config.env"
 fi
 
+load_naive_from_caddyfile() {
+  local caddyfile="${1:-/etc/caddy-nh/Caddyfile}"
+  [[ -f "$caddyfile" ]] || return 0
+
+  if [[ -z "${NH_PROXY_DOMAIN:-}" ]]; then
+    NH_PROXY_DOMAIN="$(awk '/^https:\/\// {gsub(/^https:\/\//,"",$1); split($1,a,":"); print a[1]; exit}' "$caddyfile" 2>/dev/null || true)"
+  fi
+  if [[ -z "${NH_NAIVE_LOGIN:-}" ]]; then
+    NH_NAIVE_LOGIN="$(awk '/basic_auth/{print $2; exit}' "$caddyfile" 2>/dev/null || true)"
+  fi
+  if [[ -z "${NH_NAIVE_PASSWORD:-}" ]]; then
+    NH_NAIVE_PASSWORD="$(awk '/basic_auth/{print $3; exit}' "$caddyfile" 2>/dev/null || true)"
+  fi
+}
+
+load_naive_from_caddyfile "/etc/caddy-nh/Caddyfile"
+
 RED=$'\033[0;31m'
 GREEN=$'\033[0;32m'
 YELLOW=$'\033[1;33m'
@@ -113,6 +130,7 @@ naive_proxy_check() {
   local domain="${NH_PROXY_DOMAIN:-}"
   local user="${NH_NAIVE_LOGIN:-}"
   local pass="${NH_NAIVE_PASSWORD:-}"
+  local auth=""
   local output=""
 
   [[ -n "$domain" ]] || return 0
@@ -128,16 +146,20 @@ naive_proxy_check() {
     return 0
   fi
 
-  output="$(curl -fsS \
-    --connect-timeout 10 \
-    --max-time 25 \
-    -x "https://${user}:${pass}@${domain}:443" \
-    https://www.cloudflare.com/cdn-cgi/trace 2>&1 || true)"
+  if ! command_exists openssl; then
+    warn "openssl missing; cannot run NaiveProxy CONNECT check"
+    return 0
+  fi
 
-  if grep -q '^colo=' <<<"$output" && grep -q '^tls=' <<<"$output"; then
-    ok "NaiveProxy end-to-end check works through https://${domain}:443"
+  auth="$(printf '%s:%s' "$user" "$pass" | base64 | tr -d '\n')"
+  output="$(printf 'CONNECT www.cloudflare.com:443 HTTP/1.1\r\nHost: www.cloudflare.com:443\r\nProxy-Authorization: Basic %s\r\nProxy-Connection: Keep-Alive\r\n\r\n' "$auth" \
+    | timeout 15 openssl s_client -connect "${domain}:443" -servername "$domain" -alpn http/1.1 -quiet 2>&1 \
+    | head -n 20 || true)"
+
+  if grep -q '^HTTP/1\.1 200' <<<"$output"; then
+    ok "NaiveProxy CONNECT check works through https://${domain}:443"
   else
-    bad "NaiveProxy end-to-end check failed through https://${domain}:443"
+    bad "NaiveProxy CONNECT check failed through https://${domain}:443"
     printf '%s\n' "$output"
     echo "Check these next:"
     echo "- sudo nginx -T | grep -E '${domain}|nh_naive|proxy_protocol|9445'"
