@@ -135,7 +135,7 @@ info "Backup directory: $backup_dir"
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y curl wget git openssl ufw ca-certificates jq build-essential libcap2-bin nginx
+apt-get install -y curl wget git openssl ufw ca-certificates jq build-essential libcap2-bin nginx certbot
 
 if ! command -v node >/dev/null 2>&1 || ! node -e "process.exit(Number(process.versions.node.split('.')[0]) >= 18 ? 0 : 1)" 2>/dev/null; then
   info "Installing Node.js 20"
@@ -179,6 +179,44 @@ mkdir -p /var/www/html "$CADDY_DIR"
 cat > /var/www/html/index.html <<'EOF'
 <!DOCTYPE html><html><head><meta charset="utf-8"><title>Loading</title></head><body>Loading</body></html>
 EOF
+
+if [[ -z "$TLS_CERT" && -z "$TLS_KEY" ]]; then
+  info "Issuing TLS certificate for $DOMAIN through nginx HTTP-01"
+  mkdir -p /var/www/html/.well-known/acme-challenge /etc/nginx/sites-available /etc/nginx/sites-enabled
+  cat > /etc/nginx/sites-available/rixxx-acme <<EOF
+server {
+    listen 80;
+    server_name ${DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+        try_files \$uri =404;
+    }
+
+    location / {
+        return 404;
+    }
+}
+EOF
+  ln -sf /etc/nginx/sites-available/rixxx-acme /etc/nginx/sites-enabled/rixxx-acme
+  nginx -t || die "nginx config test failed before ACME issuance"
+  systemctl reload nginx || die "nginx reload failed before ACME issuance"
+
+  if certbot certonly --webroot \
+      -w /var/www/html \
+      -d "$DOMAIN" \
+      --email "$EMAIL" \
+      --agree-tos \
+      --non-interactive; then
+    TLS_CERT="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
+    TLS_KEY="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
+    ok "Certificate issued: $TLS_CERT"
+  else
+    warn "Certificate was not issued by certbot."
+    warn "Reason is usually DNS mismatch or blocked public port 80."
+    warn "NaiveProxy/Hysteria2 may not work until TLS is fixed. You can rerun with --tls-cert and --tls-key."
+  fi
+fi
 
 cat > "$CADDY_DIR/Caddyfile" <<EOF
 {
@@ -243,17 +281,9 @@ if [[ -n "$TLS_CERT" ]]; then
   CADDY_CERT="$TLS_CERT"
   CADDY_KEY="$TLS_KEY"
 else
-  info "Waiting for Caddy certificate for $DOMAIN"
-  for _ in $(seq 1 45); do
-    CADDY_CERT="$(find /root/.local/share/caddy /var/lib/caddy/.local/share/caddy -type f -name "${DOMAIN}.crt" 2>/dev/null | head -1 || true)"
-    [[ -n "$CADDY_CERT" && -f "${CADDY_CERT%.crt}.key" ]] && break
-    sleep 2
-  done
-  if [[ -z "$CADDY_CERT" ]]; then
-    warn "Certificate was not detected."
-    warn "Reason: nginx owns public 80/443, while caddy-rixxx listens on ${CADDY_LISTEN}."
-    warn "NaiveProxy/Hysteria2 may not work until TLS is fixed. Prefer --tls-cert and --tls-key."
-  fi
+  warn "No TLS certificate is available for $DOMAIN."
+  warn "Reason: certbot did not issue one and no --tls-cert/--tls-key was provided."
+  warn "NaiveProxy/Hysteria2 may not work until TLS is fixed."
 fi
 
 case "$(uname -m)" in
@@ -346,7 +376,12 @@ EOF
 systemctl daemon-reload
 systemctl enable hysteria-server
 systemctl restart hysteria-server || true
-require_active hysteria-server
+if [[ -n "$CADDY_CERT" ]]; then
+  require_active hysteria-server
+else
+  warn "Skipping fatal Hysteria2 active check because no TLS certificate is available."
+  warn "Fix TLS and then run: systemctl restart hysteria-server"
+fi
 
 rm -rf "$PANEL_DIR"
 mkdir -p "$PANEL_DIR"
@@ -465,7 +500,14 @@ EOF
 ok "Saved RIXXX configuration: $PROJECT_DIR/config.env"
 
 service_state() {
-  systemctl is-active "$1" 2>/dev/null || true
+  local svc="$1"
+  local state=""
+  for _ in $(seq 1 10); do
+    state="$(systemctl is-active "$svc" 2>/dev/null || true)"
+    [[ "$state" != "activating" ]] && break
+    sleep 1
+  done
+  printf '%s\n' "$state"
 }
 
 cat <<EOF
