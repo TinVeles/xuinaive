@@ -72,8 +72,23 @@ wait_http() {
   printf 'ERROR: %s is not responding at %s\n' "$label" "$url" >&2
   if [[ "$label" == *"N+H panel"* ]]; then
     journalctl -u panel-naive-hy2 -n 80 --no-pager -l >&2 || true
+    if [[ "$label" == *"nginx"* || "$label" == *"public"* ]]; then
+      systemctl status nginx --no-pager -l >&2 || true
+      nginx -T 2>/dev/null | grep -E 'panel-naive-hy2|listen|proxy_pass' >&2 || true
+    fi
   fi
   return 1
+}
+
+public_ipv4() {
+  local ip=""
+  if command -v curl >/dev/null 2>&1; then
+    ip="$(curl -fsS --max-time 5 https://ipv4.icanhazip.com 2>/dev/null | tr -d '[:space:]' || true)"
+  fi
+  if [[ -z "$ip" ]] && command -v ip >/dev/null 2>&1; then
+    ip="$(ip route get 8.8.8.8 2>/dev/null | awk '/src/ {for (i=1;i<=NF;i++) if ($i=="src") {print $(i+1); exit}}' || true)"
+  fi
+  printf '%s\n' "$ip"
 }
 
 check_tls() {
@@ -559,6 +574,7 @@ server {
 EOF
   ln -sf /etc/nginx/sites-available/panel-naive-hy2 /etc/nginx/sites-enabled/panel-naive-hy2
   nginx -t || die "nginx config test failed after panel proxy creation"
+  systemctl enable nginx >/dev/null 2>&1 || true
   systemctl reload nginx || die "nginx reload failed after panel proxy creation"
 fi
 
@@ -579,6 +595,19 @@ ufw allow 443/tcp >/dev/null 2>&1 || true
 ufw allow 443/udp >/dev/null 2>&1 || true
 [[ "$PANEL_ACCESS" == "nginx8080" ]] && ufw allow "${PANEL_PUBLIC_PORT}/tcp" >/dev/null 2>&1 || true
 
+if [[ "$PANEL_ACCESS" == "nginx8080" ]]; then
+  SERVER_IP="$(public_ipv4)"
+  if [[ -n "$SERVER_IP" ]]; then
+    wait_http "http://${SERVER_IP}:${PANEL_PUBLIC_PORT}/" "N+H panel public access" 15 2 || {
+      warn "N+H panel works locally but is not reachable through public IP ${SERVER_IP}:${PANEL_PUBLIC_PORT}."
+      warn "The remaining blocker is usually a VPS provider firewall/security group for ${PANEL_PUBLIC_PORT}/tcp."
+      die "N+H panel public URL check failed: http://${SERVER_IP}:${PANEL_PUBLIC_PORT}/"
+    }
+  else
+    warn "Could not detect public IPv4; skipping public N+H panel URL check"
+  fi
+fi
+
 mkdir -p /etc/nh-panel
 echo "1.4.0-unified" > /etc/nh-panel/version
 
@@ -591,7 +620,7 @@ NH_PANEL_PORT="${PANEL_PUBLIC_PORT}"
 NH_BACKEND_LISTEN="${CADDY_LISTEN}"
 NH_TLS_CERT="${TLS_CERT}"
 NH_TLS_KEY="${TLS_KEY}"
-NH_PANEL_URL="http://SERVER_IP:${PANEL_PUBLIC_PORT}"
+NH_PANEL_URL="http://${SERVER_IP:-SERVER_IP}:${PANEL_PUBLIC_PORT}"
 NH_PANEL_LOGIN="admin"
 NH_PANEL_PASSWORD="admin"
 NH_NAIVE_LOGIN="${NAIVE_LOGIN}"
@@ -620,7 +649,7 @@ N+H unified backend installed
 -------------------------------
 
 Panel:
-  URL:   http://SERVER_IP:${PANEL_PUBLIC_PORT}
+  URL:   http://${SERVER_IP:-SERVER_IP}:${PANEL_PUBLIC_PORT}
   Login: admin
   Pass:  admin
 

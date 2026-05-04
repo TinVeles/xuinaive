@@ -78,7 +78,7 @@ sudo bash install.sh --mode all \
   --yes
 ```
 
-In `--mode all`, the installer does not let Caddy issue its own certificate on `127.0.0.1:9445`. If `--tls-cert` and `--tls-key` are omitted, it first issues the N+H/NaiveProxy certificate through nginx HTTP-01 on port `80`; if that fails, it automatically tries a standalone certbot fallback after stopping nginx/caddy and checking that `80/tcp` is free. It then configures both Caddy and Hysteria2 to use the same cert/key, installs a renewal deploy hook, and stops the install if backend TLS or public nginx stream TLS does not pass `openssl s_client` checks.
+In `--mode all`, the installer does not let Caddy issue its own certificate on `127.0.0.1:9445`. If `--tls-cert` and `--tls-key` are omitted, it first issues the N+H/NaiveProxy certificate through nginx HTTP-01 on port `80`; if that fails, it automatically tries a standalone certbot fallback after stopping nginx/caddy and checking that `80/tcp` is free. It then configures both Caddy and Hysteria2 to use the same cert/key, installs a renewal deploy hook, and stops the install if backend TLS or public nginx stream TLS does not pass `openssl s_client` checks. The N+H panel is checked on `127.0.0.1:3000`, through local nginx on `127.0.0.1:8081`, and through the server public IP on `8081`; if the last check fails, open `8081/tcp` in the VPS provider firewall/security group.
 
 Dry-run only:
 
@@ -198,6 +198,7 @@ sudo ./doctor.sh
 - listeners on `80`, `443`, `2053`, `8443`, `9443`;
 - DNS A records for provided domains against current public IPv4;
 - N+H backend/public TLS checks and SNI backend layout for `all` mode.
+- N+H panel HTTP checks on backend `3000`, nginx proxy `8081`, and public `SERVER_IP:8081`.
 
 ## Important
 

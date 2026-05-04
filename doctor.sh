@@ -8,6 +8,7 @@ NAIVE_DOMAIN="${NAIVE_DOMAIN:-}"
 REALITY_DEST="${REALITY_DEST:-}"
 NH_PROXY_DOMAIN="${NH_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
 NH_PANEL_DOMAIN="${NH_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
+NH_PANEL_PORT="${NH_PANEL_PORT:-8081}"
 NH_BACKEND_LISTEN="${NH_BACKEND_LISTEN:-127.0.0.1:9445}"
 NH_NAIVE_LOGIN="${NH_NAIVE_LOGIN:-}"
 NH_NAIVE_PASSWORD="${NH_NAIVE_PASSWORD:-}"
@@ -87,6 +88,25 @@ tls_check() {
     bad "$label TLS failed for $server_name at $target"
     printf '%s\n' "$output"
   fi
+}
+
+http_check() {
+  local url="$1"
+  local label="$2"
+  local output=""
+
+  if ! command_exists curl; then
+    warn "curl missing; cannot check $label HTTP"
+    return 0
+  fi
+
+  if output="$(curl -fsS --connect-timeout 5 --max-time 10 "$url" 2>&1 >/dev/null)"; then
+    ok "$label responds at $url"
+    return 0
+  fi
+
+  bad "$label does not respond at $url"
+  [[ -n "$output" ]] && printf '%s\n' "$output"
 }
 
 naive_proxy_check() {
@@ -211,6 +231,20 @@ if [[ -n "${NH_PROXY_DOMAIN:-}" ]]; then
   echo
   echo "NaiveProxy end-to-end:"
   naive_proxy_check
+fi
+
+if service_active panel-naive-hy2 || [[ -n "${NH_PANEL_PORT:-}" ]]; then
+  echo
+  echo "N+H Panel HTTP:"
+  http_check "http://127.0.0.1:3000/" "Panel backend"
+  if [[ -n "${NH_PANEL_PORT:-}" ]]; then
+    http_check "http://127.0.0.1:${NH_PANEL_PORT}/" "Panel nginx proxy"
+    if [[ -n "${server_ip:-}" ]]; then
+      http_check "http://${server_ip}:${NH_PANEL_PORT}/" "Panel public IP"
+    else
+      warn "Public IPv4 is unknown; cannot check panel public URL"
+    fi
+  fi
 fi
 
 echo
