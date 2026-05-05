@@ -106,6 +106,8 @@ port_443_busy() {
 if [[ "$ASSUME_YES" != "1" ]]; then
   warn "Starting the original interactive N+H installer."
   warn "It installs a public Caddy/NaiveProxy/Hy2 stack and can change packages, firewall, services, and /etc configs."
+  warn "Press Ctrl+C now to abort, or Enter to continue..."
+  read -r -t 10 || true
   export LOCAL_PANEL_SOURCE="$UPSTREAM_DIR"
   exec bash "$UPSTREAM_INSTALL"
 fi

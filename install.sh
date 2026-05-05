@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SOURCE_PATH="${BASH_SOURCE[0]}"
 RUN_FROM_STREAM=0
-if [[ "$SOURCE_PATH" == /dev/fd/* || "$SOURCE_PATH" == /proc/* || ! -f "$SOURCE_PATH" ]]; then
+if [[ "$SOURCE_PATH" == /dev/fd/* || "$SOURCE_PATH" == /proc/* || ! -f "$SOURCE_PATH" || ( ! -t 0 && -p /dev/stdin ) ]]; then
   SCRIPT_DIR="$(pwd)"
   RUN_FROM_STREAM=1
 else
@@ -176,8 +176,21 @@ collect_real_install_inputs() {
 load_config() {
   local config_file="$PROJECT_DIR/config.env"
   if [[ -f "$config_file" ]]; then
+    if [[ -r "$config_file" ]]; then
+      local owner group
+      owner=$(stat -c '%U' "$config_file" 2>/dev/null || echo "unknown")
+      group=$(stat -c '%G' "$config_file" 2>/dev/null || echo "unknown")
+      if [[ "$owner" == "root" && "$group" == "root" ]]; then
+        warn "config.env is root-owned; some variables may not be readable"
+      fi
+    else
+      warn "config.env exists but not readable"
+      return 1
+    fi
+    set -a
     # shellcheck disable=SC1090
     source "$config_file"
+    set +a
   fi
 }
 
@@ -199,7 +212,7 @@ preparse_project_dir() {
 public_ipv4() {
   local ip=""
   if command_exists ip; then
-    ip="$(ip route get 8.8.8.8 2>/dev/null | awk '/src/ {for (i=1;i<=NF;i++) if ($i=="src") {print $(i+1); exit}}' || true)"
+    ip="$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \K[\d.]+' || true)"
   fi
   if [[ -z "$ip" ]] && command_exists curl; then
     ip="$(curl -fsS --max-time 5 https://ipv4.icanhazip.com 2>/dev/null | tr -d '[:space:]' || true)"
@@ -327,6 +340,12 @@ check_domain() {
   local label="$2"
   [[ -n "$domain" ]] || { warn "$label domain is not set"; return 0; }
 
+  local domain_regex='^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$'
+  if [[ ! "$domain" =~ $domain_regex ]]; then
+    warn "$label domain '$domain' has invalid format"
+    return 1
+  fi
+
   local ip records
   ip="$(public_ipv4)"
   records="$(domain_a_records "$domain" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
@@ -379,6 +398,8 @@ validate_real_install_args() {
   if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
     [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
     [[ -f "$TLS_KEY" ]] || die "--tls-key file not found: $TLS_KEY"
+    [[ -r "$TLS_CERT" ]] || die "--tls-cert is not readable: $TLS_CERT"
+    [[ -r "$TLS_KEY" ]] || die "--tls-key is not readable: $TLS_KEY"
   fi
   case "$MODE" in
     both)
@@ -727,7 +748,7 @@ if [[ "$REAL_INSTALL" == "1" ]]; then
 else
   info "Running safe dry-run analysis only"
 fi
-[[ "${EUID:-$(id -u)}" -eq 0 ]] || warn "Not running as root; port/process details may be incomplete"
+[[ ${EUID:-0} -eq 0 ]] || warn "Not running as root; port/process details may be incomplete"
 check_os
 check_required_commands
 check_vendored_components

@@ -1,6 +1,6 @@
 #!/bin/bash
 #################### x-ui-pro v2.4.3 @ github.com/GFW4Fun ##############################################
-[[ $EUID -ne 0 ]] && echo "not root!" && sudo su -
+[[ $EUID -ne 0 ]] && echo "not root! Run with sudo or as root." && exit 1
 ##############################INFO######################################################################
 msg_ok() { echo -e "\e[1;42m $1 \e[0m";}
 msg_err() { echo -e "\e[1;41m $1 \e[0m";}
@@ -11,13 +11,16 @@ msg_inf		 ' /\    |_| _|_   |   | \ \_/ '	; echo
 ##################################Variables#############################################################
 XUIDB="/etc/x-ui/x-ui.db";domain="";UNINSTALL="x";INSTALL="n";PNLNUM=1;CFALLOW="n";CLASH=0;CUSTOMWEBSUB=0
 Pak=$(type apt &>/dev/null && echo "apt" || echo "yum")
-systemctl stop x-ui
-rm -rf /etc/systemd/system/x-ui.service
-rm -rf /usr/local/x-ui
-rm -rf /etc/x-ui
-rm -rf /etc/nginx/sites-enabled/*
-rm -rf /etc/nginx/sites-available/*
-rm -rf /etc/nginx/stream-enabled/*
+
+cleanup_existing() {
+  systemctl stop x-ui 2>/dev/null || true
+  rm -rf /etc/systemd/system/x-ui.service
+  rm -rf /usr/local/x-ui
+  rm -rf /etc/x-ui
+  rm -rf /etc/nginx/sites-enabled/*
+  rm -rf /etc/nginx/sites-available/*
+  rm -rf /etc/nginx/stream-enabled/*
+}
 
 
 ##################################generate ports and paths#############################################################
@@ -32,7 +35,7 @@ gen_random_string() {
 }
 check_free() {
 	local port=$1
-	nc -z 127.0.0.1 $port &>/dev/null
+	nc -z -w 2 127.0.0.1 $port &>/dev/null
 	return $?
 }
 
@@ -154,6 +157,7 @@ fi
 ###############################Install Packages#########################################################
 ufw disable
 if [[ ${INSTALL} == *"y"* ]]; then
+  cleanup_existing
 
          version=$(grep -oP '(?<=VERSION_ID=")[0-9]+' /etc/os-release)
 
@@ -168,8 +172,8 @@ if [[ ${INSTALL} == *"y"* ]]; then
 
 	systemctl daemon-reload && systemctl enable --now nginx
 fi
-systemctl stop nginx 
-fuser -k 80/tcp 80/udp 443/tcp 443/udp 2>/dev/null
+systemctl stop nginx 2>/dev/null || true
+fuser -k 80/tcp 443/tcp 2>/dev/null || true
 ##################################GET SERVER IPv4-6#####################################################
 IP4_REGEX="^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$"
 IP6_REGEX="([a-f0-9:]+:+)+[a-f0-9]+"

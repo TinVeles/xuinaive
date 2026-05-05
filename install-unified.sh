@@ -75,7 +75,7 @@ config_value() {
   local file="${2:-$SCRIPT_DIR/config.env}"
   [[ -f "$file" ]] || return 0
   awk -F= -v key="$key" '
-    $1 == key {
+    index($0, key "=") == 1 {
       value = substr($0, length(key) + 2)
       gsub(/^"/, "", value)
       gsub(/"$/, "", value)
@@ -86,7 +86,9 @@ config_value() {
 }
 
 sql_quote() {
-  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"
+  local escaped
+  escaped="${1//\'/\'\'}"
+  printf "'%s'" "$escaped"
 }
 
 xui_setting() {
@@ -342,6 +344,8 @@ done
 if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
   [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
   [[ -f "$TLS_KEY" ]] || die "--tls-key file not found: $TLS_KEY"
+  [[ -r "$TLS_CERT" ]] || die "--tls-cert is not readable: $TLS_CERT"
+  [[ -r "$TLS_KEY" ]] || die "--tls-key is not readable: $TLS_KEY"
 fi
 [[ "$ASSUME_YES" == "1" ]] || die "Add --yes after reading the plan. This installer runs destructive upstream x-ui-pro code."
 
@@ -385,8 +389,10 @@ backup_dir="/opt/unified-proxy-manager/backups/$(date '+%Y-%m-%d-%H-%M-%S')"
 mkdir -p "$backup_dir"
 for path in /etc/nginx /etc/x-ui /usr/local/x-ui /etc/caddy-nh /etc/hysteria /opt/panel-naive-hy2 /etc/systemd/system/x-ui.service /etc/systemd/system/caddy-nh.service /etc/systemd/system/hysteria-server.service /etc/systemd/system/panel-naive-hy2.service; do
   if [[ -e "$path" || -L "$path" ]]; then
-    mkdir -p "$backup_dir$(dirname "$path")"
-    cp -a "$path" "$backup_dir$(dirname "$path")/"
+    local parent_dir
+    parent_dir="$(dirname "$path")"
+    mkdir -p "$backup_dir$parent_dir"
+    cp -aT "$path" "$backup_dir$path"
   fi
 done
 ok "Backup directory: $backup_dir"
@@ -453,6 +459,16 @@ NH_HY2_PASSWORD="${NH_HY2_PASSWORD_FINAL}"
 NH_HY2_LINK="${NH_HY2_LINK_FINAL}"
 EOF
 ok "Saved final configuration: $SCRIPT_DIR/config.env"
+
+if [[ "$GENERATE_PROFILES" == "1" ]]; then
+  info "Running profile generation as part of unified install"
+  bash "$SCRIPT_DIR/generate-profiles.sh" \
+    --count "${PROFILE_COUNT:-15}" \
+    --prefix "${PROFILE_PREFIX:-auto}" \
+    --warp-port "${WARP_PROXY_PORT:-40000}" \
+    --warp-outbound-tag "${WARP_OUTBOUND_TAG:-warp-cli}" \
+    --yes
+fi
 
 ok "Unified install completed"
 systemctl status x-ui --no-pager || true
