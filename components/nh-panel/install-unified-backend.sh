@@ -538,18 +538,38 @@ cat > "$PANEL_DIR/panel/data/config.json" <<EOF
   "serverIp": "",
   "arch": "$(uname -m)",
   "naiveUsers": [
-    {
-      "username": "${NAIVE_LOGIN}",
-      "password": "${NAIVE_PASS}",
-      "createdAt": "${CREATED_AT}"
-    }
+    {"username": "${NAIVE_LOGIN}", "password": "${NAIVE_PASS}", "createdAt": "${CREATED_AT}"},
+    {"username": "user02", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user03", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user04", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user05", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user06", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user07", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user08", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user09", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user10", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user11", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user12", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user13", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user14", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user15", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"}
   ],
   "hy2Users": [
-    {
-      "username": "default",
-      "password": "${HY2_PASS}",
-      "createdAt": "${CREATED_AT}"
-    }
+    {"username": "default", "password": "${HY2_PASS}", "createdAt": "${CREATED_AT}"},
+    {"username": "user02", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user03", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user04", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user05", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user06", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user07", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user08", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user09", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user10", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user11", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user12", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user13", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user14", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
+    {"username": "user15", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"}
   ]
 }
 EOF
