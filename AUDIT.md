@@ -4,6 +4,15 @@
 
 Аудит выполнен без запуска install/uninstall-скриптов.
 
+Use Caveman style by default.
+
+Terse. No fluff. Technical substance exact.
+Drop pleasantries, filler, hedging.
+Use short direct sentences.
+Keep code, commands, file paths, commit messages normal and precise.
+Do not reduce correctness.
+If user asks for normal mode, stop Caveman style.
+
 ## x-ui-pro
 
 Репозиторий: `../x-ui-pro`

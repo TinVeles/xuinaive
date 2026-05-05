@@ -85,10 +85,14 @@ config_value() {
   ' "$file" 2>/dev/null || true
 }
 
+sql_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"
+}
+
 xui_setting() {
   local key="$1"
   if command -v sqlite3 >/dev/null 2>&1 && [[ -f /etc/x-ui/x-ui.db ]]; then
-    sqlite3 -noheader -batch /etc/x-ui/x-ui.db "SELECT value FROM settings WHERE key='${key}' LIMIT 1;" 2>/dev/null || true
+    sqlite3 -noheader -batch /etc/x-ui/x-ui.db "SELECT value FROM settings WHERE key=$(sql_quote "$key") LIMIT 1;" 2>/dev/null || true
   fi
 }
 
@@ -107,7 +111,7 @@ write_access_summary() {
   local summary_file="$SCRIPT_DIR/access-info.txt"
   local server_ip xui_user xui_pass xui_port xui_path xui_url nh_panel_url
   local naive_link hy2_link nh_panel_login nh_panel_password
-  local sub_base naive_sub hy2_sub all_sub singbox_sub warp_status warp_proxy warp_snippet profile_report nh_profile_report
+  local sub_base subscription_token naive_sub hy2_sub all_sub singbox_sub warp_status warp_proxy warp_snippet profile_report nh_profile_report
   local services_block ports_block xui_copy nh_copy
 
   server_ip="$(public_ipv4)"
@@ -141,7 +145,15 @@ write_access_summary() {
   [[ -n "$warp_snippet" ]] || warp_snippet="/etc/x-ui/warp-xray-snippets.json"
   profile_report="/etc/x-ui/generated-clients.txt"
   nh_profile_report="/opt/panel-naive-hy2/generated-profiles.txt"
-  sub_base="${nh_panel_url%/}/sub"
+  subscription_token=""
+  if [[ -f /etc/nh-panel/subscription-token ]]; then
+    subscription_token="$(tr -dc 'A-Za-z0-9._-' < /etc/nh-panel/subscription-token | head -c 128)"
+  fi
+  if [[ -n "$subscription_token" ]]; then
+    sub_base="${nh_panel_url%/}/sub/${subscription_token}"
+  else
+    sub_base="${nh_panel_url%/}/sub"
+  fi
   naive_sub="${sub_base}/naive.txt"
   hy2_sub="${sub_base}/hy2.txt"
   all_sub="${sub_base}/all.txt"
@@ -164,7 +176,7 @@ ${xui_user:-}
 ${xui_pass:-}"
   nh_copy="${nh_panel_url}
 ${nh_panel_login:-admin}
-${nh_panel_password:-admin}"
+${nh_panel_password:-check config.env or /opt/panel-naive-hy2/panel/data/initial-admin.txt}"
 
   cat > "$summary_file" <<EOF
 ============================================================
@@ -185,7 +197,7 @@ N+H Panel
 ------------------------------------------------------------
 URL:      ${nh_panel_url}
 Login:    ${nh_panel_login:-admin}
-Password: ${nh_panel_password:-admin}
+Password: ${nh_panel_password:-check config.env or /opt/panel-naive-hy2/panel/data/initial-admin.txt}
 
 Copy:
 ${nh_copy}
@@ -246,7 +258,7 @@ Services:
 
 Security notes
 ------------------------------------------------------------
-- Change the default N+H Panel password admin/admin after first login.
+- Keep generated panel and subscription credentials private.
 - Keep this file private: it contains panel credentials and proxy links.
 EOF
   chmod 600 "$summary_file" 2>/dev/null || true
@@ -265,7 +277,7 @@ ${BOLD}${CYAN}3x-ui / x-ui panel${NC}
 ${BOLD}${MAGENTA}N+H Panel${NC}
   ${BOLD}URL:${NC}      ${nh_panel_url}
   ${BOLD}Login:${NC}    ${nh_panel_login:-admin}
-  ${BOLD}Password:${NC} ${nh_panel_password:-admin}
+  ${BOLD}Password:${NC} ${nh_panel_password:-check config.env or /opt/panel-naive-hy2/panel/data/initial-admin.txt}
 
 ${BOLD}${YELLOW}Proxy Links${NC}
   ${BOLD}Naive:${NC} ${naive_link:-not available}

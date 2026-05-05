@@ -23,10 +23,14 @@ config_value() {
   ' "$CONFIG_FILE" 2>/dev/null || true
 }
 
+sql_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"
+}
+
 xui_setting() {
   local key="$1"
   if command -v sqlite3 >/dev/null 2>&1 && [[ -f /etc/x-ui/x-ui.db ]]; then
-    sqlite3 -noheader -batch /etc/x-ui/x-ui.db "SELECT value FROM settings WHERE key='${key}' LIMIT 1;" 2>/dev/null || true
+    sqlite3 -noheader -batch /etc/x-ui/x-ui.db "SELECT value FROM settings WHERE key=$(sql_quote "$key") LIMIT 1;" 2>/dev/null || true
   fi
 }
 
@@ -56,11 +60,19 @@ nh_panel_url="$(config_value NH_PANEL_URL)"
 nh_panel_url="${nh_panel_url/SERVER_IP/$server_ip}"
 [[ -n "$nh_panel_url" ]] || nh_panel_url="http://${server_ip}:${PANEL_PORT}"
 nh_panel_login="$(config_value NH_PANEL_LOGIN)"; [[ -n "$nh_panel_login" ]] || nh_panel_login="admin"
-nh_panel_password="$(config_value NH_PANEL_PASSWORD)"; [[ -n "$nh_panel_password" ]] || nh_panel_password="admin"
+nh_panel_password="$(config_value NH_PANEL_PASSWORD)"; [[ -n "$nh_panel_password" ]] || nh_panel_password="check config.env or /opt/panel-naive-hy2/panel/data/initial-admin.txt"
 naive_link="$(config_value NH_NAIVE_LINK)"
 hy2_link="$(config_value NH_HY2_LINK)"
 
-sub_base="${nh_panel_url%/}/sub"
+subscription_token=""
+if [[ -f /etc/nh-panel/subscription-token ]]; then
+  subscription_token="$(tr -dc 'A-Za-z0-9._-' < /etc/nh-panel/subscription-token | head -c 128)"
+fi
+if [[ -n "$subscription_token" ]]; then
+  sub_base="${nh_panel_url%/}/sub/${subscription_token}"
+else
+  sub_base="${nh_panel_url%/}/sub"
+fi
 warp_host="$(config_value WARP_PROXY_HOST)"; [[ -n "$warp_host" ]] || warp_host="127.0.0.1"
 warp_port="$(config_value WARP_PROXY_PORT)"; [[ -n "$warp_port" ]] || warp_port="40000"
 warp_snippet="$(config_value WARP_SNIPPET_FILE)"; [[ -n "$warp_snippet" ]] || warp_snippet="/etc/x-ui/warp-xray-snippets.json"

@@ -10,7 +10,7 @@ EMAIL=""
 PANEL_DOMAIN=""
 PANEL_EMAIL=""
 PANEL_ACCESS="nginx8080"
-LISTEN_HOST="0.0.0.0"
+LISTEN_HOST="127.0.0.1"
 INTERNAL_PORT="3000"
 PANEL_PUBLIC_PORT="8081"
 CADDY_LISTEN="127.0.0.1:9445"
@@ -202,13 +202,29 @@ info "Backup directory: $backup_dir"
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y curl wget git openssl ufw ca-certificates jq build-essential libcap2-bin nginx certbot
+apt-get install -y curl wget git openssl ufw ca-certificates jq build-essential libcap2-bin nginx certbot gnupg
 
-if ! command -v node >/dev/null 2>&1 || ! node -e "process.exit(Number(process.versions.node.split('.')[0]) >= 18 ? 0 : 1)" 2>/dev/null; then
+node_usable() {
+  command -v node >/dev/null 2>&1 && node -e "process.exit(Number(process.versions.node.split('.')[0]) >= 18 ? 0 : 1)" 2>/dev/null
+}
+
+if ! node_usable; then
+  info "Installing distro Node.js"
+  apt-get install -y nodejs npm || true
+fi
+
+if ! node_usable; then
   info "Installing Node.js 20"
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  install -d -m 0755 /usr/share/keyrings /etc/apt/sources.list.d
+  curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+    | gpg --yes --dearmor --output /usr/share/keyrings/nodesource.gpg
+  cat > /etc/apt/sources.list.d/nodesource.list <<'EOF'
+deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main
+EOF
+  apt-get update
   apt-get install -y nodejs
 fi
+node_usable || die "Node.js 18+ is required"
 
 if ! command -v go >/dev/null 2>&1; then
   info "Installing Go toolchain"
@@ -240,6 +256,8 @@ setcap cap_net_bind_service=+ep "$CADDY_BIN" || true
 NAIVE_LOGIN="$(random_alpha 14)"
 NAIVE_PASS="$(random_alnum 22)"
 HY2_PASS="$(random_alnum 24)"
+PANEL_LOGIN="admin"
+PANEL_PASSWORD="$(random_alnum 24)"
 CREATED_AT="$(date -u +%FT%TZ)"
 
 mkdir -p /var/www/html "$CADDY_DIR"
@@ -485,6 +503,20 @@ cp -a "$UPSTREAM_DIR/." "$PANEL_DIR/"
 cd "$PANEL_DIR/panel"
 npm install --omit=dev
 mkdir -p "$PANEL_DIR/panel/data"
+PANEL_LOGIN="$PANEL_LOGIN" PANEL_PASSWORD="$PANEL_PASSWORD" node <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const bcrypt = require('bcryptjs');
+const dataDir = path.join(process.cwd(), 'data');
+const usersFile = path.join(dataDir, 'users.json');
+fs.mkdirSync(dataDir, { recursive: true });
+const users = {};
+users[process.env.PANEL_LOGIN || 'admin'] = {
+  password: bcrypt.hashSync(process.env.PANEL_PASSWORD, 10),
+  role: 'admin'
+};
+fs.writeFileSync(usersFile, JSON.stringify(users, null, 2), { mode: 0o600 });
+NODE
 cat > "$PANEL_DIR/panel/data/config.json" <<EOF
 {
   "installed": true,
@@ -621,8 +653,8 @@ NH_BACKEND_LISTEN="${CADDY_LISTEN}"
 NH_TLS_CERT="${TLS_CERT}"
 NH_TLS_KEY="${TLS_KEY}"
 NH_PANEL_URL="http://${SERVER_IP:-SERVER_IP}:${PANEL_PUBLIC_PORT}"
-NH_PANEL_LOGIN="admin"
-NH_PANEL_PASSWORD="admin"
+NH_PANEL_LOGIN="${PANEL_LOGIN}"
+NH_PANEL_PASSWORD="${PANEL_PASSWORD}"
 NH_NAIVE_LOGIN="${NAIVE_LOGIN}"
 NH_NAIVE_PASSWORD="${NAIVE_PASS}"
 NH_NAIVE_LINK="naive+https://${NAIVE_LOGIN}:${NAIVE_PASS}@${DOMAIN}:443"
@@ -650,8 +682,8 @@ N+H unified backend installed
 
 Panel:
   URL:   http://${SERVER_IP:-SERVER_IP}:${PANEL_PUBLIC_PORT}
-  Login: admin
-  Pass:  admin
+  Login: ${PANEL_LOGIN}
+  Pass:  ${PANEL_PASSWORD}
 
 Links:
   Naive: naive+https://${NAIVE_LOGIN}:${NAIVE_PASS}@${DOMAIN}:443
@@ -668,6 +700,6 @@ Ports:
   caddy backend:        ${CADDY_LISTEN}
 
 Warnings:
-  - Change default panel password admin/admin.
+  - Keep generated panel password private.
   - N+H/Naive TLS was checked locally and through public nginx stream during install.
 EOF

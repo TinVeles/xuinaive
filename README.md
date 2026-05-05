@@ -314,22 +314,28 @@ Generated reports:
 N+H subscription files:
 
 ```text
-/opt/panel-naive-hy2/subscriptions/naive.txt
-/opt/panel-naive-hy2/subscriptions/hy2.txt
-/opt/panel-naive-hy2/subscriptions/all.txt
-/opt/panel-naive-hy2/subscriptions/naive.b64
-/opt/panel-naive-hy2/subscriptions/hy2.b64
-/opt/panel-naive-hy2/subscriptions/all.b64
-/opt/panel-naive-hy2/subscriptions/sing-box.json
+/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/naive.txt
+/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/hy2.txt
+/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/all.txt
+/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/naive.b64
+/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/hy2.b64
+/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/all.b64
+/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/sing-box.json
 ```
 
-When the N+H panel is exposed by nginx on `8081`, the generator also adds `/sub/`:
+The token is generated once and stored root-only:
+
+```bash
+sudo cat /etc/nh-panel/subscription-token
+```
+
+When the N+H panel is exposed by nginx on `8081`, the generator also adds token-protected `/sub/` URLs:
 
 ```text
-http://SERVER_IP:8081/sub/naive.txt
-http://SERVER_IP:8081/sub/hy2.txt
-http://SERVER_IP:8081/sub/all.txt
-http://SERVER_IP:8081/sub/sing-box.json
+http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/naive.txt
+http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/hy2.txt
+http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/all.txt
+http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/sing-box.json
 ```
 
 Custom count/prefix:

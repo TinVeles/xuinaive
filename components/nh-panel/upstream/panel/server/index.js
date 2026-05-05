@@ -119,8 +119,11 @@ function saveConfig(cfg) {
 
 function loadUsers() {
   if (!fs.existsSync(USERS_FILE)) {
-    const users = { admin: { password: bcrypt.hashSync('admin', 10), role: 'admin' } };
+    const initialPassword = crypto.randomBytes(18).toString('base64url');
+    const users = { admin: { password: bcrypt.hashSync(initialPassword, 10), role: 'admin' } };
     fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), { mode: 0o600 });
+    fs.writeFileSync(path.join(DATA_DIR, 'initial-admin.txt'), `admin:${initialPassword}\n`, { mode: 0o600 });
+    console.warn('Initial admin password generated in data/initial-admin.txt');
     return users;
   }
   return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));

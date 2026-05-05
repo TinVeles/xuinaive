@@ -296,7 +296,7 @@ apt-get install -y -qq \
   -o Dpkg::Options::="--force-confdef" \
   -o Dpkg::Options::="--force-confold" \
   -o DPkg::Lock::Timeout=60 \
-  curl wget git openssl ufw ca-certificates jq 2>/dev/null || true
+  curl wget git openssl ufw ca-certificates jq gnupg 2>/dev/null || true
 
 log_ok "Система подготовлена"
 
@@ -810,8 +810,14 @@ fi
 next_step "Установка Node.js 20..."
 
 if ! command -v node &>/dev/null || [[ "$(node -v 2>/dev/null | cut -d. -f1 | tr -d 'v')" -lt 18 ]]; then
-  log_info "Скачиваем NodeSource..."
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash - 2>&1 | grep -E "^##|^Running|error" || true
+  log_info "Подключаем NodeSource через signed apt repository..."
+  install -d -m 0755 /usr/share/keyrings /etc/apt/sources.list.d
+  curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+    | gpg --yes --dearmor --output /usr/share/keyrings/nodesource.gpg
+  cat > /etc/apt/sources.list.d/nodesource.list <<'EOF'
+deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main
+EOF
+  apt-get update -qq -o DPkg::Lock::Timeout=60 2>/dev/null || true
   apt-get install -y -qq nodejs \
     -o Dpkg::Options::="--force-confdef" \
     -o Dpkg::Options::="--force-confold" 2>/dev/null || true

@@ -135,11 +135,13 @@ fi
 
 if command_exists curl; then
   info "Testing WARP local proxy with Cloudflare trace"
-  if curl -fsS --max-time 20 --socks5-hostname "127.0.0.1:${WARP_PROXY_PORT}" https://www.cloudflare.com/cdn-cgi/trace | tee /tmp/warp-trace.txt; then
-    if grep -qi '^warp=on' /tmp/warp-trace.txt; then
+  trace_output="$(curl -fsS --max-time 20 --socks5-hostname "127.0.0.1:${WARP_PROXY_PORT}" https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
+  if [[ -n "$trace_output" ]]; then
+    printf '%s\n' "$trace_output"
+    if grep -qi '^warp=on' <<<"$trace_output"; then
       ok "Cloudflare trace reports warp=on"
     else
-      warn "Cloudflare trace completed but did not report warp=on. Check /tmp/warp-trace.txt"
+      warn "Cloudflare trace completed but did not report warp=on"
     fi
   else
     warn "Proxy curl test failed. WARP may still be starting; run: curl --socks5-hostname 127.0.0.1:${WARP_PROXY_PORT} https://www.cloudflare.com/cdn-cgi/trace"
