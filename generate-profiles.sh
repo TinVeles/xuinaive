@@ -395,7 +395,7 @@ const singBox = {
 };
 
 for (const name of ['naive.txt', 'hy2.txt', 'all.txt', 'naive.b64', 'hy2.b64', 'all.b64', 'sing-box.json']) {
-  try { fs.unlinkSync(path.join(subRoot, name)); } catch (_) {}
+  try { fs.unlinkSync(path.join(subDir, name)); } catch (_) {}
 }
 fs.mkdirSync(subDir, { recursive: true, mode: 0o755 });
 fs.writeFileSync(`${subDir}/naive.txt`, naiveLinks.join('\n') + '\n', { mode: 0o644 });

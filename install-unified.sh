@@ -16,6 +16,11 @@ PANEL_ACCESS="nginx8080"
 PANEL_PUBLIC_PORT="8081"
 TLS_CERT=""
 TLS_KEY=""
+GENERATE_PROFILES=0
+PROFILE_COUNT=15
+PROFILE_PREFIX="auto"
+WARP_PROXY_PORT=40000
+WARP_OUTBOUND_TAG="warp-cli"
 
 usage() {
   cat <<'EOF'
@@ -327,6 +332,11 @@ while [[ $# -gt 0 ]]; do
     --panel-public-port) PANEL_PUBLIC_PORT="${2:-}"; shift 2 ;;
     --tls-cert) TLS_CERT="${2:-}"; shift 2 ;;
     --tls-key) TLS_KEY="${2:-}"; shift 2 ;;
+    --generate-profiles) GENERATE_PROFILES=1; shift ;;
+    --profile-count) PROFILE_COUNT="${2:-}"; shift 2 ;;
+    --profile-prefix) PROFILE_PREFIX="${2:-}"; shift 2 ;;
+    --warp-proxy-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
+    --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
     --yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
