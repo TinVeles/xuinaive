@@ -309,6 +309,27 @@ Generated reports:
 /opt/panel-naive-hy2/generated-profiles.txt
 ```
 
+N+H subscription files:
+
+```text
+/opt/panel-naive-hy2/subscriptions/naive.txt
+/opt/panel-naive-hy2/subscriptions/hy2.txt
+/opt/panel-naive-hy2/subscriptions/all.txt
+/opt/panel-naive-hy2/subscriptions/naive.b64
+/opt/panel-naive-hy2/subscriptions/hy2.b64
+/opt/panel-naive-hy2/subscriptions/all.b64
+/opt/panel-naive-hy2/subscriptions/sing-box.json
+```
+
+When the N+H panel is exposed by nginx on `8081`, the generator also adds `/sub/`:
+
+```text
+http://SERVER_IP:8081/sub/naive.txt
+http://SERVER_IP:8081/sub/hy2.txt
+http://SERVER_IP:8081/sub/all.txt
+http://SERVER_IP:8081/sub/sing-box.json
+```
+
 Custom count/prefix:
 
 ```bash
