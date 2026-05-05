@@ -13,6 +13,11 @@ NH_PANEL_PORT="${NH_PANEL_PORT:-8081}"
 NH_BACKEND_LISTEN="${NH_BACKEND_LISTEN:-127.0.0.1:9445}"
 NH_TLS_CERT="${NH_TLS_CERT:-}"
 NH_TLS_KEY="${NH_TLS_KEY:-}"
+WARP_ENABLED="${WARP_ENABLED:-0}"
+WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
+WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
+WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
+WARP_SNIPPET_FILE="${WARP_SNIPPET_FILE:-/etc/x-ui/warp-xray-snippets.json}"
 
 if [[ -f "$SCRIPT_DIR/config.env" ]]; then
   # shellcheck disable=SC1090
@@ -58,6 +63,10 @@ echo "  NH_PANEL_PORT=${NH_PANEL_PORT:-not set}"
 echo "  NH_BACKEND_LISTEN=${NH_BACKEND_LISTEN:-not set}"
 echo "  NH_TLS_CERT=${NH_TLS_CERT:-not set}"
 echo "  NH_TLS_KEY=${NH_TLS_KEY:-not set}"
+echo "  WARP_ENABLED=${WARP_ENABLED:-not set}"
+echo "  WARP_PROXY=${WARP_PROXY_HOST:-127.0.0.1}:${WARP_PROXY_PORT:-40000}"
+echo "  WARP_OUTBOUND_TAG=${WARP_OUTBOUND_TAG:-warp-cli}"
+echo "  WARP_SNIPPET_FILE=${WARP_SNIPPET_FILE:-not set}"
 if [[ -f "$SCRIPT_DIR/access-info.txt" ]]; then
   echo "  ACCESS_INFO=$SCRIPT_DIR/access-info.txt"
 fi
@@ -70,11 +79,12 @@ service_line caddy
 service_line caddy-nh
 service_line hysteria-server
 service_line panel-naive-hy2
+service_line warp-svc
 service_line ufw
 
 echo
 echo "Listening ports:"
-for port in 80 443 2053 3000 7443 8080 8081 8443 9443 9445; do
+for port in 80 443 2053 3000 7443 8080 8081 8443 9443 9445 "$WARP_PROXY_PORT"; do
   details="$(port_details "$port")"
   if [[ -n "$details" ]]; then
     printf 'port %s: busy\n%s\n' "$port" "$details"
@@ -84,9 +94,17 @@ for port in 80 443 2053 3000 7443 8080 8081 8443 9443 9445; do
 done
 
 echo
+echo "WARP:"
+if command_exists warp-cli; then
+  warp-cli --accept-tos status 2>/dev/null || warp-cli status 2>/dev/null || true
+else
+  echo "warp-cli not installed"
+fi
+
+echo
 echo "Recent logs:"
 if command_exists journalctl && command_exists systemctl; then
-  for svc in x-ui nginx caddy caddy-nh hysteria-server panel-naive-hy2; do
+  for svc in x-ui nginx caddy caddy-nh hysteria-server panel-naive-hy2 warp-svc; do
     if systemctl list-unit-files "${svc}.service" >/dev/null 2>&1; then
       printf '\n-- %s last 30 lines --\n' "$svc"
       journalctl -u "$svc" -n 30 --no-pager 2>/dev/null || true

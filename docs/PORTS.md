@@ -28,6 +28,7 @@ Based on `AUDIT.md`, these are the important upstream ports to check before any 
 - `443/udp`: Hysteria2 service `hysteria-server`.
 - `3000/tcp`: N+H Panel service `panel-naive-hy2`.
 - `8081/tcp`: nginx HTTP proxy to the N+H Panel by default.
+- `40000/tcp` on `127.0.0.1`: optional Cloudflare WARP local proxy when `--install-warp` is used.
 
 In all-in-one mode, NaiveProxy clients still connect to external `443`; nginx stream routes the N+H/NaiveProxy domain SNI to `127.0.0.1:9445`. The backend Caddyfile disables automatic HTTP redirects, uses an explicit certificate/key, and enables the `proxy_protocol` listener wrapper before TLS because nginx stream sends PROXY protocol to backend services.
 
@@ -52,6 +53,7 @@ In all-in-one mode, NaiveProxy clients still connect to external `443`; nginx st
 - `8443`;
 - `9443`.
 - `9445`.
+- `40000` when WARP is enabled.
 
 `status.sh` also reports `7443` and `8080` because they are common local x-ui-pro related ports.
 

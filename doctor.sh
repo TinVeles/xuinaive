@@ -13,6 +13,10 @@ NH_BACKEND_LISTEN="${NH_BACKEND_LISTEN:-127.0.0.1:9445}"
 NH_NAIVE_LOGIN="${NH_NAIVE_LOGIN:-}"
 NH_NAIVE_PASSWORD="${NH_NAIVE_PASSWORD:-}"
 NH_NAIVE_LINK="${NH_NAIVE_LINK:-}"
+WARP_ENABLED="${WARP_ENABLED:-0}"
+WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
+WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
+WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 
 if [[ -f "$SCRIPT_DIR/config.env" ]]; then
   # shellcheck disable=SC1090
@@ -175,6 +179,35 @@ naive_proxy_check() {
   fi
 }
 
+warp_check() {
+  if ! command_exists warp-cli; then
+    [[ "${WARP_ENABLED:-0}" == "1" ]] && bad "WARP is enabled in config.env but warp-cli is not installed"
+    return 0
+  fi
+
+  local status_text=""
+  status_text="$(warp-cli --accept-tos status 2>/dev/null || warp-cli status 2>/dev/null || true)"
+  if grep -qi "connected" <<<"$status_text"; then
+    ok "WARP status is connected"
+  else
+    warn "WARP status is not clearly connected"
+    [[ -n "$status_text" ]] && printf '%s\n' "$status_text"
+  fi
+
+  if command_exists curl; then
+    local trace=""
+    trace="$(curl -fsS --max-time 20 --socks5-hostname "${WARP_PROXY_HOST}:${WARP_PROXY_PORT}" https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
+    if grep -qi '^warp=on' <<<"$trace"; then
+      ok "WARP local proxy works at ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
+    elif [[ -n "$trace" ]]; then
+      warn "WARP local proxy responded, but trace did not report warp=on"
+      printf '%s\n' "$trace" | grep -E '^(ip|loc|warp)=' || true
+    else
+      warn "WARP local proxy did not respond at ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
+    fi
+  fi
+}
+
 echo "Unified Proxy Manager doctor"
 echo "============================"
 echo
@@ -216,7 +249,7 @@ done
 
 echo
 echo "Ports:"
-for port in 80 443 2053 3000 8080 8081 8443 9443 9445; do
+for port in 80 443 2053 3000 8080 8081 8443 9443 9445 "$WARP_PROXY_PORT"; do
   details="$(port_details "$port")"
   if [[ -n "$details" ]]; then
     warn "Port $port is busy:"
@@ -229,7 +262,7 @@ done
 echo
 echo "Services:"
 if command_exists systemctl; then
-  for svc in x-ui nginx caddy caddy-nh hysteria-server panel-naive-hy2 ufw; do
+  for svc in x-ui nginx caddy caddy-nh hysteria-server panel-naive-hy2 warp-svc ufw; do
     printf '%-8s active=%-10s enabled=%s\n' \
       "$svc" \
       "$(systemctl is-active "$svc" 2>/dev/null || true)" \
@@ -237,6 +270,12 @@ if command_exists systemctl; then
   done
 else
   warn "systemctl not available"
+fi
+
+if command_exists warp-cli || [[ "${WARP_ENABLED:-0}" == "1" ]]; then
+  echo
+  echo "WARP:"
+  warp_check
 fi
 
 echo
@@ -281,5 +320,6 @@ echo "Recommendations:"
 echo "- Run install.sh first in dry-run mode only."
 echo "- Make sure DNS A records point to this VPS before any TLS issuance."
 echo "- In --mode all, keep DNS and public 80/tcp reachable; the installer handles nginx webroot ACME and standalone fallback automatically."
+echo "- If WARP is enabled, use outbound tag ${WARP_OUTBOUND_TAG:-warp-cli} and local proxy ${WARP_PROXY_HOST:-127.0.0.1}:${WARP_PROXY_PORT:-40000} in 3x-ui/Xray routing."
 echo "- Do not run x-ui-pro.sh directly on a server with existing nginx/x-ui data without backups."
 echo "- Use --mode nh only as a standalone N+H panel deployment unless you have reviewed public 443 ownership."

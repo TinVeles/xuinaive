@@ -27,6 +27,11 @@ NH_MASQUERADE_URL="${NH_MASQUERADE_URL:-}"
 NH_ALLOW_PORT_CONFLICT="${NH_ALLOW_PORT_CONFLICT:-0}"
 TLS_CERT="${TLS_CERT:-}"
 TLS_KEY="${TLS_KEY:-}"
+INSTALL_WARP="${INSTALL_WARP:-0}"
+WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
+WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
+WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-inbound-443}"
+WARP_ROUTE_PORT="${WARP_ROUTE_PORT:-443}"
 PROJECT_DIR="${UPM_PROJECT_DIR:-$SCRIPT_DIR}"
 REAL_INSTALL=0
 ASSUME_YES=0
@@ -54,6 +59,7 @@ Usage:
   ./install.sh --mode xui --xui-domain x.example.com --reality-dest r.example.com [--dry-run]
   ./install.sh --mode naive --naive-domain n.example.com [--dry-run]
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install --yes
+  ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install-warp --install --yes
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem --install --yes
   ./install.sh --mode nh --domain vpn.example.com --proxy-email admin@example.com --install --yes
   bash <(wget -qO- RAW_INSTALL_URL)
@@ -76,8 +82,8 @@ prompt_value() {
   local current_value="${3:-}"
   local input=""
 
-  require_interactive
   while [[ -z "$current_value" ]]; do
+    require_interactive
     read -r -p "$prompt: " input
     current_value="$(printf '%s' "$input" | tr -d '[:space:]')"
   done
@@ -230,6 +236,15 @@ show_port_report() {
       ok "Port $port is free or listener was not detected"
     fi
   done
+  if [[ "$INSTALL_WARP" == "1" ]]; then
+    details="$(port_details "$WARP_PROXY_PORT")"
+    if [[ -n "$details" ]]; then
+      warn "Port $WARP_PROXY_PORT is busy:"
+      printf '%s\n' "$details"
+    else
+      ok "Port $WARP_PROXY_PORT is free or listener was not detected"
+    fi
+  fi
 }
 
 service_line() {
@@ -283,6 +298,7 @@ check_vendored_components() {
   local path
   for path in \
     "$PROJECT_DIR/install-unified.sh" \
+    "$PROJECT_DIR/install-warp.sh" \
     "$PROJECT_DIR/components/x-ui-pro/x-ui-pro.sh" \
     "$PROJECT_DIR/components/x-ui-pro/apply-naive-sni-route.sh" \
     "$PROJECT_DIR/components/nh-panel/install.sh" \
@@ -350,6 +366,8 @@ validate_required_args() {
 
 validate_real_install_args() {
   [[ "$REAL_INSTALL" == "1" ]] || return 0
+  [[ "$WARP_PROXY_PORT" =~ ^[0-9]+$ ]] || die "--warp-proxy-port must be numeric"
+  [[ "$WARP_ROUTE_PORT" =~ ^[0-9]+$ ]] || die "--warp-route-port must be numeric"
   if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
     [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
     [[ -f "$TLS_KEY" ]] || die "--tls-key file not found: $TLS_KEY"
@@ -392,6 +410,8 @@ N+H domain:   ${NH_PROXY_DOMAIN:-not set}
 N+H email:    ${NH_PROXY_EMAIL:-not set}
 TLS cert:       ${TLS_CERT:-auto/ACME}
 TLS key:        ${TLS_KEY:-auto/ACME}
+Install WARP:   ${INSTALL_WARP}
+WARP proxy:     127.0.0.1:${WARP_PROXY_PORT}
 
 Changes will be made because --install --yes was provided.
 Packages may be installed.
@@ -414,11 +434,13 @@ N+H domain:   ${NH_PROXY_DOMAIN:-not set}
 N+H email:    ${NH_PROXY_EMAIL:-not set}
 TLS cert:       ${TLS_CERT:-auto/ACME}
 TLS key:        ${TLS_KEY:-auto/ACME}
+Install WARP:   ${INSTALL_WARP}
+WARP proxy:     127.0.0.1:${WARP_PROXY_PORT}
 
 No changes will be made.
 No packages will be installed.
 No services will be started/stopped.
-No upstream scripts will be executed.
+No vendored component scripts will be executed.
 EOF
   fi
 
@@ -462,6 +484,7 @@ All-in-one layout:
 - Caddy accepts nginx stream PROXY protocol on the backend listener.
 - Hysteria2 listens on public 443/udp.
 - N+H panel runs as panel-naive-hy2 and is exposed by nginx on 8081 by default.
+- Optional WARP local proxy installs on 127.0.0.1:${WARP_PROXY_PORT} when --install-warp is used.
 EOF
       ;;
     nh)
@@ -513,6 +536,7 @@ EOF
     [[ -n "$TLS_CERT" ]] && all_args+=(--tls-cert "$TLS_CERT")
     [[ -n "$TLS_KEY" ]] && all_args+=(--tls-key "$TLS_KEY")
     bash "$installer" "${all_args[@]}"
+    run_warp_install_if_requested
     return 0
   fi
 
@@ -547,6 +571,7 @@ EOF
     [[ "$NH_ALLOW_PORT_CONFLICT" == "1" ]] && nh_args+=(--allow-port-conflict)
 
     bash "$nh_installer" "${nh_args[@]}"
+    run_warp_install_if_requested
     return 0
   fi
 
@@ -573,6 +598,31 @@ EOF
     --reality-dest "$REALITY_DEST" \
     --naive-email "$NAIVE_EMAIL" \
     --yes
+  run_warp_install_if_requested
+}
+
+run_warp_install_if_requested() {
+  [[ "$INSTALL_WARP" == "1" ]] || return 0
+  local warp_installer="$PROJECT_DIR/install-warp.sh"
+  [[ -f "$warp_installer" ]] || die "WARP installer not found: $warp_installer"
+
+  cat <<EOF
+
+Installing optional WARP local proxy
+------------------------------------
+Installer:       $warp_installer
+Proxy:           127.0.0.1:${WARP_PROXY_PORT}
+Outbound tag:    ${WARP_OUTBOUND_TAG}
+Inbound tag:     ${WARP_INBOUND_TAG}
+Route port:      ${WARP_ROUTE_PORT}
+EOF
+
+  bash "$warp_installer" \
+    --proxy-port "$WARP_PROXY_PORT" \
+    --outbound-tag "$WARP_OUTBOUND_TAG" \
+    --inbound-tag "$WARP_INBOUND_TAG" \
+    --route-port "$WARP_ROUTE_PORT" \
+    --yes
 }
 
 preparse_project_dir "$@"
@@ -597,6 +647,11 @@ while [[ $# -gt 0 ]]; do
     --allow-port-conflict|--nh-allow-port-conflict) NH_ALLOW_PORT_CONFLICT=1; shift ;;
     --tls-cert) TLS_CERT="${2:-}"; shift 2 ;;
     --tls-key) TLS_KEY="${2:-}"; shift 2 ;;
+    --install-warp) INSTALL_WARP=1; shift ;;
+    --warp-proxy-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
+    --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
+    --warp-inbound-tag) WARP_INBOUND_TAG="${2:-}"; shift 2 ;;
+    --warp-route-port) WARP_ROUTE_PORT="${2:-}"; shift 2 ;;
     --project-dir) PROJECT_DIR="${2:-}"; shift 2 ;;
     --install) REAL_INSTALL=1; DRY_RUN=0; shift ;;
     --yes) ASSUME_YES=1; shift ;;

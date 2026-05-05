@@ -18,6 +18,7 @@ Repository root:
 ├── config.example.env
 ├── install.sh
 ├── install-unified.sh
+├── install-warp.sh
 ├── status.sh
 ├── doctor.sh
 ├── security-hardening.sh
@@ -25,7 +26,6 @@ Repository root:
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── PORTS.md
-└── components/
 ```
 
 The repository also contains vendored component copies under `components/`:
@@ -43,6 +43,7 @@ components/
 - N+H Caddy/NaiveProxy runs behind nginx on `127.0.0.1:9445`.
 - Hysteria2 uses public `443/udp`.
 - N+H Caddy uses a ready certificate/key and accepts nginx stream PROXY protocol on the backend listener.
+- Optional Cloudflare WARP local proxy can be installed on `127.0.0.1:40000`.
 - You still get two web panels: 3x-ui for Xray/3x-ui and N+H Panel for NaiveProxy + Hysteria2.
 
 ## Quick Start From VPS
@@ -59,6 +60,7 @@ sudo bash install.sh --mode all \
   --nh-domain naive.example.com \
   --reality-dest reality.example.com \
   --nh-email admin@example.com \
+  --install-warp \
   --install \
   --yes
 ```
@@ -78,6 +80,8 @@ sudo bash install.sh --mode all \
 ```
 
 In `--mode all`, the installer does not let Caddy issue its own certificate on `127.0.0.1:9445`. If `--tls-cert` and `--tls-key` are omitted, it first issues the N+H/NaiveProxy certificate through nginx HTTP-01 on port `80`; if that fails, it automatically tries a standalone certbot fallback after stopping nginx/caddy and checking that `80/tcp` is free. It then configures both Caddy and Hysteria2 to use the same cert/key, installs a renewal deploy hook, and stops the install if backend TLS or public nginx stream TLS does not pass `openssl s_client` checks. The N+H panel is checked on `127.0.0.1:3000`, through local nginx on `127.0.0.1:8081`, and through the server public IP on `8081`; if the last check fails, open `8081/tcp` in the VPS provider firewall/security group.
+
+`--install-warp` installs Cloudflare WARP in local proxy mode after the main stack is installed. It creates a local SOCKS/HTTP proxy on `127.0.0.1:40000` and saves ready 3x-ui/Xray snippets to `/etc/x-ui/warp-xray-snippets.json`.
 
 Dry-run only:
 
@@ -224,12 +228,59 @@ SSH password/root login hardening is opt-in because it can lock you out if SSH k
 sudo bash security-hardening.sh --apply --yes --ssh-disable-password
 ```
 
+## Optional WARP
+
+Standalone WARP install:
+
+```bash
+sudo bash install-warp.sh --yes
+```
+
+Custom tags/ports for 3x-ui routing:
+
+```bash
+sudo bash install-warp.sh \
+  --proxy-port 40000 \
+  --outbound-tag warp-cli \
+  --inbound-tag inbound-443 \
+  --route-port 443 \
+  --yes
+```
+
+The script installs `cloudflare-warp`, registers the client, switches it to local proxy mode, connects WARP, checks the local proxy, and writes:
+
+```text
+/etc/x-ui/warp-xray-snippets.json
+```
+
+Use those values in 3x-ui/Xray:
+
+```text
+Outbound:
+  Protocol: socks
+  Tag:      warp-cli
+  Address:  127.0.0.1
+  Port:     40000
+
+Routing:
+  Inbound tags: inbound-443
+  Port:         443
+  Outbound:     warp-cli
+```
+
+Check WARP:
+
+```bash
+warp-cli --accept-tos status
+curl --socks5-hostname 127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace
+```
+
 ## What install.sh checks
 
 - root or non-root execution warning;
 - OS support: Ubuntu 22.04, Ubuntu 24.04, Debian 12;
 - required commands: `curl`, `wget`, `git`, `systemctl`;
-- upstream script presence;
+- vendored component presence;
 - service states for `x-ui`, `nginx`, `caddy-nh`, `ufw`;
 - service states for `hysteria-server` and `panel-naive-hy2` when present;
 - listeners on `80`, `443`, `2053`, `8443`, `9443`;
