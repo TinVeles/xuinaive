@@ -14,6 +14,8 @@ XUI_DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
 NH_CONFIG="${NH_CONFIG:-/opt/panel-naive-hy2/panel/data/config.json}"
 CADDYFILE="${CADDYFILE:-/etc/caddy-nh/Caddyfile}"
 HYSTERIA_CONFIG="${HYSTERIA_CONFIG:-/etc/hysteria/config.yaml}"
+NH_SUBSCRIPTION_DIR="${NH_SUBSCRIPTION_DIR:-/opt/panel-naive-hy2/subscriptions}"
+NH_SUBSCRIPTION_NGINX="${NH_SUBSCRIPTION_NGINX:-1}"
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
@@ -47,6 +49,7 @@ Creates:
   x-ui:  COUNT shared-email normal profiles across existing preset inbounds,
          plus COUNT shared-email WARP profiles routed through WARP.
   N+H:   COUNT NaiveProxy profiles and COUNT Hysteria2 profiles.
+         Subscription files are written to ${NH_SUBSCRIPTION_DIR}.
 
 WARP variants:
   outbound tag: ${WARP_OUTBOUND_TAG}
@@ -62,6 +65,8 @@ while [[ $# -gt 0 ]]; do
     --nh-config) NH_CONFIG="${2:-}"; shift 2 ;;
     --caddyfile) CADDYFILE="${2:-}"; shift 2 ;;
     --hysteria-config) HYSTERIA_CONFIG="${2:-}"; shift 2 ;;
+    --subscription-dir) NH_SUBSCRIPTION_DIR="${2:-}"; shift 2 ;;
+    --no-nginx-subscription) NH_SUBSCRIPTION_NGINX=0; shift ;;
     --warp-host) WARP_PROXY_HOST="${2:-}"; shift 2 ;;
     --warp-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
@@ -91,7 +96,7 @@ fi
 
 backup_dir="/opt/unified-proxy-manager/backups/profiles-$(date '+%Y-%m-%d-%H-%M-%S')"
 mkdir -p "$backup_dir"
-for path in "$XUI_DB" "$NH_CONFIG" "$CADDYFILE" "$HYSTERIA_CONFIG"; do
+for path in "$XUI_DB" "$NH_CONFIG" "$CADDYFILE" "$HYSTERIA_CONFIG" /etc/nginx/snippets/nh-subscriptions.conf; do
   if [[ -e "$path" || -L "$path" ]]; then
     mkdir -p "$backup_dir$(dirname "$path")"
     cp -a "$path" "$backup_dir$(dirname "$path")/"
@@ -238,7 +243,7 @@ nh_generate() {
   info "Creating N+H NaiveProxy and Hysteria2 profiles"
   [[ -f "$NH_CONFIG" ]] || die "N+H config not found: $NH_CONFIG"
 
-  COUNT="$COUNT" PREFIX="$PREFIX" NH_CONFIG="$NH_CONFIG" CADDYFILE="$CADDYFILE" HYSTERIA_CONFIG="$HYSTERIA_CONFIG" SCRIPT_DIR="$SCRIPT_DIR" node <<'NODE'
+  COUNT="$COUNT" PREFIX="$PREFIX" NH_CONFIG="$NH_CONFIG" CADDYFILE="$CADDYFILE" HYSTERIA_CONFIG="$HYSTERIA_CONFIG" NH_SUBSCRIPTION_DIR="$NH_SUBSCRIPTION_DIR" SCRIPT_DIR="$SCRIPT_DIR" node <<'NODE'
 const fs = require('fs');
 const cp = require('child_process');
 
@@ -248,6 +253,7 @@ const cfgPath = process.env.NH_CONFIG;
 const caddyfile = process.env.CADDYFILE;
 const hyPath = process.env.HYSTERIA_CONFIG;
 const reportPath = '/opt/panel-naive-hy2/generated-profiles.txt';
+const subDir = process.env.NH_SUBSCRIPTION_DIR || '/opt/panel-naive-hy2/subscriptions';
 
 function pass() {
   return cp.execSync("openssl rand -base64 18 | tr -dc 'A-Za-z0-9' | head -c 20", { encoding: 'utf8', shell: '/bin/bash' }).trim();
@@ -316,21 +322,71 @@ if (fs.existsSync(hyPath)) {
 }
 
 const domain = cfg.domain || 'DOMAIN_NOT_SET';
+const naiveLinks = cfg.naiveUsers.map(u => `naive+https://${u.username}:${u.password}@${domain}:443#${encodeURIComponent(u.username)}`);
+const hy2Links = cfg.hy2Users.map(u => `hysteria2://${encodeURIComponent(u.username)}:${encodeURIComponent(u.password)}@${domain}:443?sni=${domain}&insecure=0#${encodeURIComponent(u.username)}`);
+const generatedNaiveLinks = generatedNaive.map(u => `naive+https://${u.username}:${u.password}@${domain}:443#${encodeURIComponent(u.username)}`);
+const generatedHy2Links = generatedHy2.map(u => `hysteria2://${encodeURIComponent(u.username)}:${encodeURIComponent(u.password)}@${domain}:443?sni=${domain}&insecure=0#${encodeURIComponent(u.username)}`);
 const lines = [];
 lines.push('Generated N+H profiles');
 lines.push('======================');
 lines.push('');
 lines.push('NaiveProxy:');
-for (const u of generatedNaive) {
-  lines.push(`naive+https://${u.username}:${u.password}@${domain}:443`);
-}
+for (const link of generatedNaiveLinks) lines.push(link);
 lines.push('');
 lines.push('Hysteria2:');
-for (const u of generatedHy2) {
-  lines.push(`hysteria2://${encodeURIComponent(u.username)}:${encodeURIComponent(u.password)}@${domain}:443?sni=${domain}&insecure=0#${encodeURIComponent(u.username)}`);
-}
+for (const link of generatedHy2Links) lines.push(link);
 fs.mkdirSync(require('path').dirname(reportPath), { recursive: true });
 fs.writeFileSync(reportPath, lines.join('\n') + '\n', { mode: 0o600 });
+
+function b64(s) {
+  return Buffer.from(s, 'utf8').toString('base64');
+}
+
+function singBoxOutboundFromLink(link, index) {
+  if (link.startsWith('naive+https://')) {
+    const raw = link.slice('naive+'.length);
+    const url = new URL(raw);
+    return {
+      type: 'naive',
+      tag: `naive-${index}`,
+      server: url.hostname,
+      server_port: Number(url.port || 443),
+      username: decodeURIComponent(url.username),
+      password: decodeURIComponent(url.password)
+    };
+  }
+  if (link.startsWith('hysteria2://')) {
+    const url = new URL(link);
+    return {
+      type: 'hysteria2',
+      tag: `hy2-${index}`,
+      server: url.hostname,
+      server_port: Number(url.port || 443),
+      password: decodeURIComponent(url.password),
+      tls: {
+        enabled: true,
+        server_name: url.searchParams.get('sni') || url.hostname,
+        insecure: url.searchParams.get('insecure') === '1'
+      }
+    };
+  }
+  return null;
+}
+
+const allLinks = [...naiveLinks, ...hy2Links];
+const singBox = {
+  log: { level: 'info' },
+  outbounds: allLinks.map(singBoxOutboundFromLink).filter(Boolean)
+};
+
+fs.mkdirSync(subDir, { recursive: true, mode: 0o755 });
+fs.writeFileSync(`${subDir}/naive.txt`, naiveLinks.join('\n') + '\n', { mode: 0o644 });
+fs.writeFileSync(`${subDir}/hy2.txt`, hy2Links.join('\n') + '\n', { mode: 0o644 });
+fs.writeFileSync(`${subDir}/all.txt`, allLinks.join('\n') + '\n', { mode: 0o644 });
+fs.writeFileSync(`${subDir}/naive.b64`, b64(naiveLinks.join('\n')), { mode: 0o644 });
+fs.writeFileSync(`${subDir}/hy2.b64`, b64(hy2Links.join('\n')), { mode: 0o644 });
+fs.writeFileSync(`${subDir}/all.b64`, b64(allLinks.join('\n')), { mode: 0o644 });
+fs.writeFileSync(`${subDir}/sing-box.json`, JSON.stringify(singBox, null, 2) + '\n', { mode: 0o644 });
 NODE
 
   if [[ -f "$CADDYFILE" ]]; then
@@ -342,6 +398,49 @@ NODE
   fi
   ok "N+H config updated: $COUNT NaiveProxy + $COUNT Hysteria2 profiles"
   ok "N+H generated links saved: /opt/panel-naive-hy2/generated-profiles.txt"
+  ok "N+H subscriptions saved: $NH_SUBSCRIPTION_DIR"
+  configure_nginx_subscription
+}
+
+configure_nginx_subscription() {
+  [[ "$NH_SUBSCRIPTION_NGINX" == "1" ]] || return 0
+  command_exists nginx || { warn "nginx is not installed; subscription files were created locally only"; return 0; }
+  [[ -d /etc/nginx/conf.d ]] || { warn "/etc/nginx/conf.d not found; subscription files were created locally only"; return 0; }
+
+  mkdir -p /etc/nginx/snippets
+  cat > /etc/nginx/snippets/nh-subscriptions.conf <<EOF
+location ^~ /sub/ {
+    alias ${NH_SUBSCRIPTION_DIR%/}/;
+    default_type text/plain;
+    add_header Cache-Control "no-store";
+    try_files \$uri =404;
+}
+EOF
+
+  local conf="/etc/nginx/conf.d/nh-subscriptions.conf"
+  local panel_conf="/etc/nginx/sites-available/panel-naive-hy2"
+  if [[ -f "$panel_conf" ]]; then
+    if ! grep -q 'include /etc/nginx/snippets/nh-subscriptions.conf;' "$panel_conf"; then
+      sed -i '/location \/ {/i\    include /etc/nginx/snippets/nh-subscriptions.conf;' "$panel_conf"
+    fi
+  fi
+
+  if [[ ! -f "$conf" ]]; then
+    cat > "$conf" <<'EOF'
+server {
+    listen 127.0.0.1:18081;
+    server_name _;
+    include /etc/nginx/snippets/nh-subscriptions.conf;
+}
+EOF
+  fi
+
+  if nginx -T 2>/dev/null | grep -q 'include /etc/nginx/snippets/nh-subscriptions.conf'; then
+    ok "nginx subscription location is configured"
+  else
+    warn "nginx snippet was written, but no public server includes it. Files are still available locally in $NH_SUBSCRIPTION_DIR"
+  fi
+  nginx -t >/dev/null && systemctl reload nginx 2>/dev/null || warn "nginx reload failed"
 }
 
 if [[ "$CREATE_XUI" == "1" ]]; then
@@ -386,6 +485,7 @@ N+H:
   NaiveProxy profiles: ${COUNT}
   Hysteria2 profiles: ${COUNT}
   links: /opt/panel-naive-hy2/generated-profiles.txt
+  subscriptions: ${NH_SUBSCRIPTION_DIR}
 
 Backup:
   ${backup_dir}
