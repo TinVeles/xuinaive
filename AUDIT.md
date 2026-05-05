@@ -11,10 +11,14 @@
 Основные скрипты:
 
 - `x-ui-pro.sh` - основной установщик x-ui-pro / 3x-ui stack.
-- `x-ui-pro-updated.sh`, `x-ui-pro-old.sh` - альтернативные версии установщика.
-- `backup.sh` - backup panel/nginx configs.
-- `randomfakehtml.sh` - установка fake web content.
-- `repare-after-286-update.sh` - repair helper.
+- `apply-naive-sni-route.sh` - локальный unified-патч nginx stream для маршрутизации N+H/NaiveProxy SNI на backend `127.0.0.1:9445`.
+
+Очистка vendored-копии:
+
+- альтернативные версии `x-ui-pro-updated.sh` и `x-ui-pro-old.sh` удалены;
+- upstream helper-скрипты `backup.sh`, `randomfakehtml.sh`, `repare-after-286-update.sh` удалены;
+- документационные изображения, примеры Clash и HTML subscription pages удалены;
+- оставлены только файлы, которые реально нужны unified-установщику.
 
 Ключевой риск:
 
