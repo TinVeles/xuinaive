@@ -20,6 +20,7 @@ Repository root:
 ├── install-unified.sh
 ├── install-warp.sh
 ├── generate-profiles.sh
+├── show-access-info.sh
 ├── status.sh
 ├── doctor.sh
 ├── security-hardening.sh
@@ -181,6 +182,7 @@ Copy-friendly access info after installation:
 
 ```bash
 sudo cat ./access-info.txt
+sudo bash ./show-access-info.sh
 ```
 
 Doctor:

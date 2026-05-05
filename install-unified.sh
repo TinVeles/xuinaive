@@ -38,6 +38,28 @@ ok() { printf 'OK: %s\n' "$*"; }
 warn() { printf 'WARN: %s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
+if [[ -t 1 ]]; then
+  BOLD=$'\033[1m'
+  DIM=$'\033[2m'
+  RED=$'\033[0;31m'
+  GREEN=$'\033[0;32m'
+  YELLOW=$'\033[1;33m'
+  BLUE=$'\033[0;34m'
+  MAGENTA=$'\033[0;35m'
+  CYAN=$'\033[0;36m'
+  NC=$'\033[0m'
+else
+  BOLD=""
+  DIM=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  MAGENTA=""
+  CYAN=""
+  NC=""
+fi
+
 require_active() {
   local svc="$1"
   if ! systemctl is-active --quiet "$svc"; then
@@ -85,6 +107,8 @@ write_access_summary() {
   local summary_file="$SCRIPT_DIR/access-info.txt"
   local server_ip xui_user xui_pass xui_port xui_path xui_url nh_panel_url
   local naive_link hy2_link nh_panel_login nh_panel_password
+  local sub_base naive_sub hy2_sub all_sub singbox_sub warp_status warp_proxy warp_snippet profile_report nh_profile_report
+  local services_block ports_block xui_copy nh_copy
 
   server_ip="$(public_ipv4)"
   [[ -n "$server_ip" ]] || server_ip="SERVER_IP"
@@ -109,10 +133,42 @@ write_access_summary() {
   nh_panel_password="$(config_value NH_PANEL_PASSWORD)"
   naive_link="$(config_value NH_NAIVE_LINK)"
   hy2_link="$(config_value NH_HY2_LINK)"
+  warp_proxy="$(config_value WARP_PROXY_HOST)"
+  [[ -n "$warp_proxy" ]] || warp_proxy="127.0.0.1"
+  warp_proxy="${warp_proxy}:$(config_value WARP_PROXY_PORT)"
+  [[ "$warp_proxy" != *: ]] || warp_proxy="${warp_proxy}40000"
+  warp_snippet="$(config_value WARP_SNIPPET_FILE)"
+  [[ -n "$warp_snippet" ]] || warp_snippet="/etc/x-ui/warp-xray-snippets.json"
+  profile_report="/etc/x-ui/generated-clients.txt"
+  nh_profile_report="/opt/panel-naive-hy2/generated-profiles.txt"
+  sub_base="${nh_panel_url%/}/sub"
+  naive_sub="${sub_base}/naive.txt"
+  hy2_sub="${sub_base}/hy2.txt"
+  all_sub="${sub_base}/all.txt"
+  singbox_sub="${sub_base}/sing-box.json"
+  if command -v warp-cli >/dev/null 2>&1; then
+    warp_status="$(warp-cli --accept-tos status 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
+  else
+    warp_status="not installed"
+  fi
+  services_block="$(for svc in x-ui nginx caddy-nh panel-naive-hy2 hysteria-server warp-svc; do printf '  %-18s %s\n' "$svc" "$(systemctl is-active "$svc" 2>/dev/null || echo unknown)"; done)"
+  ports_block="$(for port in 443 443/udp 8081 9445 40000; do
+    case "$port" in
+      443/udp) ss -H -lun "sport = :443" 2>/dev/null | grep -q . && state=busy || state='free/not detected' ;;
+      *) ss -H -ltn "sport = :$port" 2>/dev/null | grep -q . && state=busy || state='free/not detected' ;;
+    esac
+    printf '  %-18s %s\n' "$port" "$state"
+  done)"
+  xui_copy="${xui_url}
+${xui_user:-}
+${xui_pass:-}"
+  nh_copy="${nh_panel_url}
+${nh_panel_login:-admin}
+${nh_panel_password:-admin}"
 
   cat > "$summary_file" <<EOF
 ============================================================
-Unified Proxy Manager - Access Info
+xuinaive - final access info
 ============================================================
 
 3x-ui / x-ui panel
@@ -123,9 +179,7 @@ Password: ${xui_pass:-check with: x-ui settings}
 Port:     ${xui_port}
 
 Copy:
-${xui_url}
-${xui_user:-}
-${xui_pass:-}
+${xui_copy}
 
 N+H Panel
 ------------------------------------------------------------
@@ -134,9 +188,7 @@ Login:    ${nh_panel_login:-admin}
 Password: ${nh_panel_password:-admin}
 
 Copy:
-${nh_panel_url}
-${nh_panel_login:-admin}
-${nh_panel_password:-admin}
+${nh_copy}
 
 NaiveProxy
 ------------------------------------------------------------
@@ -149,6 +201,32 @@ Hysteria2
 ------------------------------------------------------------
 Link:
 ${hy2_link:-not available}
+
+Subscriptions
+------------------------------------------------------------
+Naive:    ${naive_sub}
+Hy2:      ${hy2_sub}
+All:      ${all_sub}
+sing-box: ${singbox_sub}
+
+WARP
+------------------------------------------------------------
+Status:   ${warp_status}
+Proxy:    ${warp_proxy}
+Snippet:  ${warp_snippet}
+
+Generated profile reports
+------------------------------------------------------------
+x-ui:     ${profile_report}
+N+H:      ${nh_profile_report}
+
+Services
+------------------------------------------------------------
+${services_block}
+
+Ports
+------------------------------------------------------------
+${ports_block}
 
 Useful commands
 ------------------------------------------------------------
@@ -175,30 +253,46 @@ EOF
 
   cat <<EOF
 
-╔════════════════════════════════════════════════════════════╗
-║                INSTALLATION ACCESS INFO                  ║
-╚════════════════════════════════════════════════════════════╝
+${BOLD}${GREEN}╔══════════════════════════════════════════════════════════════════════╗${NC}
+${BOLD}${GREEN}║                    XUINAIVE INSTALLATION COMPLETE                   ║${NC}
+${BOLD}${GREEN}╚══════════════════════════════════════════════════════════════════════╝${NC}
 
-3x-ui / x-ui panel
-  URL:      ${xui_url}
-  Login:    ${xui_user:-check with: x-ui settings}
-  Password: ${xui_pass:-check with: x-ui settings}
+${BOLD}${CYAN}3x-ui / x-ui panel${NC}
+  ${BOLD}URL:${NC}      ${xui_url}
+  ${BOLD}Login:${NC}    ${xui_user:-check with: x-ui settings}
+  ${BOLD}Password:${NC} ${xui_pass:-check with: x-ui settings}
 
-N+H Panel
-  URL:      ${nh_panel_url}
-  Login:    ${nh_panel_login:-admin}
-  Password: ${nh_panel_password:-admin}
+${BOLD}${MAGENTA}N+H Panel${NC}
+  ${BOLD}URL:${NC}      ${nh_panel_url}
+  ${BOLD}Login:${NC}    ${nh_panel_login:-admin}
+  ${BOLD}Password:${NC} ${nh_panel_password:-admin}
 
-NaiveProxy link
-  ${naive_link:-not available}
+${BOLD}${YELLOW}Proxy Links${NC}
+  ${BOLD}Naive:${NC} ${naive_link:-not available}
+  ${BOLD}Hy2:${NC}   ${hy2_link:-not available}
 
-Hysteria2 link
-  ${hy2_link:-not available}
+${BOLD}${BLUE}Subscriptions${NC}
+  ${BOLD}Naive:${NC}    ${naive_sub}
+  ${BOLD}Hy2:${NC}      ${hy2_sub}
+  ${BOLD}All:${NC}      ${all_sub}
+  ${BOLD}sing-box:${NC} ${singbox_sub}
 
-Saved copy-friendly file:
+${BOLD}${CYAN}WARP${NC}
+  ${BOLD}Status:${NC}  ${warp_status}
+  ${BOLD}Proxy:${NC}   ${warp_proxy}
+  ${BOLD}Snippet:${NC} ${warp_snippet}
+
+${BOLD}${GREEN}Generated Reports${NC}
+  x-ui clients: ${profile_report}
+  N+H links:    ${nh_profile_report}
+
+${BOLD}${GREEN}Services${NC}
+${services_block}
+
+${BOLD}${GREEN}Copy-friendly file saved:${NC}
   ${summary_file}
 
-Show it again:
+${BOLD}Show it again:${NC}
   sudo cat ${summary_file}
 
 EOF

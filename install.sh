@@ -304,6 +304,7 @@ check_vendored_components() {
     "$PROJECT_DIR/install-unified.sh" \
     "$PROJECT_DIR/install-warp.sh" \
     "$PROJECT_DIR/generate-profiles.sh" \
+    "$PROJECT_DIR/show-access-info.sh" \
     "$PROJECT_DIR/components/x-ui-pro/x-ui-pro.sh" \
     "$PROJECT_DIR/components/x-ui-pro/apply-naive-sni-route.sh" \
     "$PROJECT_DIR/components/nh-panel/install.sh" \
@@ -548,6 +549,7 @@ EOF
     bash "$installer" "${all_args[@]}"
     run_warp_install_if_requested
     run_profile_generation_if_requested
+    show_final_access_info
     return 0
   fi
 
@@ -584,6 +586,7 @@ EOF
     bash "$nh_installer" "${nh_args[@]}"
     run_warp_install_if_requested
     run_profile_generation_if_requested
+    show_final_access_info
     return 0
   fi
 
@@ -612,6 +615,7 @@ EOF
     --yes
   run_warp_install_if_requested
   run_profile_generation_if_requested
+  show_final_access_info
 }
 
 run_warp_install_if_requested() {
@@ -660,6 +664,12 @@ EOF
     --warp-port "$WARP_PROXY_PORT" \
     --warp-outbound-tag "$WARP_OUTBOUND_TAG" \
     --yes
+}
+
+show_final_access_info() {
+  local summary="$PROJECT_DIR/show-access-info.sh"
+  [[ -f "$summary" ]] || return 0
+  bash "$summary" || warn "Could not print final access summary"
 }
 
 preparse_project_dir "$@"
