@@ -21,6 +21,7 @@ Repository root:
 ├── prepare-upstreams.sh
 ├── status.sh
 ├── doctor.sh
+├── security-hardening.sh
 ├── README.md
 ├── docs/
 │   ├── ARCHITECTURE.md
@@ -185,6 +186,50 @@ Doctor:
 
 ```bash
 sudo ./doctor.sh
+```
+
+Security hardening dry-run:
+
+```bash
+sudo bash security-hardening.sh
+```
+
+Apply the recommended profile:
+
+```bash
+sudo bash security-hardening.sh --apply --yes
+```
+
+The recommended profile keeps only SSH, `80/tcp`, `443/tcp`, and `443/udp` open, closes the N+H panel port `8081/tcp` publicly, installs fail2ban and unattended-upgrades, enables `probe_resistance` in `/etc/caddy-nh/Caddyfile`, and restricts access files to `0600`. After that, access the N+H panel through an SSH tunnel:
+
+```bash
+ssh -L 8081:127.0.0.1:8081 root@SERVER_IP
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8081
+```
+
+If you intentionally need an extra public inbound port, keep it open explicitly:
+
+```bash
+sudo bash security-hardening.sh --apply --yes --allow-port 8443/tcp
+```
+
+To allow the panel only from your current static IP/CIDR:
+
+```bash
+sudo bash security-hardening.sh --apply --yes \
+  --panel-mode allow-ip \
+  --allow-panel-from YOUR_IP/32
+```
+
+SSH password/root login hardening is opt-in because it can lock you out if SSH keys or a sudo user are not ready:
+
+```bash
+sudo bash security-hardening.sh --apply --yes --ssh-disable-password
 ```
 
 ## What install.sh checks
