@@ -32,6 +32,9 @@ WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-inbound-443}"
 WARP_ROUTE_PORT="${WARP_ROUTE_PORT:-443}"
+GENERATE_PROFILES="${GENERATE_PROFILES:-0}"
+PROFILE_COUNT="${PROFILE_COUNT:-15}"
+PROFILE_PREFIX="${PROFILE_PREFIX:-auto}"
 PROJECT_DIR="${UPM_PROJECT_DIR:-$SCRIPT_DIR}"
 REAL_INSTALL=0
 ASSUME_YES=0
@@ -60,6 +63,7 @@ Usage:
   ./install.sh --mode naive --naive-domain n.example.com [--dry-run]
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install --yes
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install-warp --install --yes
+  ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install-warp --generate-profiles --install --yes
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem --install --yes
   ./install.sh --mode nh --domain vpn.example.com --proxy-email admin@example.com --install --yes
   bash <(wget -qO- RAW_INSTALL_URL)
@@ -299,6 +303,7 @@ check_vendored_components() {
   for path in \
     "$PROJECT_DIR/install-unified.sh" \
     "$PROJECT_DIR/install-warp.sh" \
+    "$PROJECT_DIR/generate-profiles.sh" \
     "$PROJECT_DIR/components/x-ui-pro/x-ui-pro.sh" \
     "$PROJECT_DIR/components/x-ui-pro/apply-naive-sni-route.sh" \
     "$PROJECT_DIR/components/nh-panel/install.sh" \
@@ -368,6 +373,8 @@ validate_real_install_args() {
   [[ "$REAL_INSTALL" == "1" ]] || return 0
   [[ "$WARP_PROXY_PORT" =~ ^[0-9]+$ ]] || die "--warp-proxy-port must be numeric"
   [[ "$WARP_ROUTE_PORT" =~ ^[0-9]+$ ]] || die "--warp-route-port must be numeric"
+  [[ "$PROFILE_COUNT" =~ ^[0-9]+$ && "$PROFILE_COUNT" -gt 0 ]] || die "--profile-count must be a positive number"
+  [[ "$PROFILE_PREFIX" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--profile-prefix may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
   if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
     [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
     [[ -f "$TLS_KEY" ]] || die "--tls-key file not found: $TLS_KEY"
@@ -412,6 +419,7 @@ TLS cert:       ${TLS_CERT:-auto/ACME}
 TLS key:        ${TLS_KEY:-auto/ACME}
 Install WARP:   ${INSTALL_WARP}
 WARP proxy:     127.0.0.1:${WARP_PROXY_PORT}
+Profiles:       ${GENERATE_PROFILES} (${PROFILE_COUNT} per group, prefix ${PROFILE_PREFIX})
 
 Changes will be made because --install --yes was provided.
 Packages may be installed.
@@ -436,6 +444,7 @@ TLS cert:       ${TLS_CERT:-auto/ACME}
 TLS key:        ${TLS_KEY:-auto/ACME}
 Install WARP:   ${INSTALL_WARP}
 WARP proxy:     127.0.0.1:${WARP_PROXY_PORT}
+Profiles:       ${GENERATE_PROFILES} (${PROFILE_COUNT} per group, prefix ${PROFILE_PREFIX})
 
 No changes will be made.
 No packages will be installed.
@@ -485,6 +494,7 @@ All-in-one layout:
 - Hysteria2 listens on public 443/udp.
 - N+H panel runs as panel-naive-hy2 and is exposed by nginx on 8081 by default.
 - Optional WARP local proxy installs on 127.0.0.1:${WARP_PROXY_PORT} when --install-warp is used.
+- Optional profile generator creates ${PROFILE_COUNT} shared-email direct x-ui profiles, ${PROFILE_COUNT} shared-email WARP x-ui profiles, plus ${PROFILE_COUNT} NaiveProxy and ${PROFILE_COUNT} Hy2 profiles when --generate-profiles is used.
 EOF
       ;;
     nh)
@@ -537,6 +547,7 @@ EOF
     [[ -n "$TLS_KEY" ]] && all_args+=(--tls-key "$TLS_KEY")
     bash "$installer" "${all_args[@]}"
     run_warp_install_if_requested
+    run_profile_generation_if_requested
     return 0
   fi
 
@@ -572,6 +583,7 @@ EOF
 
     bash "$nh_installer" "${nh_args[@]}"
     run_warp_install_if_requested
+    run_profile_generation_if_requested
     return 0
   fi
 
@@ -599,6 +611,7 @@ EOF
     --naive-email "$NAIVE_EMAIL" \
     --yes
   run_warp_install_if_requested
+  run_profile_generation_if_requested
 }
 
 run_warp_install_if_requested() {
@@ -622,6 +635,30 @@ EOF
     --outbound-tag "$WARP_OUTBOUND_TAG" \
     --inbound-tag "$WARP_INBOUND_TAG" \
     --route-port "$WARP_ROUTE_PORT" \
+    --yes
+}
+
+run_profile_generation_if_requested() {
+  [[ "$GENERATE_PROFILES" == "1" ]] || return 0
+  local profile_generator="$PROJECT_DIR/generate-profiles.sh"
+  [[ -f "$profile_generator" ]] || die "Profile generator not found: $profile_generator"
+
+  cat <<EOF
+
+Generating clients and profiles
+-------------------------------
+Generator:       $profile_generator
+Count:           $PROFILE_COUNT
+Prefix:          $PROFILE_PREFIX
+WARP outbound:   $WARP_OUTBOUND_TAG
+WARP proxy:      127.0.0.1:${WARP_PROXY_PORT}
+EOF
+
+  bash "$profile_generator" \
+    --count "$PROFILE_COUNT" \
+    --prefix "$PROFILE_PREFIX" \
+    --warp-port "$WARP_PROXY_PORT" \
+    --warp-outbound-tag "$WARP_OUTBOUND_TAG" \
     --yes
 }
 
@@ -652,6 +689,9 @@ while [[ $# -gt 0 ]]; do
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-inbound-tag) WARP_INBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-route-port) WARP_ROUTE_PORT="${2:-}"; shift 2 ;;
+    --generate-profiles) GENERATE_PROFILES=1; shift ;;
+    --profile-count) PROFILE_COUNT="${2:-}"; shift 2 ;;
+    --profile-prefix) PROFILE_PREFIX="${2:-}"; shift 2 ;;
     --project-dir) PROJECT_DIR="${2:-}"; shift 2 ;;
     --install) REAL_INSTALL=1; DRY_RUN=0; shift ;;
     --yes) ASSUME_YES=1; shift ;;

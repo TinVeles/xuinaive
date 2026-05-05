@@ -19,6 +19,7 @@ Repository root:
 ├── install.sh
 ├── install-unified.sh
 ├── install-warp.sh
+├── generate-profiles.sh
 ├── status.sh
 ├── doctor.sh
 ├── security-hardening.sh
@@ -44,6 +45,7 @@ components/
 - Hysteria2 uses public `443/udp`.
 - N+H Caddy uses a ready certificate/key and accepts nginx stream PROXY protocol on the backend listener.
 - Optional Cloudflare WARP local proxy can be installed on `127.0.0.1:40000`.
+- Optional bulk profile generator can create x-ui, NaiveProxy, and Hysteria2 clients.
 - You still get two web panels: 3x-ui for Xray/3x-ui and N+H Panel for NaiveProxy + Hysteria2.
 
 ## Quick Start From VPS
@@ -61,6 +63,7 @@ sudo bash install.sh --mode all \
   --reality-dest reality.example.com \
   --nh-email admin@example.com \
   --install-warp \
+  --generate-profiles \
   --install \
   --yes
 ```
@@ -82,6 +85,8 @@ sudo bash install.sh --mode all \
 In `--mode all`, the installer does not let Caddy issue its own certificate on `127.0.0.1:9445`. If `--tls-cert` and `--tls-key` are omitted, it first issues the N+H/NaiveProxy certificate through nginx HTTP-01 on port `80`; if that fails, it automatically tries a standalone certbot fallback after stopping nginx/caddy and checking that `80/tcp` is free. It then configures both Caddy and Hysteria2 to use the same cert/key, installs a renewal deploy hook, and stops the install if backend TLS or public nginx stream TLS does not pass `openssl s_client` checks. The N+H panel is checked on `127.0.0.1:3000`, through local nginx on `127.0.0.1:8081`, and through the server public IP on `8081`; if the last check fails, open `8081/tcp` in the VPS provider firewall/security group.
 
 `--install-warp` installs Cloudflare WARP in local proxy mode after the main stack is installed. It creates a local SOCKS/HTTP proxy on `127.0.0.1:40000` and saves ready 3x-ui/Xray snippets to `/etc/x-ui/warp-xray-snippets.json`.
+
+`--generate-profiles` creates 15 shared-email regular x-ui profiles across the existing preset inbounds, 15 shared-email WARP x-ui profiles routed through `warp-cli`, plus 15 NaiveProxy profiles and 15 Hysteria2 profiles. Use `--profile-count N` and `--profile-prefix NAME` to change the defaults.
 
 Dry-run only:
 
@@ -273,6 +278,44 @@ Check WARP:
 ```bash
 warp-cli --accept-tos status
 curl --socks5-hostname 127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace
+```
+
+## Bulk Profiles
+
+Create the default profile set after installation:
+
+```bash
+sudo bash generate-profiles.sh --yes
+```
+
+This creates:
+
+```text
+x-ui:
+  15 direct profiles with common email/subId across preset protocols
+  15 WARP profiles with common email/subId across preset protocols
+
+N+H:
+  15 NaiveProxy profiles
+  15 Hysteria2 profiles
+```
+
+The script backs up `/etc/x-ui/x-ui.db`, N+H config, Caddyfile, and Hysteria config before writing. x-ui direct profiles use emails like `auto-01`; WARP profiles use emails like `auto-warp-01`. The same email/subId is reused across the preset protocols, so one subscription profile groups the related protocol variants. WARP profiles get a routing rule by Xray `user` to outbound `warp-cli` when the x-ui template config is available.
+
+Generated reports:
+
+```text
+/etc/x-ui/generated-clients.txt
+/opt/panel-naive-hy2/generated-profiles.txt
+```
+
+Custom count/prefix:
+
+```bash
+sudo bash generate-profiles.sh \
+  --count 15 \
+  --prefix auto \
+  --yes
 ```
 
 ## What install.sh checks
