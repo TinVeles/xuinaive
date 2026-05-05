@@ -28,12 +28,6 @@ NH_ALLOW_PORT_CONFLICT="${NH_ALLOW_PORT_CONFLICT:-0}"
 TLS_CERT="${TLS_CERT:-}"
 TLS_KEY="${TLS_KEY:-}"
 PROJECT_DIR="${UPM_PROJECT_DIR:-$SCRIPT_DIR}"
-XUI_UPSTREAM="${XUI_UPSTREAM:-upstreams/x-ui-pro/x-ui-pro.sh}"
-NH_UPSTREAM="${NH_UPSTREAM:-components/nh-panel/upstream/install.sh}"
-XUI_REPO="${XUI_REPO:-https://github.com/mozaroc/x-ui-pro.git}"
-NH_REPO="${NH_REPO:-}"
-AUTO_FETCH_UPSTREAMS="${AUTO_FETCH_UPSTREAMS:-ask}"
-FETCH_ONLY=0
 REAL_INSTALL=0
 ASSUME_YES=0
 DRY_RUN=1
@@ -62,13 +56,11 @@ Usage:
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install --yes
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem --install --yes
   ./install.sh --mode nh --domain vpn.example.com --proxy-email admin@example.com --install --yes
-  ./install.sh --fetch-upstreams
   bash <(wget -qO- RAW_INSTALL_URL)
 
 Default mode is dry-run only. Real install requires --install --yes.
 When values are omitted in an interactive terminal, the script asks for them.
 When run from a URL, relative paths are resolved from the current directory or --project-dir.
-If upstream projects are missing, the script can fetch them into upstreams/.
 Mode all installs 3x-ui + N+H Panel + NaiveProxy + Hysteria2 on one VPS.
 Mode nh installs only the standalone N+H NaiveProxy + Hysteria2 web panel.
 EOF
@@ -194,86 +186,6 @@ preparse_project_dir() {
   PROJECT_DIR="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || printf '%s' "$PROJECT_DIR")"
 }
 
-resolve_project_path() {
-  local path="$1"
-  case "$path" in
-    /*) printf '%s\n' "$path" ;;
-    *) printf '%s\n' "$PROJECT_DIR/$path" ;;
-  esac
-}
-
-upstream_paths() {
-  XUI_UPSTREAM_PATH="$(resolve_project_path "$XUI_UPSTREAM")"
-  NH_UPSTREAM_PATH="$(resolve_project_path "$NH_UPSTREAM")"
-}
-
-clone_or_update_upstream() {
-  local repo_url="$1"
-  local target_dir="$2"
-  local name="$3"
-
-  if [[ -z "$repo_url" ]]; then
-    ok "$name is vendored or managed locally; skipping git clone"
-    return 0
-  fi
-
-  command_exists git || die "git is required to fetch upstream projects"
-  mkdir -p "$(dirname "$target_dir")"
-
-  if [[ -d "$target_dir/.git" ]]; then
-    info "$name already exists, fetching latest refs"
-    git -C "$target_dir" fetch --all --prune
-    ok "$name is present: $target_dir"
-    return 0
-  fi
-
-  if [[ -e "$target_dir" ]]; then
-    warn "$target_dir exists but is not a git clone. Leaving it unchanged."
-    return 0
-  fi
-
-  info "Cloning $name from $repo_url"
-  git clone "$repo_url" "$target_dir"
-  ok "$name cloned: $target_dir"
-}
-
-fetch_upstreams() {
-  local upstreams_dir xui_dir nh_dir
-  upstreams_dir="$PROJECT_DIR/upstreams"
-  xui_dir="$upstreams_dir/x-ui-pro"
-  nh_dir="$upstreams_dir/NH-Panel-Naive-Hy2"
-
-  clone_or_update_upstream "$XUI_REPO" "$xui_dir" "x-ui-pro"
-  clone_or_update_upstream "$NH_REPO" "$nh_dir" "N+H panel"
-}
-
-maybe_fetch_upstreams() {
-  upstream_paths
-  [[ -f "$XUI_UPSTREAM_PATH" && -f "$NH_UPSTREAM_PATH" ]] && return 0
-
-  case "$AUTO_FETCH_UPSTREAMS" in
-    yes)
-      fetch_upstreams
-      ;;
-    no)
-      return 0
-      ;;
-    ask)
-      if [[ -t 0 ]]; then
-        local answer=""
-        warn "Upstream projects are missing in $PROJECT_DIR/upstreams."
-        read -r -p "Fetch upstream projects now? [y/N]: " answer
-        answer="$(printf '%s' "$answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
-        case "$answer" in
-          y|yes|д|да) fetch_upstreams ;;
-          *) warn "Skipping upstream fetch." ;;
-        esac
-      fi
-      ;;
-    *) die "AUTO_FETCH_UPSTREAMS must be ask, yes, or no" ;;
-  esac
-}
-
 public_ipv4() {
   local ip=""
   if command_exists ip; then
@@ -364,25 +276,6 @@ check_required_commands() {
       warn "Command missing: $cmd"
     fi
   done
-}
-
-check_upstream_files() {
-  local xui_path nh_path
-  upstream_paths
-  xui_path="$XUI_UPSTREAM_PATH"
-  nh_path="$NH_UPSTREAM_PATH"
-  if [[ -f "$xui_path" ]]; then
-    ok "x-ui-pro upstream found: $XUI_UPSTREAM"
-  else
-    warn "x-ui-pro upstream not found: $XUI_UPSTREAM"
-    warn "Run ./prepare-upstreams.sh or rerun ./install.sh --fetch-upstreams to fetch it."
-  fi
-  if [[ -f "$nh_path" ]]; then
-    ok "N+H panel upstream found: $NH_UPSTREAM"
-  else
-    warn "N+H panel upstream not found: $NH_UPSTREAM"
-    warn "Run ./prepare-upstreams.sh or rerun ./install.sh --fetch-upstreams to fetch it."
-  fi
 }
 
 check_vendored_components() {
@@ -513,7 +406,6 @@ Dry-run installation plan
 Mode:           $MODE
 Project dir:    $PROJECT_DIR
 Run from URL:   $RUN_FROM_STREAM
-Upstream fetch: $AUTO_FETCH_UPSTREAMS
 x-ui domain:    ${XUI_DOMAIN:-not set}
 Naive domain:   ${NAIVE_DOMAIN:-not set}
 REALITY dest:   ${REALITY_DEST:-not set}
@@ -706,8 +598,6 @@ while [[ $# -gt 0 ]]; do
     --tls-cert) TLS_CERT="${2:-}"; shift 2 ;;
     --tls-key) TLS_KEY="${2:-}"; shift 2 ;;
     --project-dir) PROJECT_DIR="${2:-}"; shift 2 ;;
-    --fetch-upstreams) AUTO_FETCH_UPSTREAMS=yes; FETCH_ONLY=1; shift ;;
-    --no-fetch-upstreams) AUTO_FETCH_UPSTREAMS=no; shift ;;
     --install) REAL_INSTALL=1; DRY_RUN=0; shift ;;
     --yes) ASSUME_YES=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
@@ -715,18 +605,6 @@ while [[ $# -gt 0 ]]; do
     *) die "Unknown argument: $1" ;;
   esac
 done
-
-if [[ "$FETCH_ONLY" == "1" && -z "$MODE" && -z "$XUI_DOMAIN" && -z "$NAIVE_DOMAIN" && -z "$REALITY_DEST" ]]; then
-  info "Fetching upstream projects only"
-  fetch_upstreams
-  cat <<EOF
-
-Upstream fetch complete.
-Next step:
-  sudo ./install.sh
-EOF
-  exit 0
-fi
 
 if [[ "$REAL_INSTALL" == "1" ]]; then
   [[ -n "$MODE" ]] || MODE="all"
@@ -747,12 +625,7 @@ fi
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || warn "Not running as root; port/process details may be incomplete"
 check_os
 check_required_commands
-if [[ "$REAL_INSTALL" == "1" ]]; then
-  check_vendored_components
-else
-  maybe_fetch_upstreams
-  check_upstream_files
-fi
+check_vendored_components
 
 echo
 echo "Service status:"

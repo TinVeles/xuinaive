@@ -61,8 +61,3 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 package-lock.backup*
-
-# Local upstream clones and deprecated external sources
-upstreams/x-ui-pro/
-upstreams/naiveproxy-instant-install-by-Ilya_Rublev/
-upstreams/NH-Panel-Naive-Hy2/

@@ -4,19 +4,18 @@ This project has a dry-run planner and an explicit real installer.
 
 ## Boundary
 
-`unified-proxy-manager` keeps upstream repositories inside its own `upstreams/` directory:
+`unified-proxy-manager` uses curated vendored component copies under `components/`:
 
 ```text
-upstreams/x-ui-pro
-upstreams/NH-Panel-Naive-Hy2
+components/x-ui-pro
+components/nh-panel
 ```
 
-Run `./prepare-upstreams.sh` to clone or refresh those upstream repositories. The manager reads system state and prints a plan. It does not modify upstream code and does not execute upstream installers.
+The manager reads system state, validates the vendored component files, and either prints a plan or runs the explicit guarded installer. It no longer keeps local clone directories for external projects.
 
 ## Scripts
 
 - `install.sh` accepts `--mode xui`, `--mode naive`, `--mode all`, `--mode both`, or `--mode nh`, validates required domain arguments, checks OS/commands/services/ports/DNS, and prints a dry-run plan.
-- `prepare-upstreams.sh` creates `upstreams/` and clones the upstream projects there.
 - `status.sh` reports configured domains, service states, listening ports, and recent service logs when available.
 - `doctor.sh` performs diagnostic checks and prints recommendations.
 

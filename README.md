@@ -18,7 +18,6 @@ Repository root:
 ├── config.example.env
 ├── install.sh
 ├── install-unified.sh
-├── prepare-upstreams.sh
 ├── status.sh
 ├── doctor.sh
 ├── security-hardening.sh
@@ -26,8 +25,7 @@ Repository root:
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── PORTS.md
-└── upstreams/
-    └── README.md
+└── components/
 ```
 
 The repository also contains vendored component copies under `components/`:
@@ -89,12 +87,6 @@ rm -rf unified-proxy-manager
 git clone https://github.com/TinVeles/xuinaive.git unified-proxy-manager
 cd unified-proxy-manager
 sudo bash install.sh
-```
-
-Or run the helper directly:
-
-```bash
-bash prepare-upstreams.sh
 ```
 
 ## Dry-run commands

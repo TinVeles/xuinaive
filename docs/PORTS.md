@@ -29,7 +29,7 @@ Based on `AUDIT.md`, these are the important upstream ports to check before any 
 - `3000/tcp`: N+H Panel service `panel-naive-hy2`.
 - `8081/tcp`: nginx HTTP proxy to the N+H Panel by default.
 
-In all-in-one mode, NaiveProxy clients still connect to external `443`; nginx stream routes the N+H/NaiveProxy domain SNI to `127.0.0.1:9445`. The backend Caddyfile disables automatic HTTP redirects, uses an explicit certificate/key, and enables the `proxy_protocol` listener wrapper before TLS because nginx stream sends PROXY protocol to upstreams.
+In all-in-one mode, NaiveProxy clients still connect to external `443`; nginx stream routes the N+H/NaiveProxy domain SNI to `127.0.0.1:9445`. The backend Caddyfile disables automatic HTTP redirects, uses an explicit certificate/key, and enables the `proxy_protocol` listener wrapper before TLS because nginx stream sends PROXY protocol to backend services.
 
 ## N+H Panel Mode
 
