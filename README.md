@@ -294,15 +294,16 @@ This creates:
 
 ```text
 x-ui:
-  15 direct profiles with common email/subId across preset protocols
-  15 WARP profiles with common email/subId across preset protocols
+  15 clients on every existing preset inbound
+  one WARP clone inbound for every preset inbound
+  15 clients on every WARP inbound
 
 N+H:
   15 NaiveProxy profiles
   15 Hysteria2 profiles
 ```
 
-The script backs up `/etc/x-ui/x-ui.db`, N+H config, Caddyfile, and Hysteria config before writing. x-ui direct profiles use emails like `auto-01`; WARP profiles use emails like `auto-warp-01`. The same email/subId is reused across the preset protocols, so one subscription profile groups the related protocol variants. WARP profiles get a routing rule by Xray `user` to outbound `warp-cli` when the x-ui template config is available.
+The script backs up `/etc/x-ui/x-ui.db`, N+H config, Caddyfile, and Hysteria config before writing. x-ui profiles use shared emails like `auto-01` on every direct and WARP inbound. The same email/subId is reused across protocol variants, so one subscription profile groups the related direct and WARP variants. WARP clone inbounds get a routing rule by Xray `inboundTag` to outbound `warp-cli` when the x-ui template config is available. N+H generated subscriptions contain exactly `COUNT` NaiveProxy links and `COUNT` Hysteria2 links for the selected prefix.
 
 Generated reports:
 

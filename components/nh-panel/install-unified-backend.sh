@@ -21,6 +21,12 @@ PANEL_DIR="/opt/panel-naive-hy2"
 TLS_CERT=""
 TLS_KEY=""
 
+reset_terminal_style() {
+  [[ -t 1 ]] && printf '\033[0m\033[24m\033[25m' || true
+}
+trap reset_terminal_style EXIT
+reset_terminal_style
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -259,6 +265,24 @@ HY2_PASS="$(random_alnum 24)"
 PANEL_LOGIN="admin"
 PANEL_PASSWORD="$(random_alnum 24)"
 CREATED_AT="$(date -u +%FT%TZ)"
+
+naive_users_json() {
+  local first_login="$1" first_pass="$2" count="${3:-15}"
+  printf '[\n    {"username": "%s", "password": "%s", "createdAt": "%s"}' "$first_login" "$first_pass" "$CREATED_AT"
+  for i in $(seq -w 2 "$count"); do
+    printf ',\n    {"username": "user%s", "password": "%s", "createdAt": "%s"}' "$i" "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)" "$CREATED_AT"
+  done
+  printf '\n  ]\n'
+}
+
+hy2_users_json() {
+  local first_pass="$1" count="${2:-15}"
+  printf '[\n    {"username": "default", "password": "%s", "createdAt": "%s"}' "$first_pass" "$CREATED_AT"
+  for i in $(seq -w 2 "$count"); do
+    printf ',\n    {"username": "user%s", "password": "%s", "createdAt": "%s"}' "$i" "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)" "$CREATED_AT"
+  done
+  printf '\n  ]\n'
+}
 
 mkdir -p /var/www/html "$CADDY_DIR"
 cat > /var/www/html/index.html <<'EOF'
@@ -537,40 +561,8 @@ cat > "$PANEL_DIR/panel/data/config.json" <<EOF
   "masqueradeUrl": "",
   "serverIp": "",
   "arch": "$(uname -m)",
-  "naiveUsers": [
-    {"username": "${NAIVE_LOGIN}", "password": "${NAIVE_PASS}", "createdAt": "${CREATED_AT}"},
-    {"username": "user02", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user03", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user04", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user05", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user06", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user07", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user08", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user09", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user10", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user11", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user12", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user13", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user14", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user15", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"}
-  ],
-  "hy2Users": [
-    {"username": "default", "password": "${HY2_PASS}", "createdAt": "${CREATED_AT}"},
-    {"username": "user02", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user03", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user04", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user05", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user06", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user07", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user08", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user09", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user10", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user11", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user12", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user13", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user14", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"},
-    {"username": "user15", "password": "$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 16)", "createdAt": "${CREATED_AT}"}
-  ]
+  "naiveUsers": $(naive_users_json "$NAIVE_LOGIN" "$NAIVE_PASS" 15),
+  "hy2Users": $(hy2_users_json "$HY2_PASS" 15)
 }
 EOF
 chmod 600 "$PANEL_DIR/panel/data/config.json"
@@ -695,6 +687,7 @@ service_state() {
   printf '%s\n' "$state"
 }
 
+reset_terminal_style
 cat <<EOF
 
 N+H unified backend installed

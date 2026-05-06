@@ -46,6 +46,12 @@ YELLOW=$'\033[1;33m'
 BLUE=$'\033[0;34m'
 NC=$'\033[0m'
 
+reset_terminal_style() {
+  [[ -t 1 ]] && printf '\033[0m\033[24m\033[25m' || true
+}
+trap reset_terminal_style EXIT
+reset_terminal_style
+
 info() { printf '%s\n' "${BLUE}INFO:${NC} $*"; }
 ok() { printf '%s\n' "${GREEN}OK:${NC} $*"; }
 warn() { printf '%s\n' "${YELLOW}WARN:${NC} $*"; }
@@ -177,10 +183,9 @@ load_config() {
   local config_file="$PROJECT_DIR/config.env"
   if [[ -f "$config_file" ]]; then
     if [[ -r "$config_file" ]]; then
-      local owner group
-      owner=$(stat -c '%U' "$config_file" 2>/dev/null || echo "unknown")
-      group=$(stat -c '%G' "$config_file" 2>/dev/null || echo "unknown")
-      if [[ "$owner" == "root" && "$group" == "root" ]]; then
+      local owner
+      owner=$(ls -ld "$config_file" 2>/dev/null | awk '{print $3}')
+      if [[ "$owner" == "root" ]]; then
         warn "config.env is root-owned; some variables may not be readable"
       fi
     else
