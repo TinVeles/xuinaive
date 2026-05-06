@@ -20,6 +20,7 @@ NH_SUBSCRIPTION_NGINX="${NH_SUBSCRIPTION_NGINX:-1}"
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
+WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google}"
 CREATE_XUI="${CREATE_XUI:-1}"
 CREATE_NH="${CREATE_NH:-1}"
 RELOAD_SERVICES="${RELOAD_SERVICES:-1}"
@@ -55,6 +56,7 @@ Creates:
 WARP variants:
   outbound tag: ${WARP_OUTBOUND_TAG}
   local proxy:  ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}
+  AI domains:   ${WARP_AI_DOMAINS}
 EOF
 }
 
@@ -71,6 +73,7 @@ while [[ $# -gt 0 ]]; do
     --warp-host) WARP_PROXY_HOST="${2:-}"; shift 2 ;;
     --warp-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
+    --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
     --xui-only) CREATE_XUI=1; CREATE_NH=0; shift ;;
     --nh-only) CREATE_XUI=0; CREATE_NH=1; shift ;;
     --no-reload) RELOAD_SERVICES=0; shift ;;
@@ -158,7 +161,7 @@ xui_client_json() {
 
 xui_replace_generated_clients() {
   local inbound_id="$1" protocol="$2" mode="$3" tag="$4" report_file="$5"
-  local now index email client_json clients_json settings new_settings
+  local now index email client_json clients_json settings new_settings traffic_result
   now="$(date +%s)000"
   clients_json="[]"
 
@@ -183,7 +186,10 @@ xui_replace_generated_clients() {
   sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND (email GLOB $(sql_quote "${PREFIX}-[0-9]*") OR email GLOB $(sql_quote "${PREFIX}-warp-[0-9]*"));"
   for index in $(seq -w 1 "$COUNT"); do
     email="${PREFIX}-${index}"
-    sqlite3 "$XUI_DB" "INSERT INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset) VALUES ($inbound_id, 1, $(sql_quote "$email"), 0, 0, 0, 0, 0);"
+    traffic_result="$(sqlite3 "$XUI_DB" "INSERT OR IGNORE INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset) VALUES ($inbound_id, 1, $(sql_quote "$email"), 0, 0, 0, 0, 0); SELECT changes();" 2>/dev/null || true)"
+    if [[ "${traffic_result##*$'\n'}" != "1" ]]; then
+      printf 'WARN traffic duplicate/ignored inbound=%s email=%s\n' "$inbound_id" "$email" >> "$report_file"
+    fi
     printf 'inbound=%s protocol=%s tag=%s mode=%s email=%s\n' "$inbound_id" "$protocol" "${tag:-}" "$mode" "$email" >> "$report_file"
   done
 }
@@ -226,6 +232,7 @@ xui_add_clients() {
   warp_tags_file="$(mktemp)"
   mkdir -p "$(dirname "$report_file")"
   : > "$report_file"
+  sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE email GLOB $(sql_quote "${PREFIX}-[0-9]*") OR email GLOB $(sql_quote "${PREFIX}-warp-[0-9]*");"
 
   inbound_rows="$(sqlite3 -separator $'\t' "$XUI_DB" \
     "SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
@@ -254,8 +261,11 @@ xui_add_clients() {
 
 xui_apply_warp_template() {
   local warp_tags_file="$1"
-  local tags_json current key snippet_dir snippet_file updated
+  local tags_json domains_json current key snippet_dir snippet_file updated
   tags_json="$(jq -Rsc 'split("\n") | map(select(length > 0)) | unique' "$warp_tags_file")"
+  domains_json="$(printf '%s\n' "$WARP_AI_DOMAINS" \
+    | tr ',' '\n' \
+    | jq -Rsc 'split("\n") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(length > 0)) | unique')"
   snippet_dir="/etc/x-ui"
   snippet_file="$snippet_dir/warp-generated-routing.json"
   mkdir -p "$snippet_dir"
@@ -265,9 +275,10 @@ xui_apply_warp_template() {
     --arg host "$WARP_PROXY_HOST" \
     --argjson port "$WARP_PROXY_PORT" \
     --argjson inboundTags "$tags_json" \
+    --argjson domains "$domains_json" \
     '{
       outbound: {tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port}]}},
-      routingRule: {type:"field", inboundTag:$inboundTags, outboundTag:$tag}
+      routingRule: {type:"field", inboundTag:$inboundTags, domain:$domains, outboundTag:$tag}
     }' > "$snippet_file"
 
   key="$(sqlite3 -readonly "$XUI_DB" "SELECT key FROM settings WHERE key IN ('xrayTemplateConfig','xrayConfig','xraySetting') LIMIT 1;" || true)"
@@ -288,20 +299,22 @@ xui_apply_warp_template() {
     --arg tag "$WARP_OUTBOUND_TAG" \
     --arg host "$WARP_PROXY_HOST" \
     --argjson port "$WARP_PROXY_PORT" \
-    --argjson inboundTags "$tags_json" '
+    --argjson inboundTags "$tags_json" \
+    --argjson domains "$domains_json" '
     .outbounds = ((.outbounds // [])
       | map(select(.tag != $tag))
       + [{tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port}]}}])
     | .routing = (.routing // {})
     | .routing.rules = ((.routing.rules // [])
-      | map(select(.outboundTag != $tag or (.inboundTag // []) != $inboundTags))
-      + [{type:"field", inboundTag:$inboundTags, outboundTag:$tag}])
+      | map(select(.outboundTag != $tag))
+      + [{type:"field", inboundTag:$inboundTags, domain:$domains, outboundTag:$tag}])
   ' <<<"$current")"
 
   sqlite3 "$XUI_DB" "DELETE FROM settings WHERE key=$(sql_quote "$key");"
   sqlite3 "$XUI_DB" "INSERT INTO settings (key, value) VALUES ($(sql_quote "$key"), $(sql_quote "$updated"));"
   ok "x-ui WARP outbound/routing saved in settings.$key"
   ok "WARP routing snippet saved: $snippet_file"
+  ok "WARP routing scope: WARP inbounds only + AI domains only"
   ok "x-ui generated client report saved: /etc/x-ui/generated-clients.txt"
 }
 
@@ -576,6 +589,7 @@ x-ui:
   WARP clients: ${COUNT} shared email/subId clients on every WARP inbound
   WARP outbound: ${WARP_OUTBOUND_TAG}
   WARP proxy: ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}
+  WARP routed domains: ${WARP_AI_DOMAINS}
   WARP snippet: /etc/x-ui/warp-generated-routing.json
   x-ui report: /etc/x-ui/generated-clients.txt
 

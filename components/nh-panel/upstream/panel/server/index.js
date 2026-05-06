@@ -6,6 +6,7 @@
 
 const express = require('express');
 const session = require('express-session');
+const FileStore = require('session-file-store')(session);
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -40,8 +41,10 @@ const DATA_DIR = path.join(__dirname, '../data');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const SECRET_FILE = path.join(DATA_DIR, '.session_secret');
+const SESSION_DIR = path.join(DATA_DIR, 'sessions');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true, mode: 0o700 });
 
 // ─── Session secret (персистентный, генерится при первом запуске) ───
 let SESSION_SECRET;
@@ -139,6 +142,12 @@ app.use(bodyParser.json({ limit: '256kb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '256kb' }));
 app.use(session({
   name: 'nh_sid',
+  store: new FileStore({
+    path: SESSION_DIR,
+    ttl: 24 * 60 * 60,
+    retries: 0,
+    reapInterval: 60 * 60
+  }),
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,

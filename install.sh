@@ -30,6 +30,7 @@ TLS_KEY="${TLS_KEY:-}"
 INSTALL_WARP="${INSTALL_WARP:-0}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
+WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google}"
 WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-inbound-443}"
 WARP_ROUTE_PORT="${WARP_ROUTE_PORT:-443}"
 GENERATE_PROFILES="${GENERATE_PROFILES:-0}"
@@ -568,6 +569,7 @@ EOF
       --reality-dest "$REALITY_DEST"
       --nh-email "$NH_PROXY_EMAIL"
       --panel-access "$NH_ACCESS"
+      --no-access-info
       --yes
     )
     [[ -n "$TLS_CERT" ]] && all_args+=(--tls-cert "$TLS_CERT")
@@ -682,6 +684,7 @@ Count:           $PROFILE_COUNT
 Prefix:          $PROFILE_PREFIX
 WARP outbound:   $WARP_OUTBOUND_TAG
 WARP proxy:      127.0.0.1:${WARP_PROXY_PORT}
+WARP AI domains: $WARP_AI_DOMAINS
 EOF
 
   bash "$profile_generator" \
@@ -689,6 +692,7 @@ EOF
     --prefix "$PROFILE_PREFIX" \
     --warp-port "$WARP_PROXY_PORT" \
     --warp-outbound-tag "$WARP_OUTBOUND_TAG" \
+    --warp-ai-domains "$WARP_AI_DOMAINS" \
     --yes
 }
 
@@ -723,6 +727,7 @@ while [[ $# -gt 0 ]]; do
     --install-warp) INSTALL_WARP=1; shift ;;
     --warp-proxy-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
+    --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
     --warp-inbound-tag) WARP_INBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-route-port) WARP_ROUTE_PORT="${2:-}"; shift 2 ;;
     --generate-profiles) GENERATE_PROFILES=1; shift ;;

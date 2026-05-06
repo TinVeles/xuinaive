@@ -21,6 +21,8 @@ PROFILE_COUNT=15
 PROFILE_PREFIX="auto"
 WARP_PROXY_PORT=40000
 WARP_OUTBOUND_TAG="warp-cli"
+WARP_AI_DOMAINS="domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google"
+PRINT_ACCESS_INFO=1
 
 usage() {
   cat <<'EOF'
@@ -144,6 +146,8 @@ while [[ $# -gt 0 ]]; do
     --profile-prefix) PROFILE_PREFIX="${2:-}"; shift 2 ;;
     --warp-proxy-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
+    --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
+    --no-access-info) PRINT_ACCESS_INFO=0; shift ;;
     --yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
@@ -286,13 +290,9 @@ if [[ "$GENERATE_PROFILES" == "1" ]]; then
     --prefix "${PROFILE_PREFIX:-auto}" \
     --warp-port "${WARP_PROXY_PORT:-40000}" \
     --warp-outbound-tag "${WARP_OUTBOUND_TAG:-warp-cli}" \
+    --warp-ai-domains "$WARP_AI_DOMAINS" \
     --yes
 fi
 
 ok "Unified install completed"
-systemctl status x-ui --no-pager || true
-systemctl status nginx --no-pager || true
-systemctl status caddy-nh --no-pager || true
-systemctl status hysteria-server --no-pager || true
-systemctl status panel-naive-hy2 --no-pager || true
-write_access_summary
+[[ "$PRINT_ACCESS_INFO" == "1" ]] && write_access_summary

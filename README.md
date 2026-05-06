@@ -87,7 +87,7 @@ In `--mode all`, the installer does not let Caddy issue its own certificate on `
 
 `--install-warp` installs Cloudflare WARP in local proxy mode after the main stack is installed. It creates a local SOCKS/HTTP proxy on `127.0.0.1:40000` and saves ready 3x-ui/Xray snippets to `/etc/x-ui/warp-xray-snippets.json`.
 
-`--generate-profiles` creates 15 shared-email regular x-ui profiles across the existing preset inbounds, 15 shared-email WARP x-ui profiles routed through `warp-cli`, plus 15 NaiveProxy profiles and 15 Hysteria2 profiles. Use `--profile-count N` and `--profile-prefix NAME` to change the defaults.
+`--generate-profiles` creates 15 shared-email regular x-ui profiles across the existing preset inbounds, 15 shared-email WARP x-ui profiles, plus 15 NaiveProxy profiles and 15 Hysteria2 profiles. WARP profile inbounds get an Xray outbound `warp-cli`, but routing is limited to AI domains by default: OpenAI/ChatGPT/Codex, Claude/Anthropic, Gemini, and NotebookLM. Use `--profile-count N`, `--profile-prefix NAME`, and `--warp-ai-domains "domain:example.com,domain:other.example"` to change the defaults.
 
 Dry-run only:
 
@@ -303,7 +303,7 @@ N+H:
   15 Hysteria2 profiles
 ```
 
-The script backs up `/etc/x-ui/x-ui.db`, N+H config, Caddyfile, and Hysteria config before writing. x-ui profiles use shared emails like `auto-01` on every direct and WARP inbound. The same email/subId is reused across protocol variants, so one subscription profile groups the related direct and WARP variants. WARP clone inbounds get a routing rule by Xray `inboundTag` to outbound `warp-cli` when the x-ui template config is available. N+H generated subscriptions contain exactly `COUNT` NaiveProxy links and `COUNT` Hysteria2 links for the selected prefix.
+The script backs up `/etc/x-ui/x-ui.db`, N+H config, Caddyfile, and Hysteria config before writing. x-ui profiles use shared emails like `auto-01` on every direct and WARP inbound. The same email/subId is reused across protocol variants, so one subscription profile groups the related direct and WARP variants. WARP clone inbounds get a routing rule by Xray `inboundTag` to outbound `warp-cli` when the x-ui template config is available. That rule also includes a domain filter, so only AI domains leave through WARP from WARP inbounds. N+H generated subscriptions contain exactly `COUNT` NaiveProxy links and `COUNT` Hysteria2 links for the selected prefix.
 
 Generated reports:
 
