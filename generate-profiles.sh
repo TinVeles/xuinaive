@@ -440,6 +440,17 @@ xui_apply_warp_template() {
   ok "x-ui generated client report saved: /etc/x-ui/generated-clients.txt"
 }
 
+xui_cleanup_unix_sockets() {
+  [[ -f "$XUI_DB" ]] || return 0
+  sqlite3 -readonly "$XUI_DB" "SELECT listen FROM inbounds WHERE listen LIKE '/%';" 2>/dev/null \
+    | while IFS= read -r listen_path; do
+        [[ -n "$listen_path" ]] || continue
+        socket_path="${listen_path%%,*}"
+        [[ -S "$socket_path" ]] || continue
+        rm -f -- "$socket_path" || true
+      done
+}
+
 nh_generate() {
   info "Creating N+H NaiveProxy and Hysteria2 profiles"
   [[ -f "$NH_CONFIG" ]] || die "N+H config not found: $NH_CONFIG"
@@ -690,7 +701,9 @@ fi
 if [[ "$RELOAD_SERVICES" == "1" ]]; then
   info "Reloading services"
   if [[ "$CREATE_XUI" == "1" ]] && command_exists systemctl; then
-    systemctl restart x-ui || warn "x-ui restart failed"
+    systemctl stop x-ui 2>/dev/null || true
+    xui_cleanup_unix_sockets
+    systemctl start x-ui || warn "x-ui start failed"
   fi
   if [[ "$CREATE_NH" == "1" ]] && command_exists systemctl; then
     if systemctl is-active --quiet caddy-nh 2>/dev/null; then

@@ -236,6 +236,17 @@ xui_seed_bulk_profiles() {
   rm -f "$warp_tags_file"
   msg_ok "x-ui seed: ${XUI_PROFILE_COUNT} clients per inbound, subId mode ${XUI_SUB_ID_MODE}"
 }
+
+xui_cleanup_unix_sockets() {
+  [[ -f "$XUIDB" ]] || return 0
+  sqlite3 -readonly "$XUIDB" "SELECT listen FROM inbounds WHERE listen LIKE '/%';" 2>/dev/null \
+    | while IFS= read -r listen_path; do
+        [[ -n "$listen_path" ]] || continue
+        socket_path="${listen_path%%,*}"
+        [[ -S "$socket_path" ]] || continue
+        rm -f -- "$socket_path" || true
+      done
+}
 check_free() {
 	local port=$1
 	nc -z -w 2 127.0.0.1 $port &>/dev/null
@@ -1089,6 +1100,7 @@ if [[ -f $XUIDB ]]; then
 	);
 EOF
 xui_seed_bulk_profiles
+xui_cleanup_unix_sockets
 /usr/local/x-ui/x-ui setting -username "${config_username}" -password "${config_password}" -port "${panel_port}" -webBasePath "${panel_path}"
 /usr/local/x-ui/x-ui cert -webCert "/root/cert/${domain}/fullchain.pem" -webCertKey "/root/cert/${domain}/privkey.pem"
 x-ui start
