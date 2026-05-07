@@ -21,6 +21,10 @@ WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google}"
+XUI_INBOUND_ID="${XUI_INBOUND_ID:-}"
+XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-$PREFIX}"
+XUI_CREATE_WARP="${XUI_CREATE_WARP:-0}"
+XUI_REPLACE_CLIENTS="${XUI_REPLACE_CLIENTS:-1}"
 CREATE_XUI="${CREATE_XUI:-1}"
 CREATE_NH="${CREATE_NH:-1}"
 RELOAD_SERVICES="${RELOAD_SERVICES:-1}"
@@ -48,8 +52,8 @@ Usage:
   sudo bash generate-profiles.sh --nh-only --yes
 
 Creates:
-  x-ui:  COUNT shared-email clients on every preset inbound,
-         plus one WARP clone inbound per preset inbound with COUNT clients.
+  x-ui:  COUNT clients on every selected preset inbound,
+         with one shared subscription subId.
   N+H:   COUNT NaiveProxy profiles and COUNT Hysteria2 profiles.
          Subscription files are written to ${NH_SUBSCRIPTION_DIR}.
 
@@ -57,6 +61,13 @@ WARP variants:
   outbound tag: ${WARP_OUTBOUND_TAG}
   local proxy:  ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}
   AI domains:   ${WARP_AI_DOMAINS}
+  disabled by default; add --xui-warp-clone to create a WARP clone inbound.
+
+x-ui selection:
+  default: every preset vless/trojan inbound
+  --xui-inbound-id ID: only one inbound
+  default replace mode: selected inbound clients become exactly COUNT
+  --xui-keep-existing: keep existing non-generated clients
 EOF
 }
 
@@ -74,6 +85,10 @@ while [[ $# -gt 0 ]]; do
     --warp-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
+    --xui-inbound-id) XUI_INBOUND_ID="${2:-}"; shift 2 ;;
+    --xui-common-sub-id) XUI_COMMON_SUB_ID="${2:-}"; shift 2 ;;
+    --xui-warp-clone) XUI_CREATE_WARP=1; shift ;;
+    --xui-keep-existing) XUI_REPLACE_CLIENTS=0; shift ;;
     --xui-only) CREATE_XUI=1; CREATE_NH=0; shift ;;
     --nh-only) CREATE_XUI=0; CREATE_NH=1; shift ;;
     --no-reload) RELOAD_SERVICES=0; shift ;;
@@ -88,6 +103,8 @@ done
 [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -gt 0 ]] || die "--count must be a positive number"
 [[ "$WARP_PROXY_PORT" =~ ^[0-9]+$ ]] || die "--warp-port must be numeric"
 [[ "$PREFIX" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--prefix may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
+[[ -z "$XUI_INBOUND_ID" || "$XUI_INBOUND_ID" =~ ^[0-9]+$ ]] || die "--xui-inbound-id must be numeric"
+[[ "$XUI_COMMON_SUB_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--xui-common-sub-id may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
 
 for cmd in node openssl; do
   command_exists "$cmd" || die "$cmd is required"
@@ -134,12 +151,12 @@ xui_next_free_port() {
 }
 
 xui_client_json() {
-  local inbound_id="$1" protocol="$2" email="$3" now="$4" password uid client_json
+  local inbound_id="$1" protocol="$2" email="$3" sub_id="$4" now="$5" password uid client_json
   if [[ "$protocol" == "trojan" ]]; then
     password="$(rand_password)"
     jq -cn \
       --arg email "$email" \
-      --arg subId "$email" \
+      --arg subId "$sub_id" \
       --arg password "$password" \
       --arg now "$now" \
       '{comment:"", created_at:($now|tonumber), email:$email, enable:true, expiryTime:0, limitIp:0, password:$password, reset:0, subId:$subId, tgId:0, totalGB:0, updated_at:($now|tonumber)}'
@@ -147,7 +164,7 @@ xui_client_json() {
     uid="$(uuid_value | tr -d '[:space:]')"
     client_json="$(jq -cn \
       --arg email "$email" \
-      --arg subId "$email" \
+      --arg subId "$sub_id" \
       --arg id "$uid" \
       --arg now "$now" \
       '{id:$id, flow:"", email:$email, limitIp:0, totalGB:0, expiryTime:0, enable:true, tgId:"", subId:$subId, reset:0, created_at:($now|tonumber), updated_at:($now|tonumber)}')"
@@ -167,23 +184,31 @@ xui_replace_generated_clients() {
 
   for index in $(seq -w 1 "$COUNT"); do
     email="${PREFIX}-${index}"
-    client_json="$(xui_client_json "$inbound_id" "$protocol" "$email" "$now")"
+    client_json="$(xui_client_json "$inbound_id" "$protocol" "$email" "$XUI_COMMON_SUB_ID" "$now")"
     clients_json="$(jq -c --argjson client "$client_json" '. + [$client]' <<<"$clients_json")"
   done
 
   settings="$(sqlite3 -readonly "$XUI_DB" "SELECT settings FROM inbounds WHERE id=$inbound_id;")"
-  new_settings="$(jq -c --arg prefix "$PREFIX" --argjson clients "$clients_json" '
-    def generated_email:
-      ((.email // "") | tostring) as $email
-      | ($email | startswith($prefix + "-"))
-        and (($email | ltrimstr($prefix + "-")) | test("^(warp-)?[0-9]+$"));
-    .clients = ((.clients // [])
-      | map(select(generated_email | not))
-      + $clients)
-  ' <<<"$settings")"
+  if [[ "$XUI_REPLACE_CLIENTS" == "1" ]]; then
+    new_settings="$(jq -c --argjson clients "$clients_json" '.clients = $clients' <<<"$settings")"
+  else
+    new_settings="$(jq -c --arg prefix "$PREFIX" --argjson clients "$clients_json" '
+      def generated_email:
+        ((.email // "") | tostring) as $email
+        | ($email | startswith($prefix + "-"))
+          and (($email | ltrimstr($prefix + "-")) | test("^[0-9]+$"));
+      .clients = ((.clients // [])
+        | map(select(generated_email | not))
+        + $clients)
+    ' <<<"$settings")"
+  fi
 
   sqlite3 "$XUI_DB" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
-  sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND (email GLOB $(sql_quote "${PREFIX}-[0-9]*") OR email GLOB $(sql_quote "${PREFIX}-warp-[0-9]*"));"
+  if [[ "$XUI_REPLACE_CLIENTS" == "1" ]]; then
+    sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id;"
+  else
+    sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND email GLOB $(sql_quote "${PREFIX}-[0-9]*");"
+  fi
   for index in $(seq -w 1 "$COUNT"); do
     email="${PREFIX}-${index}"
     traffic_result="$(sqlite3 "$XUI_DB" "INSERT OR IGNORE INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset) VALUES ($inbound_id, 1, $(sql_quote "$email"), 0, 0, 0, 0, 0); SELECT changes();" 2>/dev/null || true)"
@@ -227,35 +252,43 @@ xui_ensure_warp_inbound() {
 
 xui_add_clients() {
   info "Creating x-ui clients in $XUI_DB"
-  local inbound_rows inbound_id protocol tag remark port enable warp_id warp_tag report_file warp_tags_file
+  local inbound_rows inbound_id protocol tag remark port enable warp_id warp_tag report_file warp_tags_file query
   report_file="/etc/x-ui/generated-clients.txt"
   warp_tags_file="$(mktemp)"
   mkdir -p "$(dirname "$report_file")"
   : > "$report_file"
-  sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE email GLOB $(sql_quote "${PREFIX}-[0-9]*") OR email GLOB $(sql_quote "${PREFIX}-warp-[0-9]*");"
+  sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE email GLOB $(sql_quote "${PREFIX}-[0-9]*");"
 
-  inbound_rows="$(sqlite3 -separator $'\t' "$XUI_DB" \
-    "SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
+  query="SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
      FROM inbounds
      WHERE protocol IN ('vless','trojan')
        AND COALESCE(tag,'') NOT LIKE '%-warp'
-       AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
-     ORDER BY id;")"
+       AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'"
+  if [[ -n "$XUI_INBOUND_ID" ]]; then
+    query="$query AND id=$XUI_INBOUND_ID"
+  fi
+  query="$query ORDER BY id;"
+  inbound_rows="$(sqlite3 -separator $'\t' "$XUI_DB" "$query")"
   [[ -n "$inbound_rows" ]] || die "No x-ui preset inbounds found in $XUI_DB"
 
   while IFS=$'\t' read -r inbound_id protocol tag remark port enable; do
     [[ -n "$inbound_id" ]] || continue
 
     xui_replace_generated_clients "$inbound_id" "$protocol" "direct" "$tag" "$report_file"
-    warp_id="$(xui_ensure_warp_inbound "$inbound_id" "$protocol" "$tag" "$remark" "$port" "$enable")"
-    warp_tag="$(sqlite3 -readonly "$XUI_DB" "SELECT COALESCE(tag,'') FROM inbounds WHERE id=$warp_id;")"
-    xui_replace_generated_clients "$warp_id" "$protocol" "warp" "$warp_tag" "$report_file"
-    [[ -n "$warp_tag" ]] && printf '%s\n' "$warp_tag" >> "$warp_tags_file"
-
-    ok "x-ui base inbound ${inbound_id} + WARP inbound ${warp_id}: $COUNT shared-email clients each"
+    if [[ "$XUI_CREATE_WARP" == "1" ]]; then
+      warp_id="$(xui_ensure_warp_inbound "$inbound_id" "$protocol" "$tag" "$remark" "$port" "$enable")"
+      warp_tag="$(sqlite3 -readonly "$XUI_DB" "SELECT COALESCE(tag,'') FROM inbounds WHERE id=$warp_id;")"
+      xui_replace_generated_clients "$warp_id" "$protocol" "warp" "$warp_tag" "$report_file"
+      [[ -n "$warp_tag" ]] && printf '%s\n' "$warp_tag" >> "$warp_tags_file"
+      ok "x-ui inbound ${inbound_id} + WARP inbound ${warp_id}: $COUNT clients each, shared subId=$XUI_COMMON_SUB_ID"
+    else
+      ok "x-ui inbound ${inbound_id}: $COUNT clients, shared subId=$XUI_COMMON_SUB_ID"
+    fi
   done <<<"$inbound_rows"
 
-  xui_apply_warp_template "$warp_tags_file"
+  if [[ "$XUI_CREATE_WARP" == "1" ]]; then
+    xui_apply_warp_template "$warp_tags_file"
+  fi
   rm -f "$warp_tags_file"
 }
 
@@ -588,9 +621,10 @@ cat <<EOF
 Profile generation complete
 ---------------------------
 x-ui:
-  direct clients: ${COUNT} shared email/subId clients on every preset inbound
-  WARP inbounds: one WARP clone per preset inbound
-  WARP clients: ${COUNT} shared email/subId clients on every WARP inbound
+  direct clients: ${COUNT} clients on selected preset inbound(s)
+  common subId: ${XUI_COMMON_SUB_ID}
+  replace existing clients: ${XUI_REPLACE_CLIENTS}
+  WARP clone inbounds: ${XUI_CREATE_WARP}
   WARP outbound: ${WARP_OUTBOUND_TAG}
   WARP proxy: ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}
   WARP routed domains: ${WARP_AI_DOMAINS}
