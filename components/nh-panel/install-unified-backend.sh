@@ -284,6 +284,16 @@ hy2_users_json() {
   printf '\n  ]\n'
 }
 
+INITIAL_NAIVE_USERS_JSON="$(naive_users_json "$NAIVE_LOGIN" "$NAIVE_PASS" 15)"
+INITIAL_HY2_USERS_JSON="$(hy2_users_json "$HY2_PASS" 15)"
+CADDY_AUTH_LINES="$(INITIAL_NAIVE_USERS_JSON="$INITIAL_NAIVE_USERS_JSON" node <<'NODE'
+const users = JSON.parse(process.env.INITIAL_NAIVE_USERS_JSON || '[]');
+for (const u of users) {
+  console.log(`    basic_auth ${u.username} ${u.password}`);
+}
+NODE
+)"
+
 mkdir -p /var/www/html "$CADDY_DIR"
 cat > /var/www/html/index.html <<'EOF'
 <!DOCTYPE html><html><head><meta charset="utf-8"><title>Loading</title></head><body>Loading</body></html>
@@ -379,7 +389,7 @@ cat > "$CADDY_DIR/Caddyfile" <<EOF
   tls ${TLS_CERT} ${TLS_KEY}
 
   forward_proxy {
-    basic_auth ${NAIVE_LOGIN} ${NAIVE_PASS}
+${CADDY_AUTH_LINES}
     hide_ip
     hide_via
     probe_resistance
@@ -561,8 +571,8 @@ cat > "$PANEL_DIR/panel/data/config.json" <<EOF
   "masqueradeUrl": "",
   "serverIp": "",
   "arch": "$(uname -m)",
-  "naiveUsers": $(naive_users_json "$NAIVE_LOGIN" "$NAIVE_PASS" 15),
-  "hy2Users": $(hy2_users_json "$HY2_PASS" 15)
+  "naiveUsers": ${INITIAL_NAIVE_USERS_JSON},
+  "hy2Users": ${INITIAL_HY2_USERS_JSON}
 }
 EOF
 chmod 600 "$PANEL_DIR/panel/data/config.json"
@@ -672,7 +682,7 @@ NH_NAIVE_PASSWORD="${NAIVE_PASS}"
 NH_NAIVE_LINK="naive+https://${NAIVE_LOGIN}:${NAIVE_PASS}@${DOMAIN}:443"
 NH_HY2_USER="default"
 NH_HY2_PASSWORD="${HY2_PASS}"
-NH_HY2_LINK="hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#N+H"
+NH_HY2_LINK="hysteria2://default%3A${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#N+H"
 EOF
 ok "Saved N+H configuration: $PROJECT_DIR/config.env"
 
@@ -700,7 +710,7 @@ Panel:
 
 Links:
   Naive: naive+https://${NAIVE_LOGIN}:${NAIVE_PASS}@${DOMAIN}:443
-  Hy2:   hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#N+H
+  Hy2:   hysteria2://default%3A${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#N+H
 
 Services:
   ${CADDY_SERVICE}:     $(service_state "$CADDY_SERVICE")

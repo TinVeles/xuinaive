@@ -120,6 +120,10 @@ function saveConfig(cfg) {
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
 }
 
+function hy2Link(username, password, domain, name = username) {
+  return `hysteria2://${encodeURIComponent(`${username}:${password}`)}@${domain}:443?sni=${domain}&insecure=0#${encodeURIComponent(name)}`;
+}
+
 function loadUsers() {
   if (!fs.existsSync(USERS_FILE)) {
     const initialPassword = crypto.randomBytes(18).toString('base64url');
@@ -490,8 +494,8 @@ function reloadCaddy() {
     const p = spawn('bash', ['-c',
       `${CADDY_BIN} reload --config ${CADDYFILE_PATH} 2>/dev/null || systemctl reload ${CADDY_SERVICE} 2>/dev/null || systemctl restart ${CADDY_SERVICE} 2>/dev/null`
     ]);
-    p.on('close', () => resolve());
-    p.on('error', () => resolve());
+    p.on('close', (code) => resolve(code === 0));
+    p.on('error', () => resolve(false));
   });
 }
 
@@ -525,8 +529,13 @@ app.post('/api/naive/users', requireAuth, async (req, res) => {
 
   let reloaded = true;
   if (cfg.installed && cfg.stack.naive) {
-    writeCaddyfile(cfg);
-    await reloadCaddy();
+    if (!writeCaddyfile(cfg)) {
+      return res.json({ success: false, message: 'Caddyfile не обновлён; пользователь сохранён, но не активен' });
+    }
+    reloaded = await reloadCaddy();
+    if (!reloaded) {
+      return res.json({ success: false, message: 'Caddy не перезагружен; пользователь сохранён, но не активен' });
+    }
   }
 
   res.json({
@@ -544,8 +553,12 @@ app.delete('/api/naive/users/:username', requireAuth, async (req, res) => {
   if (cfg.naiveUsers.length === before) return res.json({ success: false, message: 'Не найден' });
   saveConfig(cfg);
   if (cfg.installed && cfg.stack.naive) {
-    writeCaddyfile(cfg);
-    await reloadCaddy();
+    if (!writeCaddyfile(cfg)) {
+      return res.json({ success: false, message: 'Caddyfile не обновлён' });
+    }
+    if (!await reloadCaddy()) {
+      return res.json({ success: false, message: 'Caddy не перезагружен' });
+    }
   }
   res.json({ success: true });
 });
@@ -563,8 +576,12 @@ app.patch('/api/naive/users/:username', requireAuth, async (req, res) => {
   saveConfig(cfg);
 
   if (cfg.installed && cfg.stack.naive) {
-    writeCaddyfile(cfg);
-    await reloadCaddy();
+    if (!writeCaddyfile(cfg)) {
+      return res.json({ success: false, message: 'Caddyfile не обновлён' });
+    }
+    if (!await reloadCaddy()) {
+      return res.json({ success: false, message: 'Caddy не перезагружен' });
+    }
   }
   res.json({ success: true, expiresAt: user.expiresAt });
 });
@@ -855,7 +872,7 @@ app.post('/api/hy2/users', requireAuth, async (req, res) => {
   res.json({
     success: true,
     link: cfg.domain
-      ? `hysteria2://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${cfg.domain}:443?sni=${cfg.domain}&insecure=0#${encodeURIComponent(username)}`
+      ? hy2Link(username, password, cfg.domain)
       : null
   });
 });
@@ -1287,7 +1304,7 @@ function handleInstallHy2(ws, data) {
       ws.send(JSON.stringify({
         type: 'install_done',
         links: {
-          hy2: `hysteria2://default:${encodeURIComponent(password)}@${domain}:443?sni=${domain}&insecure=0#N+H`
+          hy2: hy2Link('default', password, domain, 'N+H')
         }
       }));
     } else {
@@ -1342,7 +1359,7 @@ function handleInstallBoth(ws, data) {
           type: 'install_done',
           links: {
             naive: `naive+https://${naiveLogin}:${naivePassword}@${domain}:443`,
-            hy2:   `hysteria2://default:${encodeURIComponent(hy2Password)}@${domain}:443?sni=${domain}&insecure=0#N+H`
+            hy2:   hy2Link('default', hy2Password, domain, 'N+H')
           }
         }));
       } else {

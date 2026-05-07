@@ -421,7 +421,8 @@ if (fs.existsSync(hyPath)) {
 
 const domain = cfg.domain || 'DOMAIN_NOT_SET';
 const generatedNaiveLinks = generatedNaive.map(u => `naive+https://${u.username}:${u.password}@${domain}:443#${encodeURIComponent(u.username)}`);
-const generatedHy2Links = generatedHy2.map(u => `hysteria2://${encodeURIComponent(u.username)}:${encodeURIComponent(u.password)}@${domain}:443?sni=${domain}&insecure=0#${encodeURIComponent(u.username)}`);
+const hy2UserpassAuth = u => encodeURIComponent(`${u.username}:${u.password}`);
+const generatedHy2Links = generatedHy2.map(u => `hysteria2://${hy2UserpassAuth(u)}@${domain}:443?sni=${domain}&insecure=0#${encodeURIComponent(u.username)}`);
 const naiveLinks = generatedNaiveLinks;
 const hy2Links = generatedHy2Links;
 const lines = [];
@@ -455,12 +456,15 @@ function singBoxOutboundFromLink(link, index) {
   }
   if (link.startsWith('hysteria2://')) {
     const url = new URL(link);
+    const auth = url.password
+      ? `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`
+      : decodeURIComponent(url.username);
     return {
       type: 'hysteria2',
       tag: `hy2-${index}`,
       server: url.hostname,
       server_port: Number(url.port || 443),
-      password: decodeURIComponent(url.password),
+      password: auth,
       tls: {
         enabled: true,
         server_name: url.searchParams.get('sni') || url.hostname,
