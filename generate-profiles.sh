@@ -181,6 +181,40 @@ xui_client_json() {
   fi
 }
 
+xui_warp_stream_settings() {
+  local stream_settings="$1" warp_port="$2"
+  jq -c --argjson port "$warp_port" '
+    def path_tail($p):
+      (($p // "") | tostring | split("/") | map(select(length > 0)) | .[1:] | join("/"));
+    def port_path($p):
+      (path_tail($p)) as $tail
+      | "/" + ($port | tostring) + (if $tail == "" then "" else "/" + $tail end);
+
+    .externalProxy = ((.externalProxy // []) | map(.port = $port))
+    | if .network == "ws" then
+        .wsSettings.path = port_path(.wsSettings.path)
+      elif .network == "grpc" then
+        .grpcSettings.serviceName = port_path(.grpcSettings.serviceName)
+      elif .network == "xhttp" then
+        .xhttpSettings.path = port_path(.xhttpSettings.path)
+        | .sockopt.acceptProxyProtocol = false
+      elif .network == "tcp" and .security == "reality" then
+        .tcpSettings.acceptProxyProtocol = false
+      else
+        .
+      end
+  ' <<<"$stream_settings"
+}
+
+xui_warp_listen_host() {
+  local stream_settings="$1"
+  if jq -e '.network == "tcp" and .security == "reality"' >/dev/null 2>&1 <<<"$stream_settings"; then
+    printf '\n'
+  else
+    printf '127.0.0.1\n'
+  fi
+}
+
 xui_replace_generated_clients() {
   local inbound_id="$1" protocol="$2" mode="$3" tag="$4" report_file="$5"
   local now index email sub_id client_json clients_json settings new_settings traffic_result
@@ -229,30 +263,51 @@ xui_replace_generated_clients() {
 
 xui_ensure_warp_inbound() {
   local base_id="$1" protocol="$2" base_tag="$3" base_remark="$4" base_port="$5" base_enable="$6"
-  local existing_id warp_port warp_tag warp_remark warp_enable settings empty_settings
+  local existing_id existing_port warp_port warp_tag warp_remark warp_enable settings empty_settings stream_settings warp_stream_settings warp_listen
 
   warp_remark="${base_remark:-$protocol-$base_id} WARP"
   warp_tag="${base_tag:-inbound-${base_id}}-warp"
+  stream_settings="$(sqlite3 -readonly "$XUI_DB" "SELECT stream_settings FROM inbounds WHERE id=$base_id;")"
   existing_id="$(sqlite3 -readonly "$XUI_DB" "SELECT id FROM inbounds WHERE tag=$(sql_quote "$warp_tag") OR remark=$(sql_quote "$warp_remark") LIMIT 1;" 2>/dev/null || true)"
-  if [[ -n "$existing_id" ]]; then
-    printf '%s\n' "$existing_id"
-    return 0
-  fi
 
   if [[ "$base_port" =~ ^[0-9]+$ && "$base_port" -gt 0 ]]; then
-    warp_port="$(xui_next_free_port "$((base_port + 10000))")"
-    warp_tag="inbound-${warp_port}-warp"
+    warp_port="$((base_port + 10000))"
     warp_enable="$base_enable"
   else
-    warp_port="$base_port"
-    warp_enable=0
+    warp_port="$((30000 + base_id))"
+    warp_enable="$base_enable"
+  fi
+  if [[ -n "$existing_id" ]]; then
+    existing_port="$(sqlite3 -readonly "$XUI_DB" "SELECT port FROM inbounds WHERE id=$existing_id;" 2>/dev/null || true)"
+    if [[ "$existing_port" =~ ^[0-9]+$ && "$existing_port" -gt 0 ]]; then
+      warp_port="$existing_port"
+    else
+      warp_port="$(xui_next_free_port "$warp_port")"
+    fi
+  else
+    warp_port="$(xui_next_free_port "$warp_port")"
+    warp_tag="inbound-${warp_port}-warp"
   fi
 
   settings="$(sqlite3 -readonly "$XUI_DB" "SELECT settings FROM inbounds WHERE id=$base_id;")"
   empty_settings="$(jq -c '.clients = []' <<<"$settings")"
+  warp_stream_settings="$(xui_warp_stream_settings "$stream_settings" "$warp_port")"
+  warp_listen="$(xui_warp_listen_host "$stream_settings")"
+  if [[ -n "$existing_id" ]]; then
+    sqlite3 "$XUI_DB" "
+      UPDATE inbounds
+      SET listen=$(sql_quote "$warp_listen"),
+          port=$warp_port,
+          stream_settings=$(sql_quote "$warp_stream_settings")
+      WHERE id=$existing_id;
+    "
+    printf '%s\n' "$existing_id"
+    return 0
+  fi
+
   sqlite3 "$XUI_DB" "
     INSERT INTO inbounds (user_id, up, down, total, remark, enable, expiry_time, listen, port, protocol, settings, stream_settings, tag, sniffing)
-    SELECT user_id, 0, 0, total, $(sql_quote "$warp_remark"), $warp_enable, expiry_time, listen, $warp_port, protocol, $(sql_quote "$empty_settings"), stream_settings, $(sql_quote "$warp_tag"), sniffing
+    SELECT user_id, 0, 0, total, $(sql_quote "$warp_remark"), $warp_enable, expiry_time, $(sql_quote "$warp_listen"), $warp_port, protocol, $(sql_quote "$empty_settings"), $(sql_quote "$warp_stream_settings"), $(sql_quote "$warp_tag"), sniffing
     FROM inbounds WHERE id=$base_id;
   "
   sqlite3 -readonly "$XUI_DB" "SELECT id FROM inbounds WHERE tag=$(sql_quote "$warp_tag") ORDER BY id DESC LIMIT 1;"
@@ -342,13 +397,39 @@ xui_apply_warp_template() {
     --argjson port "$WARP_PROXY_PORT" \
     --argjson inboundTags "$tags_json" \
     --argjson domains "$domains_json" '
-    .outbounds = ((.outbounds // [])
-      | map(select(.tag != $tag))
-      + [{tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port}]}}])
+    def outbound_or($tag; $default):
+      ((.outbounds // []) | map(select(.tag == $tag)) | .[0]) // $default;
+    def rule_marker($rule):
+      ($rule.outboundTag // "") + "|" +
+      (($rule.inboundTag // []) | tostring) + "|" +
+      (($rule.domain // []) | tostring) + "|" +
+      (($rule.ip // []) | tostring) + "|" +
+      (($rule.protocol // []) | tostring);
+    def merge_rules($base; $add):
+      ($base + $add)
+      | reduce .[] as $r ([]; if any(.[]; rule_marker(.) == rule_marker($r)) then . else . + [$r] end);
+
+    . as $root
+    | .outbounds = (
+        [
+          ($root | outbound_or("direct"; {tag:"direct", protocol:"freedom"})),
+          {tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port}]}},
+          ($root | outbound_or("blocked"; {tag:"blocked", protocol:"blackhole"}))
+        ]
+        + (($root.outbounds // []) | map(select(.tag != "direct" and .tag != "blocked" and .tag != $tag)))
+      )
     | .routing = (.routing // {})
-    | .routing.rules = ((.routing.rules // [])
-      | map(select(.outboundTag != $tag))
-      + [{type:"field", inboundTag:$inboundTags, domain:$domains, outboundTag:$tag}])
+    | .routing.rules = merge_rules(
+        ((.routing.rules // []) | map(select(.outboundTag != $tag)));
+        [
+          {type:"field", inboundTag:$inboundTags, domain:$domains, outboundTag:$tag},
+          {type:"field", inboundTag:["api"], outboundTag:"api"},
+          {type:"field", ip:["geoip:private"], outboundTag:"blocked"},
+          {type:"field", protocol:["bittorrent"], outboundTag:"blocked"},
+          {type:"field", domain:["geosite:category-ru"], outboundTag:"direct"},
+          {type:"field", ip:["geoip:ru"], outboundTag:"direct"}
+        ]
+      )
   ' <<<"$current")"
 
   sqlite3 "$XUI_DB" "DELETE FROM settings WHERE key=$(sql_quote "$key");"

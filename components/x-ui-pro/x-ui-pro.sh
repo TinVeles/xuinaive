@@ -168,9 +168,39 @@ xui_apply_warp_template() {
       --argjson port "$WARP_PROXY_PORT" \
       --argjson inboundTags "$tags_json" \
       --argjson domains "$domains_json" '
-      .outbounds = ((.outbounds // []) | map(select(.tag != $tag)) + [{tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port}]}}])
+      def outbound_or($tag; $default):
+        ((.outbounds // []) | map(select(.tag == $tag)) | .[0]) // $default;
+      def rule_marker($rule):
+        ($rule.outboundTag // "") + "|" +
+        (($rule.inboundTag // []) | tostring) + "|" +
+        (($rule.domain // []) | tostring) + "|" +
+        (($rule.ip // []) | tostring) + "|" +
+        (($rule.protocol // []) | tostring);
+      def merge_rules($base; $add):
+        ($base + $add)
+        | reduce .[] as $r ([]; if any(.[]; rule_marker(.) == rule_marker($r)) then . else . + [$r] end);
+
+      . as $root
+      | .outbounds = (
+          [
+            ($root | outbound_or("direct"; {tag:"direct", protocol:"freedom"})),
+            {tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port}]}},
+            ($root | outbound_or("blocked"; {tag:"blocked", protocol:"blackhole"}))
+          ]
+          + (($root.outbounds // []) | map(select(.tag != "direct" and .tag != "blocked" and .tag != $tag)))
+        )
       | .routing = (.routing // {})
-      | .routing.rules = ((.routing.rules // []) | map(select(.outboundTag != $tag)) + [{type:"field", inboundTag:$inboundTags, domain:$domains, outboundTag:$tag}])
+      | .routing.rules = merge_rules(
+          ((.routing.rules // []) | map(select(.outboundTag != $tag)));
+          [
+            {type:"field", inboundTag:$inboundTags, domain:$domains, outboundTag:$tag},
+            {type:"field", inboundTag:["api"], outboundTag:"api"},
+            {type:"field", ip:["geoip:private"], outboundTag:"blocked"},
+            {type:"field", protocol:["bittorrent"], outboundTag:"blocked"},
+            {type:"field", domain:["geosite:category-ru"], outboundTag:"direct"},
+            {type:"field", ip:["geoip:ru"], outboundTag:"direct"}
+          ]
+        )
     ' <<<"$current")"
     sqlite3 "$XUIDB" "DELETE FROM settings WHERE key=$(sql_quote "$key");"
     sqlite3 "$XUIDB" "INSERT INTO settings (key, value) VALUES ($(sql_quote "$key"), $(sql_quote "$updated"));"

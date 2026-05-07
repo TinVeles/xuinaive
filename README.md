@@ -303,7 +303,7 @@ N+H:
   15 Hysteria2 profiles
 ```
 
-The script backs up `/etc/x-ui/x-ui.db`, N+H config, Caddyfile, and Hysteria config before writing. x-ui profiles use grouped `subId` values like `auto-01` and unique emails like `auto-01-direct-1`; the same `subId` is reused across all direct and WARP clone inbounds for that client index. WARP clone inbounds get a routing rule by Xray `inboundTag` to outbound `warp-cli` when the x-ui template config is available. That rule also includes a domain filter, so only AI domains leave through WARP from WARP inbounds. N+H generated subscriptions contain exactly `COUNT` NaiveProxy links and `COUNT` Hysteria2 links for the selected prefix.
+The script backs up `/etc/x-ui/x-ui.db`, N+H config, Caddyfile, and Hysteria config before writing. x-ui profiles use grouped `subId` values like `auto-01` and unique emails like `auto-01-direct-1`; the same `subId` is reused across all direct and WARP clone inbounds for that client index. WARP clone inbounds get unique external paths/ports and a routing rule by Xray `inboundTag` to outbound `warp-cli` when the x-ui template config is available. That rule also includes a domain filter, so only AI domains leave through WARP from WARP inbounds. Reality WARP clone uses its own public port, usually base port + 10000, so the VPS firewall/security group must allow that port if you import that variant. N+H generated subscriptions contain exactly `COUNT` NaiveProxy links and `COUNT` Hysteria2 links for the selected prefix.
 
 Generated reports:
 
