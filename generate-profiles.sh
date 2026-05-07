@@ -23,7 +23,8 @@ WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google}"
 XUI_INBOUND_ID="${XUI_INBOUND_ID:-}"
 XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-$PREFIX}"
-XUI_CREATE_WARP="${XUI_CREATE_WARP:-0}"
+XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
+XUI_CREATE_WARP="${XUI_CREATE_WARP:-1}"
 XUI_REPLACE_CLIENTS="${XUI_REPLACE_CLIENTS:-1}"
 CREATE_XUI="${CREATE_XUI:-1}"
 CREATE_NH="${CREATE_NH:-1}"
@@ -52,8 +53,8 @@ Usage:
   sudo bash generate-profiles.sh --nh-only --yes
 
 Creates:
-  x-ui:  COUNT clients on every selected preset inbound,
-         with one shared subscription subId.
+  x-ui:  COUNT clients on every selected preset inbound.
+         Default subscriptions: one subId per client index.
   N+H:   COUNT NaiveProxy profiles and COUNT Hysteria2 profiles.
          Subscription files are written to ${NH_SUBSCRIPTION_DIR}.
 
@@ -61,11 +62,13 @@ WARP variants:
   outbound tag: ${WARP_OUTBOUND_TAG}
   local proxy:  ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}
   AI domains:   ${WARP_AI_DOMAINS}
-  disabled by default; add --xui-warp-clone to create a WARP clone inbound.
+  enabled by default; set XUI_CREATE_WARP=0 to skip WARP clone inbounds.
 
 x-ui selection:
   default: every preset vless/trojan inbound
   --xui-inbound-id ID: only one inbound
+  default subId mode: per-client (auto-01 contains all protocol variants for auto-01)
+  --xui-sub-id-mode common: one subscription contains all generated clients
   default replace mode: selected inbound clients become exactly COUNT
   --xui-keep-existing: keep existing non-generated clients
 EOF
@@ -87,6 +90,7 @@ while [[ $# -gt 0 ]]; do
     --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
     --xui-inbound-id) XUI_INBOUND_ID="${2:-}"; shift 2 ;;
     --xui-common-sub-id) XUI_COMMON_SUB_ID="${2:-}"; shift 2 ;;
+    --xui-sub-id-mode) XUI_SUB_ID_MODE="${2:-}"; shift 2 ;;
     --xui-warp-clone) XUI_CREATE_WARP=1; shift ;;
     --xui-keep-existing) XUI_REPLACE_CLIENTS=0; shift ;;
     --xui-only) CREATE_XUI=1; CREATE_NH=0; shift ;;
@@ -105,6 +109,7 @@ done
 [[ "$PREFIX" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--prefix may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
 [[ -z "$XUI_INBOUND_ID" || "$XUI_INBOUND_ID" =~ ^[0-9]+$ ]] || die "--xui-inbound-id must be numeric"
 [[ "$XUI_COMMON_SUB_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--xui-common-sub-id may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
+[[ "$XUI_SUB_ID_MODE" == "per-client" || "$XUI_SUB_ID_MODE" == "common" ]] || die "--xui-sub-id-mode must be per-client or common"
 
 for cmd in node openssl; do
   command_exists "$cmd" || die "$cmd is required"
@@ -178,13 +183,18 @@ xui_client_json() {
 
 xui_replace_generated_clients() {
   local inbound_id="$1" protocol="$2" mode="$3" tag="$4" report_file="$5"
-  local now index email client_json clients_json settings new_settings traffic_result
+  local now index email sub_id client_json clients_json settings new_settings traffic_result
   now="$(date +%s)000"
   clients_json="[]"
 
   for index in $(seq -w 1 "$COUNT"); do
     email="${PREFIX}-${index}"
-    client_json="$(xui_client_json "$inbound_id" "$protocol" "$email" "$XUI_COMMON_SUB_ID" "$now")"
+    if [[ "$XUI_SUB_ID_MODE" == "common" ]]; then
+      sub_id="$XUI_COMMON_SUB_ID"
+    else
+      sub_id="$email"
+    fi
+    client_json="$(xui_client_json "$inbound_id" "$protocol" "$email" "$sub_id" "$now")"
     clients_json="$(jq -c --argjson client "$client_json" '. + [$client]' <<<"$clients_json")"
   done
 
@@ -280,9 +290,9 @@ xui_add_clients() {
       warp_tag="$(sqlite3 -readonly "$XUI_DB" "SELECT COALESCE(tag,'') FROM inbounds WHERE id=$warp_id;")"
       xui_replace_generated_clients "$warp_id" "$protocol" "warp" "$warp_tag" "$report_file"
       [[ -n "$warp_tag" ]] && printf '%s\n' "$warp_tag" >> "$warp_tags_file"
-      ok "x-ui inbound ${inbound_id} + WARP inbound ${warp_id}: $COUNT clients each, shared subId=$XUI_COMMON_SUB_ID"
+      ok "x-ui inbound ${inbound_id} + WARP inbound ${warp_id}: $COUNT clients each, subId mode=$XUI_SUB_ID_MODE"
     else
-      ok "x-ui inbound ${inbound_id}: $COUNT clients, shared subId=$XUI_COMMON_SUB_ID"
+      ok "x-ui inbound ${inbound_id}: $COUNT clients, subId mode=$XUI_SUB_ID_MODE"
     fi
   done <<<"$inbound_rows"
 
@@ -622,7 +632,8 @@ Profile generation complete
 ---------------------------
 x-ui:
   direct clients: ${COUNT} clients on selected preset inbound(s)
-  common subId: ${XUI_COMMON_SUB_ID}
+  subId mode: ${XUI_SUB_ID_MODE}
+  common subId (only common mode): ${XUI_COMMON_SUB_ID}
   replace existing clients: ${XUI_REPLACE_CLIENTS}
   WARP clone inbounds: ${XUI_CREATE_WARP}
   WARP outbound: ${WARP_OUTBOUND_TAG}

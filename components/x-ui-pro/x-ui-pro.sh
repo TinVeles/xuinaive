@@ -10,6 +10,15 @@ msg_inf		 ' \/ __ | |  | __ |_) |_) / \ '	;
 msg_inf		 ' /\    |_| _|_   |   | \ \_/ '	; echo
 ##################################Variables#############################################################
 XUIDB="/etc/x-ui/x-ui.db";domain="";UNINSTALL="x";INSTALL="n";PNLNUM=1;CFALLOW="n";CLASH=0;CUSTOMWEBSUB=0
+XUI_PROFILE_COUNT="${XUI_PROFILE_COUNT:-15}"
+XUI_PROFILE_PREFIX="${XUI_PROFILE_PREFIX:-auto}"
+XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-first}"
+XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
+XUI_CREATE_WARP_INBOUNDS="${XUI_CREATE_WARP_INBOUNDS:-1}"
+WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
+WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
+WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
+WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google}"
 Pak=$(type apt &>/dev/null && echo "apt" || echo "yum")
 
 cleanup_existing() {
@@ -32,6 +41,166 @@ gen_random_string() {
     local length="$1"
     head -c 4096 /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c "$length"
     echo
+}
+
+sql_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"
+}
+
+xui_uuid() {
+  /usr/local/x-ui/bin/xray-linux-amd64 uuid 2>/dev/null || cat /proc/sys/kernel/random/uuid
+}
+
+xui_next_free_port() {
+  local candidate="$1"
+  [[ "$candidate" =~ ^[0-9]+$ && "$candidate" -gt 0 ]] || { printf '0\n'; return 0; }
+  while [[ "$(sqlite3 -readonly "$XUIDB" "SELECT COUNT(*) FROM inbounds WHERE port=$candidate;" 2>/dev/null || echo 0)" != "0" ]]; do
+    candidate=$((candidate + 1))
+  done
+  printf '%s\n' "$candidate"
+}
+
+xui_bulk_client_json() {
+  local inbound_id="$1" protocol="$2" email="$3" sub_id="$4" now="$5" password uid client_json
+  if [[ "$protocol" == "trojan" ]]; then
+    password="$(gen_random_string 20)"
+    jq -cn \
+      --arg email "$email" \
+      --arg subId "$sub_id" \
+      --arg password "$password" \
+      --arg now "$now" \
+      '{comment:"", created_at:($now|tonumber), email:$email, enable:true, expiryTime:0, limitIp:0, password:$password, reset:0, subId:$subId, tgId:0, totalGB:0, updated_at:($now|tonumber)}'
+  else
+    uid="$(xui_uuid | tr -d '[:space:]')"
+    client_json="$(jq -cn \
+      --arg email "$email" \
+      --arg subId "$sub_id" \
+      --arg id "$uid" \
+      --arg now "$now" \
+      '{id:$id, flow:"", email:$email, limitIp:0, totalGB:0, expiryTime:0, enable:true, tgId:"", subId:$subId, reset:0, created_at:($now|tonumber), updated_at:($now|tonumber)}')"
+    if sqlite3 "$XUIDB" "SELECT stream_settings FROM inbounds WHERE id=$inbound_id;" | grep -q '"security"[[:space:]]*:[[:space:]]*"reality"'; then
+      jq '.flow = "xtls-rprx-vision"' <<<"$client_json"
+    else
+      printf '%s\n' "$client_json"
+    fi
+  fi
+}
+
+xui_set_inbound_clients() {
+  local inbound_id="$1" protocol="$2" mode="$3" tag="$4" now index email sub_id client_json clients_json settings new_settings traffic_result
+  now="$(date +%s)000"
+  clients_json="[]"
+  for index in $(seq -w 1 "$XUI_PROFILE_COUNT"); do
+    email="${XUI_PROFILE_PREFIX}-${index}"
+    if [[ "$XUI_SUB_ID_MODE" == "common" ]]; then
+      sub_id="$XUI_COMMON_SUB_ID"
+    else
+      sub_id="$email"
+    fi
+    client_json="$(xui_bulk_client_json "$inbound_id" "$protocol" "$email" "$sub_id" "$now")"
+    clients_json="$(jq -c --argjson client "$client_json" '. + [$client]' <<<"$clients_json")"
+  done
+
+  settings="$(sqlite3 -readonly "$XUIDB" "SELECT settings FROM inbounds WHERE id=$inbound_id;")"
+  new_settings="$(jq -c --argjson clients "$clients_json" '.clients = $clients' <<<"$settings")"
+  sqlite3 "$XUIDB" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
+  sqlite3 "$XUIDB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id;"
+  for index in $(seq -w 1 "$XUI_PROFILE_COUNT"); do
+    email="${XUI_PROFILE_PREFIX}-${index}"
+    traffic_result="$(sqlite3 "$XUIDB" "INSERT OR IGNORE INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset) VALUES ($inbound_id, 1, $(sql_quote "$email"), 0, 0, 0, 0, 0); SELECT changes();" 2>/dev/null || true)"
+    if [[ "${traffic_result##*$'\n'}" != "1" ]]; then
+      msg_err "x-ui traffic row ignored: inbound=$inbound_id email=$email"
+    fi
+    printf 'inbound=%s protocol=%s tag=%s mode=%s email=%s subId=%s\n' "$inbound_id" "$protocol" "${tag:-}" "$mode" "$email" "$sub_id" >> /etc/x-ui/generated-clients.txt
+  done
+}
+
+xui_ensure_warp_inbound() {
+  local base_id="$1" protocol="$2" base_tag="$3" base_remark="$4" base_port="$5" base_enable="$6"
+  local existing_id warp_port warp_tag warp_remark settings empty_settings
+
+  [[ "$base_port" =~ ^[0-9]+$ && "$base_port" -gt 0 ]] || return 0
+  warp_remark="${base_remark:-$protocol-$base_id} WARP"
+  warp_tag="${base_tag:-inbound-${base_id}}-warp"
+  existing_id="$(sqlite3 -readonly "$XUIDB" "SELECT id FROM inbounds WHERE tag=$(sql_quote "$warp_tag") OR remark=$(sql_quote "$warp_remark") LIMIT 1;" 2>/dev/null || true)"
+  if [[ -n "$existing_id" ]]; then
+    printf '%s\n' "$existing_id"
+    return 0
+  fi
+
+  warp_port="$(xui_next_free_port "$((base_port + 10000))")"
+  settings="$(sqlite3 -readonly "$XUIDB" "SELECT settings FROM inbounds WHERE id=$base_id;")"
+  empty_settings="$(jq -c '.clients = []' <<<"$settings")"
+  sqlite3 "$XUIDB" "
+    INSERT INTO inbounds (user_id, up, down, total, remark, enable, expiry_time, listen, port, protocol, settings, stream_settings, tag, sniffing)
+    SELECT user_id, 0, 0, total, $(sql_quote "$warp_remark"), $base_enable, expiry_time, listen, $warp_port, protocol, $(sql_quote "$empty_settings"), stream_settings, $(sql_quote "$warp_tag"), sniffing
+    FROM inbounds WHERE id=$base_id;
+  "
+  sqlite3 -readonly "$XUIDB" "SELECT id FROM inbounds WHERE tag=$(sql_quote "$warp_tag") ORDER BY id DESC LIMIT 1;"
+}
+
+xui_apply_warp_template() {
+  local warp_tags_file="$1" tags_json domains_json snippet_file current updated key
+  [[ -s "$warp_tags_file" ]] || return 0
+  tags_json="$(jq -Rsc 'split("\n") | map(select(length > 0)) | unique' "$warp_tags_file")"
+  domains_json="$(printf '%s\n' "$WARP_AI_DOMAINS" | tr ',' '\n' | jq -Rsc 'split("\n") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(length > 0)) | unique')"
+  snippet_file="/etc/x-ui/warp-generated-routing.json"
+  jq -cn \
+    --arg tag "$WARP_OUTBOUND_TAG" \
+    --arg host "$WARP_PROXY_HOST" \
+    --argjson port "$WARP_PROXY_PORT" \
+    --argjson inboundTags "$tags_json" \
+    --argjson domains "$domains_json" \
+    '{outbound:{tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port}]}}, routingRule:{type:"field", inboundTag:$inboundTags, domain:$domains, outboundTag:$tag}}' > "$snippet_file"
+
+  key="$(sqlite3 -readonly "$XUIDB" "SELECT key FROM settings WHERE key IN ('xrayTemplateConfig','xrayConfig','xraySetting') LIMIT 1;" || true)"
+  [[ -n "$key" ]] || key="xrayTemplateConfig"
+  current="$(sqlite3 -readonly "$XUIDB" "SELECT value FROM settings WHERE key=$(sql_quote "$key") LIMIT 1;" || true)"
+  [[ -n "$current" ]] || current='{}'
+  if jq -e . >/dev/null 2>&1 <<<"$current"; then
+    updated="$(jq -c \
+      --arg tag "$WARP_OUTBOUND_TAG" \
+      --arg host "$WARP_PROXY_HOST" \
+      --argjson port "$WARP_PROXY_PORT" \
+      --argjson inboundTags "$tags_json" \
+      --argjson domains "$domains_json" '
+      .outbounds = ((.outbounds // []) | map(select(.tag != $tag)) + [{tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port}]}}])
+      | .routing = (.routing // {})
+      | .routing.rules = ((.routing.rules // []) | map(select(.outboundTag != $tag)) + [{type:"field", inboundTag:$inboundTags, domain:$domains, outboundTag:$tag}])
+    ' <<<"$current")"
+    sqlite3 "$XUIDB" "DELETE FROM settings WHERE key=$(sql_quote "$key");"
+    sqlite3 "$XUIDB" "INSERT INTO settings (key, value) VALUES ($(sql_quote "$key"), $(sql_quote "$updated"));"
+  fi
+}
+
+xui_seed_bulk_profiles() {
+  local inbound_rows inbound_id protocol tag remark port enable warp_id warp_tag warp_tags_file
+  [[ -f "$XUIDB" ]] || return 0
+  [[ "$XUI_PROFILE_COUNT" =~ ^[0-9]+$ && "$XUI_PROFILE_COUNT" -gt 0 ]] || XUI_PROFILE_COUNT=15
+  : > /etc/x-ui/generated-clients.txt
+  warp_tags_file="$(mktemp)"
+  inbound_rows="$(sqlite3 -separator $'\t' "$XUIDB" \
+    "SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
+     FROM inbounds
+     WHERE protocol IN ('vless','trojan')
+       AND COALESCE(tag,'') NOT LIKE '%-warp'
+       AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+     ORDER BY id;")"
+  while IFS=$'\t' read -r inbound_id protocol tag remark port enable; do
+    [[ -n "$inbound_id" ]] || continue
+    xui_set_inbound_clients "$inbound_id" "$protocol" "direct" "$tag"
+    if [[ "$XUI_CREATE_WARP_INBOUNDS" == "1" ]]; then
+      warp_id="$(xui_ensure_warp_inbound "$inbound_id" "$protocol" "$tag" "$remark" "$port" "$enable" || true)"
+      if [[ -n "$warp_id" ]]; then
+        warp_tag="$(sqlite3 -readonly "$XUIDB" "SELECT COALESCE(tag,'') FROM inbounds WHERE id=$warp_id;")"
+        xui_set_inbound_clients "$warp_id" "$protocol" "warp" "$warp_tag"
+        [[ -n "$warp_tag" ]] && printf '%s\n' "$warp_tag" >> "$warp_tags_file"
+      fi
+    fi
+  done <<<"$inbound_rows"
+  xui_apply_warp_template "$warp_tags_file"
+  rm -f "$warp_tags_file"
+  msg_ok "x-ui seed: ${XUI_PROFILE_COUNT} clients per inbound, subId mode ${XUI_SUB_ID_MODE}"
 }
 check_free() {
 	local port=$1
@@ -885,6 +1054,7 @@ if [[ -f $XUIDB ]]; then
 }'
 	);
 EOF
+xui_seed_bulk_profiles
 /usr/local/x-ui/x-ui setting -username "${config_username}" -password "${config_password}" -port "${panel_port}" -webBasePath "${panel_path}"
 /usr/local/x-ui/x-ui cert -webCert "/root/cert/${domain}/fullchain.pem" -webCertKey "/root/cert/${domain}/privkey.pem"
 x-ui start
@@ -1140,7 +1310,7 @@ if systemctl is-active --quiet x-ui; then clear
  	echo -e "Username:  ${config_username} \n" 
 	echo -e "Password:  ${config_password} \n" 
 	msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-    msg_inf "Web Sub Page your first client: https://${domain}/${web_path}?name=first\n"
+    msg_inf "Web Sub Page subscriptions: https://${domain}/${web_path}?name=${XUI_PROFILE_PREFIX}-01 ... ${XUI_PROFILE_PREFIX}-${XUI_PROFILE_COUNT}\n"
     msg_inf "Your local sub2sing-box instance: https://${domain}/$sub2singbox_path/\n"
   msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
 	msg_inf "Please Save this Screen!!"	
