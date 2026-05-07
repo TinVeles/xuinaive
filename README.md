@@ -87,7 +87,7 @@ In `--mode all`, the installer does not let Caddy issue its own certificate on `
 
 `--install-warp` installs Cloudflare WARP in local proxy mode after the main stack is installed. It creates a local SOCKS/HTTP proxy on `127.0.0.1:40000` and saves ready 3x-ui/Xray snippets to `/etc/x-ui/warp-xray-snippets.json`.
 
-`--generate-profiles` creates 15 x-ui clients on every existing preset inbound, plus WARP clone inbounds, 15 NaiveProxy profiles, and 15 Hysteria2 profiles. By default each x-ui client index gets its own `subId`, so `auto-01` contains the direct variants plus matching WARP variants, `auto-02` contains the same set for client 02, and so on. Existing clients on selected x-ui inbounds are replaced by default, so each selected inbound shows exactly 15 clients. Add `--xui-keep-existing` to preserve manual clients, `--xui-inbound-id ID` to target one inbound only, or set `XUI_CREATE_WARP=0` to skip WARP clone inbounds. Use `--profile-count N`, `--profile-prefix NAME`, and `--warp-ai-domains "domain:example.com,domain:other.example"` to change the defaults.
+`--generate-profiles` creates 15 x-ui clients on every existing preset inbound, plus WARP clone inbounds, 15 NaiveProxy profiles, and 15 Hysteria2 profiles. By default each x-ui client index gets its own `subId`, so `auto-01` contains the direct variants plus matching WARP variants, `auto-02` contains the same set for client 02, and so on. Client emails stay unique per inbound, for example `auto-01-direct-1`, so 3x-ui traffic/API rows do not collide. Existing clients on selected x-ui inbounds are replaced by default, so each selected inbound shows exactly 15 clients. Add `--xui-keep-existing` to preserve manual clients, `--xui-inbound-id ID` to target one inbound only, or set `XUI_CREATE_WARP=0` to skip WARP clone inbounds. Use `--profile-count N`, `--profile-prefix NAME`, and `--warp-ai-domains "domain:example.com,domain:other.example"` to change the defaults.
 
 Dry-run only:
 
@@ -303,7 +303,7 @@ N+H:
   15 Hysteria2 profiles
 ```
 
-The script backs up `/etc/x-ui/x-ui.db`, N+H config, Caddyfile, and Hysteria config before writing. x-ui profiles use emails and `subId` values like `auto-01`; the same `subId` is reused across all direct and WARP clone inbounds for that client index. WARP clone inbounds get a routing rule by Xray `inboundTag` to outbound `warp-cli` when the x-ui template config is available. That rule also includes a domain filter, so only AI domains leave through WARP from WARP inbounds. N+H generated subscriptions contain exactly `COUNT` NaiveProxy links and `COUNT` Hysteria2 links for the selected prefix.
+The script backs up `/etc/x-ui/x-ui.db`, N+H config, Caddyfile, and Hysteria config before writing. x-ui profiles use grouped `subId` values like `auto-01` and unique emails like `auto-01-direct-1`; the same `subId` is reused across all direct and WARP clone inbounds for that client index. WARP clone inbounds get a routing rule by Xray `inboundTag` to outbound `warp-cli` when the x-ui template config is available. That rule also includes a domain filter, so only AI domains leave through WARP from WARP inbounds. N+H generated subscriptions contain exactly `COUNT` NaiveProxy links and `COUNT` Hysteria2 links for the selected prefix.
 
 Generated reports:
 

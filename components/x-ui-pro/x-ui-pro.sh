@@ -91,11 +91,10 @@ xui_set_inbound_clients() {
   now="$(date +%s)000"
   clients_json="[]"
   for index in $(seq -w 1 "$XUI_PROFILE_COUNT"); do
-    email="${XUI_PROFILE_PREFIX}-${index}"
+    sub_id="${XUI_PROFILE_PREFIX}-${index}"
+    email="${sub_id}-${mode}-${inbound_id}"
     if [[ "$XUI_SUB_ID_MODE" == "common" ]]; then
       sub_id="$XUI_COMMON_SUB_ID"
-    else
-      sub_id="$email"
     fi
     client_json="$(xui_bulk_client_json "$inbound_id" "$protocol" "$email" "$sub_id" "$now")"
     clients_json="$(jq -c --argjson client "$client_json" '. + [$client]' <<<"$clients_json")"
@@ -106,7 +105,12 @@ xui_set_inbound_clients() {
   sqlite3 "$XUIDB" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
   sqlite3 "$XUIDB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id;"
   for index in $(seq -w 1 "$XUI_PROFILE_COUNT"); do
-    email="${XUI_PROFILE_PREFIX}-${index}"
+    if [[ "$XUI_SUB_ID_MODE" == "common" ]]; then
+      sub_id="$XUI_COMMON_SUB_ID"
+    else
+      sub_id="${XUI_PROFILE_PREFIX}-${index}"
+    fi
+    email="${XUI_PROFILE_PREFIX}-${index}-${mode}-${inbound_id}"
     traffic_result="$(sqlite3 "$XUIDB" "INSERT OR IGNORE INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset) VALUES ($inbound_id, 1, $(sql_quote "$email"), 0, 0, 0, 0, 0); SELECT changes();" 2>/dev/null || true)"
     if [[ "${traffic_result##*$'\n'}" != "1" ]]; then
       msg_err "x-ui traffic row ignored: inbound=$inbound_id email=$email"

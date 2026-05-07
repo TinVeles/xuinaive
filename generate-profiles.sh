@@ -188,11 +188,10 @@ xui_replace_generated_clients() {
   clients_json="[]"
 
   for index in $(seq -w 1 "$COUNT"); do
-    email="${PREFIX}-${index}"
+    sub_id="${PREFIX}-${index}"
+    email="${sub_id}-${mode}-${inbound_id}"
     if [[ "$XUI_SUB_ID_MODE" == "common" ]]; then
       sub_id="$XUI_COMMON_SUB_ID"
-    else
-      sub_id="$email"
     fi
     client_json="$(xui_client_json "$inbound_id" "$protocol" "$email" "$sub_id" "$now")"
     clients_json="$(jq -c --argjson client "$client_json" '. + [$client]' <<<"$clients_json")"
@@ -205,8 +204,7 @@ xui_replace_generated_clients() {
     new_settings="$(jq -c --arg prefix "$PREFIX" --argjson clients "$clients_json" '
       def generated_email:
         ((.email // "") | tostring) as $email
-        | ($email | startswith($prefix + "-"))
-          and (($email | ltrimstr($prefix + "-")) | test("^[0-9]+$"));
+        | ($email | startswith($prefix + "-"));
       .clients = ((.clients // [])
         | map(select(generated_email | not))
         + $clients)
@@ -220,12 +218,12 @@ xui_replace_generated_clients() {
     sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND email GLOB $(sql_quote "${PREFIX}-[0-9]*");"
   fi
   for index in $(seq -w 1 "$COUNT"); do
-    email="${PREFIX}-${index}"
+    email="${PREFIX}-${index}-${mode}-${inbound_id}"
     traffic_result="$(sqlite3 "$XUI_DB" "INSERT OR IGNORE INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset) VALUES ($inbound_id, 1, $(sql_quote "$email"), 0, 0, 0, 0, 0); SELECT changes();" 2>/dev/null || true)"
     if [[ "${traffic_result##*$'\n'}" != "1" ]]; then
       printf 'WARN traffic duplicate/ignored inbound=%s email=%s\n' "$inbound_id" "$email" >> "$report_file"
     fi
-    printf 'inbound=%s protocol=%s tag=%s mode=%s email=%s\n' "$inbound_id" "$protocol" "${tag:-}" "$mode" "$email" >> "$report_file"
+    printf 'inbound=%s protocol=%s tag=%s mode=%s email=%s subId=%s\n' "$inbound_id" "$protocol" "${tag:-}" "$mode" "$email" "${PREFIX}-${index}" >> "$report_file"
   done
 }
 
