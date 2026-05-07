@@ -6,9 +6,9 @@ CONFIG_FILE="$SCRIPT_DIR/config.env"
 SUMMARY_FILE="$SCRIPT_DIR/access-info.txt"
 
 if [[ -t 1 ]]; then
-  BOLD=$'\033[1m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'; BLUE=$'\033[0;34m'; MAGENTA=$'\033[0;35m'; CYAN=$'\033[0;36m'; NC=$'\033[0m'
+  BOLD=$'\033[1m'; BLUE=$'\033[0;34m'; NC=$'\033[0m'
 else
-  BOLD=""; GREEN=""; YELLOW=""; BLUE=""; MAGENTA=""; CYAN=""; NC=""
+  BOLD=""; BLUE=""; NC=""
 fi
 
 reset_terminal_style() {
@@ -70,6 +70,11 @@ nh_panel_url="${nh_panel_url/SERVER_IP/$server_ip}"
 nh_panel_login="$(config_value NH_PANEL_LOGIN)"; [[ -n "$nh_panel_login" ]] || nh_panel_login="admin"
 nh_panel_password="$(config_value NH_PANEL_PASSWORD)"; [[ -n "$nh_panel_password" ]] || nh_panel_password="check config.env or /opt/panel-naive-hy2/panel/data/initial-admin.txt"
 
+naive_login="$(config_value NH_NAIVE_LOGIN)"
+naive_password="$(config_value NH_NAIVE_PASSWORD)"
+hy2_user="$(config_value NH_HY2_USER)"
+hy2_password="$(config_value NH_HY2_PASSWORD)"
+
 reset_terminal_style
 cat > "$SUMMARY_FILE" <<EOF
 Panel access
@@ -84,26 +89,42 @@ N+H Panel
   URL:      ${nh_panel_url}
   Login:    ${nh_panel_login}
   Password: ${nh_panel_password}
+
+NaiveProxy
+  Login:    ${naive_login:-check config.env}
+  Password: ${naive_password:-check config.env}
+
+Hysteria2
+  User:     ${hy2_user:-check config.env}
+  Password: ${hy2_password:-check config.env}
 EOF
 chmod 600 "$SUMMARY_FILE" 2>/dev/null || true
 
 cat <<EOF
 
-${BOLD}${GREEN}============================================================${NC}
-${BOLD}${GREEN}                 PANEL ACCESS                              ${NC}
-${BOLD}${GREEN}============================================================${NC}
+${BOLD}${BLUE}============================================================${NC}
+${BOLD}${BLUE}                 PANEL ACCESS                              ${NC}
+${BOLD}${BLUE}============================================================${NC}
 
-${BOLD}${CYAN}3x-ui / x-ui panel${NC}
-  ${BOLD}URL:${NC}      ${xui_url}
-  ${BOLD}Login:${NC}    ${xui_user:-check with: x-ui settings}
-  ${BOLD}Password:${NC} ${xui_pass:-check with: x-ui settings}
+${BOLD}${BLUE}3x-ui / x-ui panel${NC}
+  ${BOLD}${BLUE}URL:${NC}      ${BLUE}${xui_url}${NC}
+  ${BOLD}${BLUE}Login:${NC}    ${BLUE}${xui_user:-check with: x-ui settings}${NC}
+  ${BOLD}${BLUE}Password:${NC} ${BLUE}${xui_pass:-check with: x-ui settings}${NC}
 
-${BOLD}${CYAN}N+H Panel${NC}
-  ${BOLD}URL:${NC}      ${nh_panel_url}
-  ${BOLD}Login:${NC}    ${nh_panel_login}
-  ${BOLD}Password:${NC} ${nh_panel_password}
+${BOLD}${BLUE}N+H Panel${NC}
+  ${BOLD}${BLUE}URL:${NC}      ${BLUE}${nh_panel_url}${NC}
+  ${BOLD}${BLUE}Login:${NC}    ${BLUE}${nh_panel_login}${NC}
+  ${BOLD}${BLUE}Password:${NC} ${BLUE}${nh_panel_password}${NC}
 
-${BOLD}${GREEN}Saved copy-friendly file:${NC}
-  ${SUMMARY_FILE}
+${BOLD}${BLUE}NaiveProxy${NC}
+  ${BOLD}${BLUE}Login:${NC}    ${BLUE}${naive_login:-check config.env}${NC}
+  ${BOLD}${BLUE}Password:${NC} ${BLUE}${naive_password:-check config.env}${NC}
+
+${BOLD}${BLUE}Hysteria2${NC}
+  ${BOLD}${BLUE}User:${NC}     ${BLUE}${hy2_user:-check config.env}${NC}
+  ${BOLD}${BLUE}Password:${NC} ${BLUE}${hy2_password:-check config.env}${NC}
+
+${BOLD}${BLUE}Saved copy-friendly file:${NC}
+  ${BLUE}${SUMMARY_FILE}${NC}
 
 EOF
