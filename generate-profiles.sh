@@ -161,8 +161,33 @@ xui_next_free_port() {
   printf '%s\n' "$candidate"
 }
 
+xui_profile_label() {
+  local inbound_id="$1" protocol="$2" stream_settings network security
+  stream_settings="$(sqlite3 -readonly "$XUI_DB" "SELECT stream_settings FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo '{}')"
+  network="$(jq -r '.network // "tcp"' <<<"$stream_settings" 2>/dev/null || echo "tcp")"
+  security="$(jq -r '.security // "none"' <<<"$stream_settings" 2>/dev/null || echo "none")"
+  if [[ "$security" == "reality" ]]; then
+    printf 'reality\n'
+  elif [[ "$protocol" == "trojan" && "$network" == "grpc" ]]; then
+    printf 'trojan-grpc\n'
+  elif [[ -n "$network" && "$network" != "null" ]]; then
+    printf '%s\n' "$network" | tr -cd 'A-Za-z0-9_.-'
+  else
+    printf 'inbound-%s\n' "$inbound_id"
+  fi
+}
+
+xui_client_email() {
+  local index="$1" mode="$2" label="$3"
+  printf '%s-%s-%s-%s\n' "$PREFIX" "$index" "$mode" "$label"
+}
+
 xui_client_json() {
-  local inbound_id="$1" protocol="$2" email="$3" sub_id="$4" now="$5" password uid client_json
+  local inbound_id="$1" protocol="$2" email="$3" sub_id="$4" now="$5" existing_json="${6:-{}}" password uid client_json is_reality
+  is_reality=0
+  if sqlite3 "$XUI_DB" "SELECT stream_settings FROM inbounds WHERE id=$inbound_id;" | grep -q '"security"[[:space:]]*:[[:space:]]*"reality"'; then
+    is_reality=1
+  fi
   if [[ "$protocol" == "trojan" ]]; then
     password="$(rand_password)"
     jq -cn \
@@ -170,7 +195,24 @@ xui_client_json() {
       --arg subId "$sub_id" \
       --arg password "$password" \
       --arg now "$now" \
-      '{comment:"", created_at:($now|tonumber), email:$email, enable:true, expiryTime:0, limitIp:0, password:$password, reset:0, subId:$subId, tgId:0, totalGB:0, updated_at:($now|tonumber)}'
+      --argjson old "$existing_json" \
+      '($old // {}) as $o
+      | ($o.password // $o.id // $password) as $p
+      | {
+          comment:($o.comment // ""),
+          created_at:($o.created_at // ($now|tonumber)),
+          email:$email,
+          enable:($o.enable // true),
+          expiryTime:($o.expiryTime // 0),
+          limitIp:($o.limitIp // 0),
+          password:$p,
+          id:$p,
+          reset:($o.reset // 0),
+          subId:$subId,
+          tgId:($o.tgId // 0),
+          totalGB:($o.totalGB // 0),
+          updated_at:($o.updated_at // ($now|tonumber))
+        }'
   else
     uid="$(uuid_value | tr -d '[:space:]')"
     client_json="$(jq -cn \
@@ -178,8 +220,24 @@ xui_client_json() {
       --arg subId "$sub_id" \
       --arg id "$uid" \
       --arg now "$now" \
-      '{id:$id, flow:"", email:$email, limitIp:0, totalGB:0, expiryTime:0, enable:true, tgId:"", subId:$subId, reset:0, created_at:($now|tonumber), updated_at:($now|tonumber)}')"
-    if sqlite3 "$XUI_DB" "SELECT stream_settings FROM inbounds WHERE id=$inbound_id;" | grep -q '"security"[[:space:]]*:[[:space:]]*"reality"'; then
+      --argjson old "$existing_json" \
+      '($old // {}) as $o
+      | {
+          id:($o.id // $id),
+          flow:($o.flow // ""),
+          email:$email,
+          limitIp:($o.limitIp // 0),
+          totalGB:($o.totalGB // 0),
+          expiryTime:($o.expiryTime // 0),
+          enable:($o.enable // true),
+          tgId:($o.tgId // ""),
+          subId:$subId,
+          reset:($o.reset // 0),
+          comment:($o.comment // ""),
+          created_at:($o.created_at // ($now|tonumber)),
+          updated_at:($o.updated_at // ($now|tonumber))
+        }')"
+    if [[ "$is_reality" == "1" ]]; then
       jq '.flow = "xtls-rprx-vision"' <<<"$client_json"
     else
       printf '%s\n' "$client_json"
@@ -236,21 +294,23 @@ xui_warp_listen_host() {
 
 xui_replace_generated_clients() {
   local inbound_id="$1" protocol="$2" mode="$3" tag="$4" report_file="$5"
-  local now index email sub_id client_json clients_json settings new_settings traffic_result
+  local now index label email sub_id client_json clients_json settings new_settings traffic_result existing_json
   now="$(date +%s)000"
   clients_json="[]"
+  label="$(xui_profile_label "$inbound_id" "$protocol")"
+  settings="$(sqlite3 -readonly "$XUI_DB" "SELECT settings FROM inbounds WHERE id=$inbound_id;")"
 
   for index in $(seq -w 1 "$COUNT"); do
     sub_id="${PREFIX}-${index}"
-    email="${sub_id}-${mode}-${inbound_id}"
+    email="$(xui_client_email "$index" "$mode" "$label")"
     if [[ "$XUI_SUB_ID_MODE" == "common" ]]; then
       sub_id="$XUI_COMMON_SUB_ID"
     fi
-    client_json="$(xui_client_json "$inbound_id" "$protocol" "$email" "$sub_id" "$now")"
+    existing_json="$(jq -c --arg email "$email" '((.clients // []) | map(select((.email // "") == $email)) | .[0]) // {}' <<<"$settings")"
+    client_json="$(xui_client_json "$inbound_id" "$protocol" "$email" "$sub_id" "$now" "$existing_json")"
     clients_json="$(jq -c --argjson client "$client_json" '. + [$client]' <<<"$clients_json")"
   done
 
-  settings="$(sqlite3 -readonly "$XUI_DB" "SELECT settings FROM inbounds WHERE id=$inbound_id;")"
   if [[ "$XUI_REPLACE_CLIENTS" == "1" ]]; then
     new_settings="$(jq -c --argjson clients "$clients_json" '.clients = $clients' <<<"$settings")"
   else
@@ -271,7 +331,7 @@ xui_replace_generated_clients() {
     sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND email GLOB $(sql_quote "${PREFIX}-[0-9]*");"
   fi
   for index in $(seq -w 1 "$COUNT"); do
-    email="${PREFIX}-${index}-${mode}-${inbound_id}"
+    email="$(xui_client_email "$index" "$mode" "$label")"
     traffic_result="$(sqlite3 "$XUI_DB" "INSERT OR IGNORE INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset) VALUES ($inbound_id, 1, $(sql_quote "$email"), 0, 0, 0, 0, 0); SELECT changes();" 2>/dev/null || true)"
     if [[ "${traffic_result##*$'\n'}" != "1" ]]; then
       printf 'WARN traffic duplicate/ignored inbound=%s email=%s\n' "$inbound_id" "$email" >> "$report_file"
