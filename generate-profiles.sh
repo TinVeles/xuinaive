@@ -653,11 +653,27 @@ function loadYaml() {
   return null;
 }
 
+function hy2AuthYaml(users) {
+  const lines = ['auth:', '  type: userpass', '  userpass:'];
+  for (const u of users) {
+    lines.push(`    ${u.username}: ${JSON.stringify(String(u.password || ''))}`);
+  }
+  return lines.join('\n') + '\n';
+}
+
+function patchHy2AuthText(content, users) {
+  const authBlock = hy2AuthYaml(users);
+  if (/^auth:\n/m.test(content)) {
+    return content.replace(/^auth:\n(?:[ \t].*(?:\n|$))*/m, authBlock);
+  }
+  return `${authBlock}\n${content}`;
+}
+
 if (fs.existsSync(hyPath)) {
   const yaml = loadYaml();
   if (!yaml) {
-    console.error('WARN: js-yaml not found; Hysteria2 config was not regenerated');
-    process.exitCode = 2;
+    const content = fs.readFileSync(hyPath, 'utf8');
+    fs.writeFileSync(hyPath, patchHy2AuthText(content, cfg.hy2Users));
   } else {
     const hy = yaml.load(fs.readFileSync(hyPath, 'utf8')) || {};
     hy.auth = hy.auth || {};
@@ -670,7 +686,7 @@ if (fs.existsSync(hyPath)) {
 
 const domain = cfg.domain || 'DOMAIN_NOT_SET';
 const generatedNaiveLinks = generatedNaive.map(u => `naive+https://${u.username}:${u.password}@${domain}:443#${encodeURIComponent(u.username)}`);
-const hy2UserpassAuth = u => encodeURIComponent(`${u.username}:${u.password}`);
+const hy2UserpassAuth = u => `${encodeURIComponent(u.username)}:${encodeURIComponent(u.password)}`;
 const generatedHy2Links = generatedHy2.map(u => `hysteria2://${hy2UserpassAuth(u)}@${domain}:443?sni=${domain}&insecure=0#${encodeURIComponent(u.username)}`);
 const naiveLinks = generatedNaiveLinks;
 const hy2Links = generatedHy2Links;
