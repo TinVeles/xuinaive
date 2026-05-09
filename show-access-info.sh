@@ -6,6 +6,8 @@ CONFIG_FILE="$SCRIPT_DIR/config.env"
 SUMMARY_FILE="$SCRIPT_DIR/access-info.txt"
 NH_CONFIG_JSON="${NH_CONFIG_JSON:-/opt/panel-naive-hy2/panel/data/config.json}"
 NH_GENERATED_PROFILES="${NH_GENERATED_PROFILES:-/opt/panel-naive-hy2/generated-profiles.txt}"
+NH_PANEL_USERS_JSON="${NH_PANEL_USERS_JSON:-/opt/panel-naive-hy2/panel/data/users.json}"
+NH_PANEL_INITIAL_ADMIN="${NH_PANEL_INITIAL_ADMIN:-/opt/panel-naive-hy2/panel/data/initial-admin.txt}"
 
 if [[ -t 1 ]]; then
   BOLD=$'\033[1m'
@@ -137,12 +139,32 @@ profile_link() {
   ' "$NH_GENERATED_PROFILES" 2>/dev/null || true
 }
 
+nh_panel_login_from_users() {
+  [[ -f "$NH_PANEL_USERS_JSON" ]] || return 0
+  node -e '
+    const fs = require("fs");
+    const users = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const first = Object.keys(users)[0];
+    if (first) process.stdout.write(first);
+  ' "$NH_PANEL_USERS_JSON" 2>/dev/null || true
+}
+
+nh_panel_initial_login() {
+  [[ -f "$NH_PANEL_INITIAL_ADMIN" ]] || return 0
+  awk -F: 'NF >= 2 { print $1; exit }' "$NH_PANEL_INITIAL_ADMIN" 2>/dev/null || true
+}
+
+nh_panel_initial_password() {
+  [[ -f "$NH_PANEL_INITIAL_ADMIN" ]] || return 0
+  awk -F: 'NF >= 2 { print $2; exit }' "$NH_PANEL_INITIAL_ADMIN" 2>/dev/null || true
+}
+
 XUI_DOMAIN="$(first_nonempty "$(config_value XUI_DOMAIN)" "$(xui_setting webDomain)" "$(xui_setting subDomain)" "$(xui_domain_from_cert)")"
 NH_DOMAIN="$(first_nonempty "$(config_value NH_PROXY_DOMAIN)" "$(json_value domain)")"
 nh_panel_port="$(first_nonempty "$(config_value NH_PANEL_PORT)" "8081")"
 nh_panel_url="$(first_nonempty "$(config_value NH_PANEL_URL)" "$(json_value panelUrl)")"
-nh_panel_login="$(first_nonempty "$(config_value NH_PANEL_LOGIN)" "$(json_value panelLogin)")"
-nh_panel_password="$(first_nonempty "$(config_value NH_PANEL_PASSWORD)" "$(json_value panelPassword)")"
+nh_panel_login="$(first_nonempty "$(config_value NH_PANEL_LOGIN)" "$(json_value panelLogin)" "$(nh_panel_initial_login)" "$(nh_panel_login_from_users)")"
+nh_panel_password="$(first_nonempty "$(config_value NH_PANEL_PASSWORD)" "$(json_value panelPassword)" "$(nh_panel_initial_password)")"
 if [[ -z "$nh_panel_url" && -n "$nh_panel_port" ]]; then
   server_ip="$(public_ipv4)"
   [[ -n "$server_ip" ]] && nh_panel_url="http://${server_ip}:${nh_panel_port}"

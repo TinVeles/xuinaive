@@ -569,6 +569,8 @@ cat > "$PANEL_DIR/panel/data/config.json" <<EOF
   "email": "${EMAIL}",
   "panelDomain": "${PANEL_DOMAIN}",
   "panelEmail": "${PANEL_EMAIL}",
+  "panelLogin": "${PANEL_LOGIN}",
+  "panelPassword": "${PANEL_PASSWORD}",
   "tlsCert": "${TLS_CERT}",
   "tlsKey": "${TLS_KEY}",
   "accessMode": "${PANEL_ACCESS}",
