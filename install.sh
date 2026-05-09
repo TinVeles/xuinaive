@@ -637,11 +637,11 @@ Naive email:    $NAIVE_EMAIL
 This will run the vendored x-ui-pro installer and write system configs.
 EOF
 
-  bash "$installer" --mode both \
+  bash "$installer" --mode all \
     --xui-domain "$XUI_DOMAIN" \
-    --naive-domain "$NAIVE_DOMAIN" \
+    --nh-domain "$NAIVE_DOMAIN" \
     --reality-dest "$REALITY_DEST" \
-    --naive-email "$NAIVE_EMAIL" \
+    --nh-email "$NAIVE_EMAIL" \
     --profile-count "$PROFILE_COUNT" \
     --profile-prefix "$PROFILE_PREFIX" \
     --no-access-info \

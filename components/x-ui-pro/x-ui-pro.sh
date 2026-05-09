@@ -523,7 +523,6 @@ if [[ ${INSTALL} == *"y"* ]]; then
 	systemctl daemon-reload && systemctl enable --now nginx
 fi
 systemctl stop nginx 2>/dev/null || true
-fuser -k 80/tcp 443/tcp 2>/dev/null || true
 ##################################GET SERVER IPv4-6#####################################################
 IP4_REGEX="^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$"
 IP6_REGEX="([a-f0-9:]+:+)+[a-f0-9]+"
@@ -612,7 +611,10 @@ server {
     proxy_pass      \$sni_name;
     ssl_preread     on;
 }
+EOF
 
+if [[ "${XUI_WARP_EXTERNAL_PORT}" != "443" ]]; then
+cat >> "/etc/nginx/stream-enabled/stream.conf" << EOF
 server {
     proxy_protocol on;
     listen          ${IP4}:${XUI_WARP_EXTERNAL_PORT};
@@ -621,6 +623,7 @@ server {
 }
 
 EOF
+fi
 
 grep -xqFR "stream { include /etc/nginx/stream-enabled/*.conf; }" /etc/nginx/* ||echo "stream { include /etc/nginx/stream-enabled/*.conf; }" >> /etc/nginx/nginx.conf
 grep -xqFR "load_module modules/ngx_stream_module.so;" /etc/nginx/* || sed -i '1s/^/load_module \/usr\/lib\/nginx\/modules\/ngx_stream_module.so; /' /etc/nginx/nginx.conf
@@ -1384,7 +1387,14 @@ apt-get update && apt-get install -y -q wget curl tar tzdata
 
 }
 ###################################Install X-UI#########################################################
-if systemctl is-active --quiet x-ui; then
+if [[ ${INSTALL} == *"y"* ]]; then
+    install_panel
+	UPDATE_XUIDB
+	if ! systemctl is-enabled --quiet x-ui; then
+		systemctl daemon-reload && systemctl enable x-ui.service
+	fi
+	x-ui restart
+elif systemctl is-active --quiet x-ui; then
 	x-ui restart
 else
     install_panel	
@@ -1468,7 +1478,7 @@ sed -i "s|sub.legiz.ru|$domain/$sub2singbox_path|g" "$DEST_FILE_SUB_PAGE"
 #sed -i -e "s|https://t.me/gozargah_marzban|$tg_escaped_link|g" -e "s|https://github.com/Gozargah/Marzban#donation|$tg_escaped_link|g" "$DEST_FILE_SUB_PAGE"
 
 ######################cronjob for ssl/reload service/cloudflareips######################################
-crontab -l | grep -v "certbot\|x-ui\|cloudflareips" | crontab -
+(crontab -l 2>/dev/null || true) | grep -v "certbot\|x-ui\|cloudflareips" | crontab -
 (crontab -l 2>/dev/null; echo '@reboot /usr/bin/sub2sing-box server --bind 127.0.0.1 --port 8080 > /dev/null 2>&1') | crontab -
 (crontab -l 2>/dev/null; echo '@daily x-ui restart > /dev/null 2>&1 && nginx -s reload;') | crontab -
 (crontab -l 2>/dev/null; echo '@monthly certbot renew --nginx --non-interactive --post-hook "nginx -s reload" > /dev/null 2>&1;') | crontab -

@@ -205,14 +205,13 @@ Unified all-in-one real install plan
 
 WARNING:
 The vendored x-ui-pro script is still destructive like upstream:
-it removes existing x-ui and nginx configs and kills listeners on 80/443.
+it removes existing x-ui and nginx configs before recreating them.
 EOF
 
 backup_dir="/opt/unified-proxy-manager/backups/$(date '+%Y-%m-%d-%H-%M-%S')"
 mkdir -p "$backup_dir"
 for path in /etc/nginx /etc/x-ui /usr/local/x-ui /etc/caddy-nh /etc/hysteria /opt/panel-naive-hy2 /etc/systemd/system/x-ui.service /etc/systemd/system/caddy-nh.service /etc/systemd/system/hysteria-server.service /etc/systemd/system/panel-naive-hy2.service; do
   if [[ -e "$path" || -L "$path" ]]; then
-    local parent_dir
     parent_dir="$(dirname "$path")"
     mkdir -p "$backup_dir$parent_dir"
     cp -aT "$path" "$backup_dir$path"

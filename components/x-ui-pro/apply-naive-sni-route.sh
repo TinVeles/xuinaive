@@ -40,6 +40,11 @@ cp -a "$STREAM_CONF" "$backup_dir/stream.conf"
 info "Backup: $backup_dir/stream.conf"
 
 tmp="$(mktemp)"
+cleanup() {
+  rm -f "$tmp"
+}
+trap cleanup EXIT
+
 awk -v domain="$ROUTE_DOMAIN" -v backend="$ROUTE_BACKEND" -v route_name="$ROUTE_NAME" '
   BEGIN {
     added_map = 0
@@ -66,9 +71,12 @@ awk -v domain="$ROUTE_DOMAIN" -v backend="$ROUTE_BACKEND" -v route_name="$ROUTE_
   }
 ' "$STREAM_CONF" > "$tmp"
 
-cat "$tmp" > "$STREAM_CONF"
-rm -f "$tmp"
+cp "$tmp" "$STREAM_CONF"
+if ! nginx -t; then
+  cp "$backup_dir/stream.conf" "$STREAM_CONF"
+  nginx -t >/dev/null 2>&1 || true
+  die "nginx config test failed; restored backup: $backup_dir/stream.conf"
+fi
 
-nginx -t
 systemctl reload nginx
 ok "SNI route added: $ROUTE_DOMAIN -> $ROUTE_BACKEND ($ROUTE_NAME)"

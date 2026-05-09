@@ -340,12 +340,17 @@ xui_replace_generated_clients() {
     sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND email GLOB $(sql_quote "${PREFIX}-[0-9]*");"
   fi
   for index in $(seq -w 1 "$COUNT"); do
+    if [[ "$XUI_SUB_ID_MODE" == "common" ]]; then
+      sub_id="$XUI_COMMON_SUB_ID"
+    else
+      sub_id="${PREFIX}-${index}"
+    fi
     email="$(xui_client_email "$index" "$mode" "$label")"
     traffic_result="$(sqlite3 "$XUI_DB" "INSERT OR IGNORE INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset) VALUES ($inbound_id, 1, $(sql_quote "$email"), 0, 0, 0, 0, 0); SELECT changes();" 2>/dev/null || true)"
     if [[ "${traffic_result##*$'\n'}" != "1" ]]; then
       printf 'WARN traffic duplicate/ignored inbound=%s email=%s\n' "$inbound_id" "$email" >> "$report_file"
     fi
-    printf 'inbound=%s protocol=%s tag=%s mode=%s email=%s subId=%s\n' "$inbound_id" "$protocol" "${tag:-}" "$mode" "$email" "${PREFIX}-${index}" >> "$report_file"
+    printf 'inbound=%s protocol=%s tag=%s mode=%s email=%s subId=%s\n' "$inbound_id" "$protocol" "${tag:-}" "$mode" "$email" "$sub_id" >> "$report_file"
   done
 }
 
@@ -408,7 +413,6 @@ xui_add_clients() {
   warp_tags_file="$(mktemp)"
   mkdir -p "$(dirname "$report_file")"
   : > "$report_file"
-  sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE email GLOB $(sql_quote "${PREFIX}-[0-9]*");"
 
   query="SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
      FROM inbounds
@@ -622,6 +626,16 @@ const generatedNaive = [];
 const generatedHy2 = [];
 const generatedNaiveRe = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-naive-[0-9]+$`);
 const generatedHy2Re = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-hy2-[0-9]+$`);
+const existingGeneratedNaive = new Map(
+  cfg.naiveUsers
+    .filter(u => generatedNaiveRe.test(String(u.username || '')))
+    .map(u => [String(u.username), u])
+);
+const existingGeneratedHy2 = new Map(
+  cfg.hy2Users
+    .filter(u => generatedHy2Re.test(String(u.username || '')))
+    .map(u => [String(u.username), u])
+);
 
 cfg.naiveUsers = cfg.naiveUsers.filter(u => !generatedNaiveRe.test(String(u.username || '')));
 cfg.hy2Users = cfg.hy2Users.filter(u => !generatedHy2Re.test(String(u.username || '')));
@@ -630,22 +644,36 @@ for (let i = 1; i <= count; i += 1) {
   const n = String(i).padStart(2, '0');
   const naiveName = `${prefix}-naive-${n}`;
   const hyName = `${prefix}-hy2-${n}`;
-  const naiveUser = { username: naiveName, password: pass(), createdAt: now };
-  const hyUser = { username: hyName, password: pass(), createdAt: now };
+  const oldNaive = existingGeneratedNaive.get(naiveName) || {};
+  const oldHy = existingGeneratedHy2.get(hyName) || {};
+  const naiveUser = {
+    ...oldNaive,
+    username: naiveName,
+    password: oldNaive.password || pass(),
+    createdAt: oldNaive.createdAt || now
+  };
+  const hyUser = {
+    ...oldHy,
+    username: hyName,
+    password: oldHy.password || pass(),
+    createdAt: oldHy.createdAt || now
+  };
   cfg.naiveUsers.push(naiveUser);
   cfg.hy2Users.push(hyUser);
   generatedNaive.push(naiveUser);
   generatedHy2.push(hyUser);
 }
 
-fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-
 if (fs.existsSync(caddyfile)) {
   let content = fs.readFileSync(caddyfile, 'utf8');
   const authLines = cfg.naiveUsers
     .map(u => `    basic_auth ${u.username} ${u.password}`)
     .join('\n');
-  content = content.replace(/(forward_proxy\s*\{\n)([\s\S]*?)(\n\s*hide_ip)/, `$1${authLines}$3`);
+  const nextContent = content.replace(/(forward_proxy\s*\{\n)([\s\S]*?)(\n\s*hide_ip)/, `$1${authLines}$3`);
+  if (nextContent === content && !content.includes(authLines)) {
+    throw new Error(`Caddyfile forward_proxy auth block was not found: ${caddyfile}`);
+  }
+  content = nextContent;
   fs.writeFileSync(`${caddyfile}.new`, content);
   fs.renameSync(`${caddyfile}.new`, caddyfile);
 }
@@ -692,6 +720,8 @@ if (fs.existsSync(hyPath)) {
     fs.writeFileSync(hyPath, yaml.dump(hy, { lineWidth: 120, quotingType: '"' }));
   }
 }
+
+fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
 
 const domain = cfg.domain || 'DOMAIN_NOT_SET';
 const generatedNaiveLinks = generatedNaive.map(u => `naive+https://${u.username}:${u.password}@${domain}:443#${encodeURIComponent(u.username)}`);
