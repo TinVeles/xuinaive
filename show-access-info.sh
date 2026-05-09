@@ -71,6 +71,17 @@ json_value() {
   ' "$file" "$expr" 2>/dev/null || true
 }
 
+public_ipv4() {
+  local ip
+  ip="$(curl -4 -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)"
+  if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    printf '%s\n' "$ip"
+    return 0
+  fi
+  ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}' || true)"
+  [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && printf '%s\n' "$ip"
+}
+
 first_nonempty() {
   local value
   for value in "$@"; do
@@ -128,6 +139,14 @@ profile_link() {
 
 XUI_DOMAIN="$(first_nonempty "$(config_value XUI_DOMAIN)" "$(xui_setting webDomain)" "$(xui_setting subDomain)" "$(xui_domain_from_cert)")"
 NH_DOMAIN="$(first_nonempty "$(config_value NH_PROXY_DOMAIN)" "$(json_value domain)")"
+nh_panel_port="$(first_nonempty "$(config_value NH_PANEL_PORT)" "8081")"
+nh_panel_url="$(first_nonempty "$(config_value NH_PANEL_URL)" "$(json_value panelUrl)")"
+nh_panel_login="$(first_nonempty "$(config_value NH_PANEL_LOGIN)" "$(json_value panelLogin)")"
+nh_panel_password="$(first_nonempty "$(config_value NH_PANEL_PASSWORD)" "$(json_value panelPassword)")"
+if [[ -z "$nh_panel_url" && -n "$nh_panel_port" ]]; then
+  server_ip="$(public_ipv4)"
+  [[ -n "$server_ip" ]] && nh_panel_url="http://${server_ip}:${nh_panel_port}"
+fi
 
 xui_user="$(first_nonempty "$(xui_setting username)" "$(xui_user_from_db)")"
 xui_pass="$(first_nonempty "$(xui_setting password)" "$(xui_pass_from_db)")"
@@ -171,6 +190,11 @@ NaiveProxy
   Password: ${naive_password:-check config.env}
   Link:     ${naive_link:-check config.env}
 
+Naive + Hysteria2 panel
+  URL:      ${nh_panel_url:-check config.env}
+  Login:    ${nh_panel_login:-check config.env}
+  Password: ${nh_panel_password:-check config.env}
+
 Hysteria2
   Domain:   ${NH_DOMAIN:-check config.env}
   User:     ${hy2_user:-check config.env}
@@ -195,6 +219,13 @@ echo -e "${PURPLE}${BOLD}║   Login:    ${naive_login:-check config.env}${RESET
 echo -e "${PURPLE}${BOLD}║   Password: ${naive_password:-check config.env}${RESET}"
 echo -e "${PURPLE}${BOLD}║   Link:${RESET}"
 echo -e "${CYAN}   ${naive_link:-check config.env}${RESET}"
+
+echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"
+echo -e "${PURPLE}${BOLD}║   🖥  Naive + Hysteria2 Panel                               ║${RESET}"
+echo -e "${PURPLE}${BOLD}║   URL:${RESET}"
+echo -e "${CYAN}   ${nh_panel_url:-check config.env}${RESET}"
+echo -e "${PURPLE}${BOLD}║   Login:    ${nh_panel_login:-check config.env}${RESET}"
+echo -e "${PURPLE}${BOLD}║   Password: ${nh_panel_password:-check config.env}${RESET}"
 
 echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"
 echo -e "${PURPLE}${BOLD}║   ⚡  Hysteria2                                             ║${RESET}"
