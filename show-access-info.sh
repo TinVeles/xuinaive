@@ -304,6 +304,40 @@ NODE
   fi
 }
 
+ensure_nh_panel_nginx_proxy() {
+  local port="${nh_panel_port:-}" conf="/etc/nginx/sites-available/panel-naive-hy2"
+  [[ "$port" =~ ^[0-9]+$ ]] || return 0
+  is_root || return 0
+  command -v nginx >/dev/null 2>&1 || return 0
+  [[ -d /etc/nginx/sites-available && -d /etc/nginx/sites-enabled ]] || return 0
+
+  if ss -tln 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)${port}$"; then
+    return 0
+  fi
+
+  cat > "$conf" <<EOF
+server {
+    listen ${port};
+    server_name _;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_read_timeout 86400;
+    }
+}
+EOF
+  ln -sf "$conf" /etc/nginx/sites-enabled/panel-naive-hy2
+  if nginx -t >/dev/null 2>&1; then
+    systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1 || true
+  fi
+}
+
 XUI_DOMAIN="$(first_nonempty "$(config_value XUI_DOMAIN)" "$(xui_setting webDomain)" "$(xui_setting subDomain)" "$(xui_domain_from_cert)")"
 nh_panel_port="$(first_nonempty "$(config_value NH_PANEL_PORT)" "8081")"
 nh_panel_url="$(first_nonempty "$(config_value NH_PANEL_URL)" "$(json_value panelUrl)")"
@@ -341,6 +375,7 @@ fi
 
 reset_xui_password_if_missing
 reset_nh_panel_password_if_missing
+ensure_nh_panel_nginx_proxy
 
 reset_terminal_style
 cat > "$SUMMARY_FILE" <<EOF
