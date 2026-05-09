@@ -52,7 +52,11 @@ if ! awk -v domain="$ROUTE_DOMAIN" -v backend="$ROUTE_BACKEND" -v route_name="$R
     have_domain = 0
     have_upstream = 0
   }
-  index($0, domain) && index($0, route_name ";") { have_domain = 1 }
+  $1 == domain && $2 ~ /;$/ {
+    printf "    %s      %s;\n", domain, route_name
+    have_domain = 1
+    next
+  }
   $0 ~ "^upstream[[:space:]]+" route_name "[[:space:]]*\\{" { have_upstream = 1 }
   {
     if (!have_upstream && !added_upstream && $0 ~ /^server[[:space:]]*\{/) {

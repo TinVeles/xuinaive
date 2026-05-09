@@ -7,6 +7,7 @@ SUMMARY_FILE="$SCRIPT_DIR/access-info.txt"
 NH_CONFIG_JSON="${NH_CONFIG_JSON:-/opt/panel-naive-hy2/panel/data/config.json}"
 NH_PANEL_USERS_JSON="${NH_PANEL_USERS_JSON:-/opt/panel-naive-hy2/panel/data/users.json}"
 NH_PANEL_INITIAL_ADMIN="${NH_PANEL_INITIAL_ADMIN:-/opt/panel-naive-hy2/panel/data/initial-admin.txt}"
+NH_CADDYFILE="${NH_CADDYFILE:-/etc/caddy-nh/Caddyfile}"
 
 if [[ -t 1 ]]; then
   BOLD=$'\033[1m'
@@ -196,6 +197,16 @@ nh_panel_initial_password() {
   awk -F: 'NF >= 2 { print $2; exit }' "$NH_PANEL_INITIAL_ADMIN" 2>/dev/null || true
 }
 
+nh_naive_login_from_caddy() {
+  [[ -f "$NH_CADDYFILE" ]] || return 0
+  awk '/^[[:space:]]*basic_auth[[:space:]]/ { print $2; exit }' "$NH_CADDYFILE" 2>/dev/null || true
+}
+
+nh_naive_password_from_caddy() {
+  [[ -f "$NH_CADDYFILE" ]] || return 0
+  awk '/^[[:space:]]*basic_auth[[:space:]]/ { print $3; exit }' "$NH_CADDYFILE" 2>/dev/null || true
+}
+
 persist_xui_access() {
   local file="/etc/x-ui/access-info.env"
   config_set_file "$file" XUI_DOMAIN "${XUI_DOMAIN:-}"
@@ -304,6 +315,24 @@ NODE
   fi
 }
 
+persist_nh_naive_access() {
+  local domain login password link
+  domain="$(first_nonempty "$(config_value NH_PROXY_DOMAIN)" "$(config_value NAIVE_DOMAIN)" "$(json_value domain)")"
+  login="$(first_nonempty "$(config_value NH_NAIVE_LOGIN)" "$(json_value naiveLogin)" "$(nh_naive_login_from_caddy)")"
+  password="$(first_nonempty "$(config_value NH_NAIVE_PASSWORD)" "$(json_value naivePassword)" "$(nh_naive_password_from_caddy)")"
+  [[ "$domain" == "null" ]] && domain=""
+  [[ "$login" == "null" ]] && login=""
+  [[ "$password" == "null" ]] && password=""
+  [[ -n "$domain" && -n "$login" && -n "$password" ]] || return 0
+
+  link="naive+https://${login}:${password}@${domain}:443"
+  config_set_file "$CONFIG_FILE" NH_PROXY_DOMAIN "$domain"
+  config_set_file "$CONFIG_FILE" NAIVE_DOMAIN "$domain"
+  config_set_file "$CONFIG_FILE" NH_NAIVE_LOGIN "$login"
+  config_set_file "$CONFIG_FILE" NH_NAIVE_PASSWORD "$password"
+  config_set_file "$CONFIG_FILE" NH_NAIVE_LINK "$link"
+}
+
 ensure_nh_panel_nginx_proxy() {
   local port="${nh_panel_port:-}" conf="/etc/nginx/sites-available/panel-naive-hy2"
   [[ "$port" =~ ^[0-9]+$ ]] || return 0
@@ -394,6 +423,7 @@ fi
 
 reset_xui_password_if_missing
 reset_nh_panel_password_if_missing
+persist_nh_naive_access
 ensure_nh_panel_nginx_proxy
 ensure_nh_naive_sni_route
 
