@@ -43,6 +43,7 @@ config_value() {
     ' "$file" 2>/dev/null || true)"
     [[ -n "$value" ]] && { printf '%s\n' "$value"; return 0; }
   done
+  return 0
 }
 
 json_value() {
@@ -75,6 +76,7 @@ first_nonempty() {
   for value in "$@"; do
     [[ -n "$value" ]] && { printf '%s\n' "$value"; return 0; }
   done
+  return 0
 }
 
 sql_quote() {
