@@ -48,6 +48,53 @@ config_value() {
   return 0
 }
 
+env_quote() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//\$/\\\$}"
+  value="${value//\`/\\\`}"
+  printf '"%s"' "$value"
+}
+
+config_set_file() {
+  local file="$1" key="$2" value="$3" tmp dir
+  [[ -n "$file" && -n "$key" ]] || return 0
+  dir="$(dirname "$file")"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  touch "$file" 2>/dev/null || return 0
+  tmp="${file}.tmp.$$"
+  awk -v key="$key" -v value="$(env_quote "$value")" '
+    BEGIN { done = 0 }
+    $0 ~ "^" key "=" {
+      print key "=" value
+      done = 1
+      next
+    }
+    { print }
+    END {
+      if (!done) print key "=" value
+    }
+  ' "$file" > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null || true; return 0; }
+  mv "$tmp" "$file" 2>/dev/null || { rm -f "$tmp" 2>/dev/null || true; return 0; }
+  chmod 600 "$file" 2>/dev/null || true
+}
+
+random_password() {
+  local value
+  if command -v openssl >/dev/null 2>&1; then
+    value="$(openssl rand -base64 32 2>/dev/null | tr -dc 'A-Za-z0-9' | head -c 24 || true)"
+  fi
+  if [[ -z "${value:-}" && -r /dev/urandom ]]; then
+    value="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24 || true)"
+  fi
+  printf '%s\n' "$value"
+}
+
+is_root() {
+  [[ "${EUID:-$(id -u)}" -eq 0 ]]
+}
+
 json_value() {
   local expr="$1" file="${2:-$NH_CONFIG_JSON}"
   [[ -f "$file" ]] || return 0
@@ -149,11 +196,122 @@ nh_panel_initial_password() {
   awk -F: 'NF >= 2 { print $2; exit }' "$NH_PANEL_INITIAL_ADMIN" 2>/dev/null || true
 }
 
+persist_xui_access() {
+  local file="/etc/x-ui/access-info.env"
+  config_set_file "$file" XUI_DOMAIN "${XUI_DOMAIN:-}"
+  config_set_file "$file" XUI_PANEL_URL "${xui_url:-}"
+  config_set_file "$file" XUI_PANEL_LOGIN "${xui_user:-}"
+  config_set_file "$file" XUI_PANEL_PASSWORD "${xui_pass:-}"
+  config_set_file "$file" XUI_PANEL_PORT "${xui_port:-}"
+  config_set_file "$file" XUI_PANEL_PATH "${xui_path:+/${xui_path}/}"
+
+  config_set_file "$CONFIG_FILE" XUI_PANEL_URL "${xui_url:-}"
+  config_set_file "$CONFIG_FILE" XUI_PANEL_LOGIN "${xui_user:-}"
+  config_set_file "$CONFIG_FILE" XUI_PANEL_PASSWORD "${xui_pass:-}"
+}
+
+reset_xui_password_if_missing() {
+  local new_pass
+  [[ -z "${xui_pass:-}" ]] || return 0
+  is_root || return 0
+  [[ -x /usr/local/x-ui/x-ui ]] || return 0
+
+  xui_user="${xui_user:-admin}"
+  new_pass="$(random_password)"
+  [[ -n "$new_pass" ]] || return 0
+
+  local args=(setting -username "$xui_user" -password "$new_pass")
+  [[ -n "${xui_port:-}" ]] && args+=(-port "$xui_port")
+  [[ -n "${xui_path:-}" ]] && args+=(-webBasePath "$xui_path")
+  if /usr/local/x-ui/x-ui "${args[@]}" >/dev/null 2>&1; then
+    xui_pass="$new_pass"
+    persist_xui_access
+    systemctl restart x-ui >/dev/null 2>&1 || true
+  fi
+}
+
+reset_nh_panel_password_if_missing() {
+  local new_pass panel_dir
+  [[ -z "${nh_panel_password:-}" ]] || return 0
+  is_root || return 0
+  panel_dir="$(dirname "$(dirname "$NH_CONFIG_JSON")")"
+  [[ -d "$panel_dir" ]] || panel_dir="/opt/panel-naive-hy2/panel"
+  [[ -d "$panel_dir" ]] || return 0
+  [[ -d "$panel_dir/node_modules/bcryptjs" ]] || return 0
+
+  nh_panel_login="${nh_panel_login:-admin}"
+  new_pass="$(random_password)"
+  [[ -n "$new_pass" ]] || return 0
+
+  if (
+     cd "$panel_dir"
+     PANEL_LOGIN="$nh_panel_login" \
+       PANEL_PASSWORD="$new_pass" \
+       PANEL_URL="${nh_panel_url:-}" \
+       CONFIG_JSON="$NH_CONFIG_JSON" \
+       USERS_JSON="$NH_PANEL_USERS_JSON" \
+       INITIAL_ADMIN="$NH_PANEL_INITIAL_ADMIN" \
+       node <<'NODE' >/dev/null 2>&1
+const fs = require('fs');
+const path = require('path');
+const bcrypt = require('bcryptjs');
+
+const login = process.env.PANEL_LOGIN || 'admin';
+const password = process.env.PANEL_PASSWORD || '';
+const configJson = process.env.CONFIG_JSON;
+const usersJson = process.env.USERS_JSON;
+const initialAdmin = process.env.INITIAL_ADMIN;
+if (!password || !configJson || !usersJson) process.exit(1);
+
+function readJson(file, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return fallback;
+  }
+}
+
+fs.mkdirSync(path.dirname(usersJson), { recursive: true });
+const loadedUsers = readJson(usersJson, {});
+const users = loadedUsers && !Array.isArray(loadedUsers) && typeof loadedUsers === 'object' ? loadedUsers : {};
+const current = users[login] && typeof users[login] === 'object' ? users[login] : {};
+users[login] = {
+  ...current,
+  password: bcrypt.hashSync(password, 10),
+  role: current.role || 'admin'
+};
+fs.writeFileSync(usersJson, JSON.stringify(users, null, 2), { mode: 0o600 });
+
+fs.mkdirSync(path.dirname(configJson), { recursive: true });
+const cfg = readJson(configJson, {});
+cfg.panelLogin = login;
+cfg.panelPassword = password;
+if (process.env.PANEL_URL) cfg.panelUrl = process.env.PANEL_URL;
+fs.writeFileSync(configJson, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+
+if (initialAdmin) {
+  fs.mkdirSync(path.dirname(initialAdmin), { recursive: true });
+  fs.writeFileSync(initialAdmin, `${login}:${password}\n`, { mode: 0o600 });
+}
+NODE
+  )
+  then
+    nh_panel_password="$new_pass"
+    config_set_file "$CONFIG_FILE" NH_PANEL_URL "${nh_panel_url:-}"
+    config_set_file "$CONFIG_FILE" NH_PANEL_LOGIN "$nh_panel_login"
+    config_set_file "$CONFIG_FILE" NH_PANEL_PASSWORD "$nh_panel_password"
+    systemctl restart panel-naive-hy2 >/dev/null 2>&1 || true
+  fi
+}
+
 XUI_DOMAIN="$(first_nonempty "$(config_value XUI_DOMAIN)" "$(xui_setting webDomain)" "$(xui_setting subDomain)" "$(xui_domain_from_cert)")"
 nh_panel_port="$(first_nonempty "$(config_value NH_PANEL_PORT)" "8081")"
 nh_panel_url="$(first_nonempty "$(config_value NH_PANEL_URL)" "$(json_value panelUrl)")"
 nh_panel_login="$(first_nonempty "$(config_value NH_PANEL_LOGIN)" "$(json_value panelLogin)" "$(nh_panel_initial_login)" "$(nh_panel_login_from_users)")"
 nh_panel_password="$(first_nonempty "$(config_value NH_PANEL_PASSWORD)" "$(json_value panelPassword)" "$(nh_panel_initial_password)")"
+[[ "$nh_panel_url" == "null" ]] && nh_panel_url=""
+[[ "$nh_panel_login" == "null" ]] && nh_panel_login=""
+[[ "$nh_panel_password" == "null" ]] && nh_panel_password=""
 [[ "$nh_panel_url" == *SERVER_IP* ]] && nh_panel_url=""
 if [[ -z "$nh_panel_url" && -n "$nh_panel_port" ]]; then
   server_ip="$(public_ipv4)"
@@ -162,22 +320,27 @@ fi
 
 xui_user="$(first_nonempty "$(config_value XUI_PANEL_LOGIN)" "$(config_value XUI_LOGIN)" "$(xui_setting username)" "$(xui_user_from_db)")"
 xui_pass="$(first_nonempty "$(config_value XUI_PANEL_PASSWORD)" "$(config_value XUI_PASSWORD)" "$(xui_setting password)" "$(xui_pass_from_db)")"
+[[ "$xui_user" == "null" ]] && xui_user=""
+[[ "$xui_pass" == "null" ]] && xui_pass=""
 if [[ "$xui_pass" == \$2a\$* || "$xui_pass" == \$2b\$* || "$xui_pass" == \$2y\$* ]]; then
   xui_pass=""
 fi
+xui_port="$(xui_setting webPort)"
 xui_path="$(xui_setting webBasePath)"
 xui_path="${xui_path#/}"; xui_path="${xui_path%/}"
 xui_url="$(first_nonempty "$(config_value XUI_PANEL_URL)" "$(config_value XUI_URL)")"
 if [[ -n "$xui_url" ]]; then
   :
-elif [[ -n "$(xui_setting webPort)" && -n "$XUI_DOMAIN" ]]; then
-  xui_port="$(xui_setting webPort)"
+elif [[ -n "$xui_port" && -n "$XUI_DOMAIN" ]]; then
   [[ -n "$xui_path" ]] && xui_url="https://${XUI_DOMAIN}:${xui_port}/${xui_path}/" || xui_url="https://${XUI_DOMAIN}:${xui_port}/"
 elif [[ -n "$XUI_DOMAIN" ]]; then
   [[ -n "$xui_path" ]] && xui_url="https://${XUI_DOMAIN}/${xui_path}/" || xui_url="https://${XUI_DOMAIN}/"
 else
   xui_url="check x-ui settings"
 fi
+
+reset_xui_password_if_missing
+reset_nh_panel_password_if_missing
 
 reset_terminal_style
 cat > "$SUMMARY_FILE" <<EOF
