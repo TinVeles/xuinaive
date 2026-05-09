@@ -129,6 +129,23 @@ xui_bind_direct_reality_local_if_needed() {
   fi
 }
 
+xui_preset_inbound_filter_sql() {
+  cat <<'SQL'
+       AND (
+         (protocol='vless'
+          AND json_valid(stream_settings)=1
+          AND json_extract(stream_settings,'$.network')='tcp'
+          AND json_extract(stream_settings,'$.security')='reality')
+         OR (protocol='vless'
+             AND json_valid(stream_settings)=1
+             AND json_extract(stream_settings,'$.network') IN ('ws','xhttp'))
+         OR (protocol='trojan'
+             AND json_valid(stream_settings)=1
+             AND json_extract(stream_settings,'$.network')='grpc')
+       )
+SQL
+}
+
 xui_profile_label() {
   local inbound_id="$1" protocol="$2" stream_settings network security
   stream_settings="$(sqlite3 -readonly "$XUIDB" "SELECT stream_settings FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo '{}')"
@@ -524,6 +541,7 @@ xui_seed_default_warp_profiles() {
      WHERE protocol IN ('vless','trojan')
        AND COALESCE(tag,'') NOT LIKE '%-warp'
        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+$(xui_preset_inbound_filter_sql)
      ORDER BY id;")"
 
   old_count="$XUI_PROFILE_COUNT"
@@ -569,6 +587,7 @@ xui_seed_bulk_profiles() {
      WHERE protocol IN ('vless','trojan')
        AND COALESCE(tag,'') NOT LIKE '%-warp'
        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+$(xui_preset_inbound_filter_sql)
      ORDER BY id;")"
   while IFS=$'\t' read -r inbound_id protocol tag remark port enable; do
     [[ -n "$inbound_id" ]] || continue

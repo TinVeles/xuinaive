@@ -198,6 +198,23 @@ xui_profile_label() {
   fi
 }
 
+xui_preset_inbound_filter_sql() {
+  cat <<'SQL'
+       AND (
+         (protocol='vless'
+          AND json_valid(stream_settings)=1
+          AND json_extract(stream_settings,'$.network')='tcp'
+          AND json_extract(stream_settings,'$.security')='reality')
+         OR (protocol='vless'
+             AND json_valid(stream_settings)=1
+             AND json_extract(stream_settings,'$.network') IN ('ws','xhttp'))
+         OR (protocol='trojan'
+             AND json_valid(stream_settings)=1
+             AND json_extract(stream_settings,'$.network')='grpc')
+       )
+SQL
+}
+
 xui_client_email() {
   local index="$1" mode="$2" label="$3"
   printf '%s-%s-%s-%s\n' "$PREFIX" "$index" "$mode" "$label"
@@ -501,7 +518,8 @@ xui_add_clients() {
      FROM inbounds
      WHERE protocol IN ('vless','trojan')
        AND COALESCE(tag,'') NOT LIKE '%-warp'
-       AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'"
+       AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+$(xui_preset_inbound_filter_sql)"
   if [[ -n "$XUI_INBOUND_ID" ]]; then
     query="$query AND id=$XUI_INBOUND_ID"
   fi
