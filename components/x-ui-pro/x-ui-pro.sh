@@ -14,6 +14,7 @@ XUI_PROFILE_COUNT="${XUI_PROFILE_COUNT:-15}"
 XUI_PROFILE_PREFIX="${XUI_PROFILE_PREFIX:-auto}"
 XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-first}"
 XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
+XUI_SEED_PROFILES="${XUI_SEED_PROFILES:-0}"
 XUI_CREATE_WARP_INBOUNDS="${XUI_CREATE_WARP_INBOUNDS:-1}"
 XUI_PRINT_ACCESS_INFO="${XUI_PRINT_ACCESS_INFO:-1}"
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
@@ -442,6 +443,7 @@ xui_apply_warp_template() {
 xui_seed_bulk_profiles() {
   local inbound_rows inbound_id protocol tag remark port enable warp_id warp_tag warp_tags_file
   [[ -f "$XUIDB" ]] || return 0
+  [[ "$XUI_SEED_PROFILES" == "1" ]] || { msg_ok "x-ui seed skipped: default inbounds keep one default client each"; return 0; }
   [[ "$XUI_PROFILE_COUNT" =~ ^[0-9]+$ && "$XUI_PROFILE_COUNT" -gt 0 ]] || XUI_PROFILE_COUNT=15
   : > /etc/x-ui/generated-clients.txt
   warp_tags_file="$(mktemp)"
@@ -1629,7 +1631,11 @@ if [[ "$XUI_PRINT_ACCESS_INFO" == "1" ]]; then
 		echo -e "Username:  ${config_username} \n"
 		echo -e "Password:  ${config_password} \n"
 		msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-		msg_inf "Web Sub Page subscriptions: https://${domain}/${web_path}?name=${XUI_PROFILE_PREFIX}-01 ... ${XUI_PROFILE_PREFIX}-${XUI_PROFILE_COUNT}\n"
+		if [[ "$XUI_SEED_PROFILES" == "1" ]]; then
+			msg_inf "Web Sub Page subscriptions: https://${domain}/${web_path}?name=${XUI_PROFILE_PREFIX}-01 ... ${XUI_PROFILE_PREFIX}-${XUI_PROFILE_COUNT}\n"
+		else
+			msg_inf "Web Sub Page subscription: https://${domain}/${web_path}?name=first\n"
+		fi
 		msg_inf "Your local sub2sing-box instance: https://${domain}/$sub2singbox_path/\n"
 		msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
 		msg_inf "Please Save this Screen!!"

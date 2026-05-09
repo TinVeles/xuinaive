@@ -87,6 +87,12 @@ fi
 profile_prefix="$(config_value PROFILE_PREFIX)"; [[ -n "$profile_prefix" ]] || profile_prefix="auto"
 profile_count="$(config_value PROFILE_COUNT)"; [[ -n "$profile_count" ]] || profile_count="15"
 profile_last="$(printf '%02d' "$profile_count" 2>/dev/null || printf '%s' "$profile_count")"
+xui_profiles_generated="$(config_value XUI_PROFILES_GENERATED)"
+if [[ "$xui_profiles_generated" != "1" ]]; then
+  profile_range="first"
+else
+  profile_range="${profile_prefix}-01 ... ${profile_prefix}-${profile_last}"
+fi
 
 xui_web_path="$(nginx_web_sub_path)"
 xui_sub2sing_path="$(nginx_sub2sing_path)"
@@ -94,12 +100,12 @@ xui_sub_uri="$(xui_setting subURI)"
 [[ -n "$xui_sub_uri" && "$xui_sub_uri" != */ ]] && xui_sub_uri="${xui_sub_uri}/"
 
 if [[ -n "$XUI_DOMAIN" && -n "$xui_web_path" ]]; then
-  xui_web_sub_url="https://${XUI_DOMAIN}/${xui_web_path}?name=${profile_prefix}-01 ... ${profile_prefix}-${profile_last}"
+  xui_web_sub_url="https://${XUI_DOMAIN}/${xui_web_path}?name=${profile_range}"
 else
   xui_web_sub_url="check /etc/nginx/snippets/includes.conf"
 fi
 if [[ -n "$xui_sub_uri" ]]; then
-  xui_raw_sub_url="${xui_sub_uri}${profile_prefix}-01 ... ${profile_prefix}-${profile_last}"
+  xui_raw_sub_url="${xui_sub_uri}${profile_range}"
 else
   xui_raw_sub_url="check x-ui setting subURI"
 fi
