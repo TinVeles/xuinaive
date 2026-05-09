@@ -1586,6 +1586,15 @@ xui_apply_warp_nginx_stream
 xui_cleanup_unix_sockets
 /usr/local/x-ui/x-ui setting -username "${config_username}" -password "${config_password}" -port "${panel_port}" -webBasePath "${panel_path}"
 /usr/local/x-ui/x-ui cert -webCert "/root/cert/${domain}/fullchain.pem" -webCertKey "/root/cert/${domain}/privkey.pem"
+cat > /etc/x-ui/access-info.env <<EOF
+XUI_DOMAIN="${domain}"
+XUI_PANEL_URL="https://${domain}:${panel_port}/${panel_path}/"
+XUI_PANEL_LOGIN="${config_username}"
+XUI_PANEL_PASSWORD="${config_password}"
+XUI_PANEL_PORT="${panel_port}"
+XUI_PANEL_PATH="/${panel_path}/"
+EOF
+chmod 600 /etc/x-ui/access-info.env
 x-ui start
 else
 	msg_err "x-ui.db file not exist! Maybe x-ui isn't installed." && exit 1;
