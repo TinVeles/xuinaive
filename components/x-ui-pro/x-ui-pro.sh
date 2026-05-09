@@ -918,7 +918,7 @@ if [[ -f $XUIDB ]]; then
         output=$(/usr/local/x-ui/bin/xray-linux-amd64 x25519)
 
         private_key=$(awk -F': *' 'tolower($1) ~ /^private[ _-]?key$/ {print $2; exit}' <<<"$output")
-        public_key=$(awk -F': *' 'tolower($1) ~ /^public[ _-]?key$/ {print $2; exit}' <<<"$output")
+        public_key=$(awk -F': *' 'tolower($1) ~ /^public[ _-]?key$/ || tolower($1) ~ /publickey/ {print $2; exit}' <<<"$output")
         if [[ -z "$private_key" || -z "$public_key" ]]; then
           printf '%s\n' "$output" >&2
           msg_err "Could not parse xray x25519 key pair" && exit 1
