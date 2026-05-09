@@ -335,12 +335,12 @@ xui_set_inbound_clients() {
 
 xui_ensure_warp_inbound() {
   local base_id="$1" protocol="$2" base_tag="$3" base_remark="$4" base_port="$5" base_enable="$6"
-  local existing_id existing_port warp_port warp_tag warp_remark settings empty_settings stream_settings warp_stream_settings warp_listen
+  local existing_id existing_port warp_port lookup_tag warp_tag warp_remark settings empty_settings stream_settings warp_stream_settings warp_listen
 
   warp_remark="${base_remark:-$protocol-$base_id} WARP"
-  warp_tag="${base_tag:-inbound-${base_id}}-warp"
+  lookup_tag="${base_tag:-inbound-${base_id}}-warp"
   stream_settings="$(sqlite3 -readonly "$XUIDB" "SELECT stream_settings FROM inbounds WHERE id=$base_id;")"
-  existing_id="$(sqlite3 -readonly "$XUIDB" "SELECT id FROM inbounds WHERE tag=$(sql_quote "$warp_tag") OR remark=$(sql_quote "$warp_remark") LIMIT 1;" 2>/dev/null || true)"
+  existing_id="$(sqlite3 -readonly "$XUIDB" "SELECT id FROM inbounds WHERE tag=$(sql_quote "$lookup_tag") OR remark=$(sql_quote "$warp_remark") LIMIT 1;" 2>/dev/null || true)"
   if [[ -n "$existing_id" ]]; then
     existing_port="$(sqlite3 -readonly "$XUIDB" "SELECT port FROM inbounds WHERE id=$existing_id;" 2>/dev/null || true)"
     if [[ "$existing_port" =~ ^[0-9]+$ && "$existing_port" -gt 0 ]]; then
@@ -352,9 +352,10 @@ xui_ensure_warp_inbound() {
         warp_port="$(xui_next_free_port "$((30000 + base_id))")"
       fi
     fi
+    warp_tag="inbound-${warp_port}-warp"
     warp_stream_settings="$(xui_warp_stream_settings "$stream_settings" "$warp_port" "$XUI_WARP_EXTERNAL_PORT")"
     warp_listen="$(xui_warp_listen_host "$stream_settings")"
-    sqlite3 "$XUIDB" "UPDATE inbounds SET listen=$(sql_quote "$warp_listen"), port=$warp_port, stream_settings=$(sql_quote "$warp_stream_settings") WHERE id=$existing_id;"
+    sqlite3 "$XUIDB" "UPDATE inbounds SET listen=$(sql_quote "$warp_listen"), port=$warp_port, stream_settings=$(sql_quote "$warp_stream_settings"), tag=$(sql_quote "$warp_tag") WHERE id=$existing_id;"
     printf '%s\n' "$existing_id"
     return 0
   fi
@@ -364,6 +365,7 @@ xui_ensure_warp_inbound() {
   else
     warp_port="$(xui_next_free_port "$((30000 + base_id))")"
   fi
+  warp_tag="inbound-${warp_port}-warp"
   settings="$(sqlite3 -readonly "$XUIDB" "SELECT settings FROM inbounds WHERE id=$base_id;")"
   empty_settings="$(jq -c '.clients = []' <<<"$settings" | xui_normalize_inbound_settings "$protocol")"
   warp_stream_settings="$(xui_warp_stream_settings "$stream_settings" "$warp_port" "$XUI_WARP_EXTERNAL_PORT")"
