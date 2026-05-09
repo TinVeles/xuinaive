@@ -42,6 +42,20 @@ xui_setting() {
   fi
 }
 
+nginx_web_sub_path() {
+  local file="/etc/nginx/snippets/includes.conf"
+  [[ -f "$file" ]] || return 0
+  sed -nE 's/^[[:space:]]*location[[:space:]]+~[[:space:]]+\^\/([^\/ {]+).*/\1/p' "$file" 2>/dev/null | head -n1
+}
+
+nginx_sub2sing_path() {
+  local file="/etc/nginx/snippets/includes.conf"
+  [[ -f "$file" ]] || return 0
+  awk '/proxy_pass http:\/\/127\.0\.0\.1:8080\// {print prev} {prev=$0}' "$file" 2>/dev/null \
+    | sed -nE 's/^[[:space:]]*location[[:space:]]+\/([^\/ {]+)\/[[:space:]]*\{.*/\1/p' \
+    | head -n1
+}
+
 public_ipv4() {
   curl -fsS --max-time 5 https://ipv4.icanhazip.com 2>/dev/null | tr -d '[:space:]' || true
 }
@@ -64,6 +78,31 @@ else
   xui_url="check x-ui settings"
 fi
 
+profile_prefix="$(config_value PROFILE_PREFIX)"; [[ -n "$profile_prefix" ]] || profile_prefix="auto"
+profile_count="$(config_value PROFILE_COUNT)"; [[ -n "$profile_count" ]] || profile_count="15"
+profile_last="$(printf '%02d' "$profile_count" 2>/dev/null || printf '%s' "$profile_count")"
+
+xui_web_path="$(nginx_web_sub_path)"
+xui_sub2sing_path="$(nginx_sub2sing_path)"
+xui_sub_uri="$(xui_setting subURI)"
+[[ -n "$xui_sub_uri" && "$xui_sub_uri" != */ ]] && xui_sub_uri="${xui_sub_uri}/"
+
+if [[ -n "$XUI_DOMAIN" && -n "$xui_web_path" ]]; then
+  xui_web_sub_url="https://${XUI_DOMAIN}/${xui_web_path}?name=${profile_prefix}-01 ... ${profile_prefix}-${profile_last}"
+else
+  xui_web_sub_url="check /etc/nginx/snippets/includes.conf"
+fi
+if [[ -n "$xui_sub_uri" ]]; then
+  xui_raw_sub_url="${xui_sub_uri}${profile_prefix}-01 ... ${profile_prefix}-${profile_last}"
+else
+  xui_raw_sub_url="check x-ui setting subURI"
+fi
+if [[ -n "$XUI_DOMAIN" && -n "$xui_sub2sing_path" ]]; then
+  xui_sub2sing_url="https://${XUI_DOMAIN}/${xui_sub2sing_path}/"
+else
+  xui_sub2sing_url="check /etc/nginx/snippets/includes.conf"
+fi
+
 nh_panel_url="$(config_value NH_PANEL_URL)"
 nh_panel_url="${nh_panel_url/SERVER_IP/$server_ip}"
 [[ -n "$nh_panel_url" ]] || nh_panel_url="http://${server_ip}:${PANEL_PORT}"
@@ -84,6 +123,11 @@ Panel access
   URL:      ${xui_url}
   Login:    ${xui_user:-check with: x-ui settings}
   Password: ${xui_pass:-check with: x-ui settings}
+
+3x-ui subscriptions
+  Web page: ${xui_web_sub_url}
+  Raw sub:  ${xui_raw_sub_url}
+  sub2sing: ${xui_sub2sing_url}
 
 N+H Panel
   URL:      ${nh_panel_url}
@@ -110,6 +154,11 @@ ${BOLD}${BLUE}3x-ui / x-ui panel${NC}
   ${BOLD}${BLUE}URL:${NC}      ${BLUE}${xui_url}${NC}
   ${BOLD}${BLUE}Login:${NC}    ${BLUE}${xui_user:-check with: x-ui settings}${NC}
   ${BOLD}${BLUE}Password:${NC} ${BLUE}${xui_pass:-check with: x-ui settings}${NC}
+
+${BOLD}${BLUE}3x-ui subscriptions${NC}
+  ${BOLD}${BLUE}Web page:${NC} ${BLUE}${xui_web_sub_url}${NC}
+  ${BOLD}${BLUE}Raw sub:${NC}  ${BLUE}${xui_raw_sub_url}${NC}
+  ${BOLD}${BLUE}sub2sing:${NC} ${BLUE}${xui_sub2sing_url}${NC}
 
 ${BOLD}${BLUE}N+H Panel${NC}
   ${BOLD}${BLUE}URL:${NC}      ${BLUE}${nh_panel_url}${NC}

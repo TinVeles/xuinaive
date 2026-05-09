@@ -15,6 +15,7 @@ XUI_PROFILE_PREFIX="${XUI_PROFILE_PREFIX:-auto}"
 XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-first}"
 XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
 XUI_CREATE_WARP_INBOUNDS="${XUI_CREATE_WARP_INBOUNDS:-1}"
+XUI_PRINT_ACCESS_INFO="${XUI_PRINT_ACCESS_INFO:-1}"
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
@@ -1471,12 +1472,13 @@ ufw allow ${XUI_WARP_EXTERNAL_PORT}/tcp
 ufw --force enable  
 ##################################Show Details##########################################################
 
-if systemctl is-active --quiet x-ui; then clear
-	printf '0\n' | x-ui | grep --color=never -i ':'
-	msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-	nginx -T | grep -i 'ssl_certificate\|ssl_certificate_key'
-	msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-	certbot certificates | grep -i 'Path:\|Domains:\|Expiry Date:'
+if [[ "$XUI_PRINT_ACCESS_INFO" == "1" ]]; then
+	if systemctl is-active --quiet x-ui; then clear
+		printf '0\n' | x-ui | grep --color=never -i ':'
+		msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+		nginx -T | grep -i 'ssl_certificate\|ssl_certificate_key'
+		msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+		certbot certificates | grep -i 'Path:\|Domains:\|Expiry Date:'
 
 #	msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
 #	if [[ -n $IP4 ]] && [[ "$IP4" =~ $IP4_REGEX ]]; then 
@@ -1486,17 +1488,25 @@ if systemctl is-active --quiet x-ui; then clear
 #		msg_inf "IPv6: http://[$IP6]:$PORT/$RNDSTR/"
 #	fi
 
- msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-	msg_inf "X-UI Secure Panel: https://${domain}/${panel_path}/\n"
- 	echo -e "Username:  ${config_username} \n" 
-	echo -e "Password:  ${config_password} \n" 
-	msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-    msg_inf "Web Sub Page subscriptions: https://${domain}/${web_path}?name=${XUI_PROFILE_PREFIX}-01 ... ${XUI_PROFILE_PREFIX}-${XUI_PROFILE_COUNT}\n"
-    msg_inf "Your local sub2sing-box instance: https://${domain}/$sub2singbox_path/\n"
-  msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-	msg_inf "Please Save this Screen!!"	
+		msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+		msg_inf "X-UI Secure Panel: https://${domain}/${panel_path}/\n"
+		echo -e "Username:  ${config_username} \n"
+		echo -e "Password:  ${config_password} \n"
+		msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+		msg_inf "Web Sub Page subscriptions: https://${domain}/${web_path}?name=${XUI_PROFILE_PREFIX}-01 ... ${XUI_PROFILE_PREFIX}-${XUI_PROFILE_COUNT}\n"
+		msg_inf "Your local sub2sing-box instance: https://${domain}/$sub2singbox_path/\n"
+		msg_inf "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+		msg_inf "Please Save this Screen!!"
+	else
+		nginx -t && printf '0\n' | x-ui | grep --color=never -i ':'
+		msg_err "sqlite and x-ui to be checked, try on a new clean linux! "
+	fi
 else
-	nginx -t && printf '0\n' | x-ui | grep --color=never -i ':'
-	msg_err "sqlite and x-ui to be checked, try on a new clean linux! "
+	if systemctl is-active --quiet x-ui; then
+		msg_ok "x-ui installed. Final access summary will be printed by unified installer."
+	else
+		nginx -t && printf '0\n' | x-ui | grep --color=never -i ':'
+		msg_err "sqlite and x-ui to be checked, try on a new clean linux! "
+	fi
 fi
 #################################################N-joy##################################################

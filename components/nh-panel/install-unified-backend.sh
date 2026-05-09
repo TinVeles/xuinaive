@@ -293,6 +293,13 @@ for (const u of users) {
 }
 NODE
 )"
+INITIAL_HY2_AUTH_YAML="$(INITIAL_HY2_USERS_JSON="$INITIAL_HY2_USERS_JSON" node <<'NODE'
+const users = JSON.parse(process.env.INITIAL_HY2_USERS_JSON || '[]');
+for (const u of users) {
+  console.log(`    ${u.username}: ${JSON.stringify(String(u.password || ''))}`);
+}
+NODE
+)"
 
 mkdir -p /var/www/html "$CADDY_DIR"
 cat > /var/www/html/index.html <<'EOF'
@@ -457,7 +464,7 @@ listen: :443
 auth:
   type: userpass
   userpass:
-    default: "${HY2_PASS}"
+${INITIAL_HY2_AUTH_YAML}
 
 masquerade:
   type: file
@@ -682,7 +689,7 @@ NH_NAIVE_PASSWORD="${NAIVE_PASS}"
 NH_NAIVE_LINK="naive+https://${NAIVE_LOGIN}:${NAIVE_PASS}@${DOMAIN}:443"
 NH_HY2_USER="default"
 NH_HY2_PASSWORD="${HY2_PASS}"
-NH_HY2_LINK="hysteria2://default%3A${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#N+H"
+NH_HY2_LINK="hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#N+H"
 EOF
 ok "Saved N+H configuration: $PROJECT_DIR/config.env"
 
@@ -710,7 +717,7 @@ Panel:
 
 Links:
   Naive: naive+https://${NAIVE_LOGIN}:${NAIVE_PASS}@${DOMAIN}:443
-  Hy2:   hysteria2://default%3A${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#N+H
+  Hy2:   hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#N+H
 
 Services:
   ${CADDY_SERVICE}:     $(service_state "$CADDY_SERVICE")

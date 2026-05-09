@@ -221,7 +221,7 @@ done
 ok "Backup directory: $backup_dir"
 
 info "Running x-ui-pro installer"
-bash "$XUI_SCRIPT" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
+XUI_PRINT_ACCESS_INFO=0 bash "$XUI_SCRIPT" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
 require_active x-ui
 require_active nginx
 
@@ -280,6 +280,8 @@ NH_NAIVE_LINK="${NH_NAIVE_LINK_FINAL}"
 NH_HY2_USER="${NH_HY2_USER_FINAL}"
 NH_HY2_PASSWORD="${NH_HY2_PASSWORD_FINAL}"
 NH_HY2_LINK="${NH_HY2_LINK_FINAL}"
+PROFILE_COUNT="${PROFILE_COUNT}"
+PROFILE_PREFIX="${PROFILE_PREFIX}"
 EOF
 ok "Saved final configuration: $SCRIPT_DIR/config.env"
 

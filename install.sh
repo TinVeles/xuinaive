@@ -569,6 +569,8 @@ EOF
       --reality-dest "$REALITY_DEST"
       --nh-email "$NH_PROXY_EMAIL"
       --panel-access "$NH_ACCESS"
+      --profile-count "$PROFILE_COUNT"
+      --profile-prefix "$PROFILE_PREFIX"
       --no-access-info
       --yes
     )
@@ -640,6 +642,9 @@ EOF
     --naive-domain "$NAIVE_DOMAIN" \
     --reality-dest "$REALITY_DEST" \
     --naive-email "$NAIVE_EMAIL" \
+    --profile-count "$PROFILE_COUNT" \
+    --profile-prefix "$PROFILE_PREFIX" \
+    --no-access-info \
     --yes
   run_warp_install_if_requested
   run_profile_generation_if_requested
