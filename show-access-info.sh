@@ -338,6 +338,25 @@ EOF
   fi
 }
 
+ensure_nh_naive_sni_route() {
+  local domain backend patch_script stream_conf="/etc/nginx/stream-enabled/stream.conf"
+  domain="$(first_nonempty "$(config_value NH_PROXY_DOMAIN)" "$(config_value NAIVE_DOMAIN)" "$(json_value domain)")"
+  backend="$(first_nonempty "$(config_value NH_BACKEND_LISTEN)" "127.0.0.1:9445")"
+  patch_script="$SCRIPT_DIR/components/x-ui-pro/apply-naive-sni-route.sh"
+
+  [[ -n "$domain" && "$domain" != "null" ]] || return 0
+  [[ -n "$backend" && "$backend" != "null" ]] || return 0
+  is_root || return 0
+  [[ -f "$stream_conf" && -f "$patch_script" ]] || return 0
+
+  if grep -Eq "^[[:space:]]*${domain}[[:space:]]+nh_naive;" "$stream_conf" 2>/dev/null \
+     && grep -Eq "^[[:space:]]*server[[:space:]]+${backend//./\\.};" "$stream_conf" 2>/dev/null; then
+    return 0
+  fi
+
+  bash "$patch_script" --domain "$domain" --backend "$backend" --name nh_naive >/dev/null 2>&1 || true
+}
+
 XUI_DOMAIN="$(first_nonempty "$(config_value XUI_DOMAIN)" "$(xui_setting webDomain)" "$(xui_setting subDomain)" "$(xui_domain_from_cert)")"
 nh_panel_port="$(first_nonempty "$(config_value NH_PANEL_PORT)" "8081")"
 nh_panel_url="$(first_nonempty "$(config_value NH_PANEL_URL)" "$(json_value panelUrl)")"
@@ -376,6 +395,7 @@ fi
 reset_xui_password_if_missing
 reset_nh_panel_password_if_missing
 ensure_nh_panel_nginx_proxy
+ensure_nh_naive_sni_route
 
 reset_terminal_style
 cat > "$SUMMARY_FILE" <<EOF
