@@ -152,6 +152,27 @@ sql_quote() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"
 }
 
+nginx_config_contains() {
+  local needle="$1"
+  nginx -T 2>/dev/null | grep -Fq "$needle"
+}
+
+nginx_enable_stream_include() {
+  local main_conf="/etc/nginx/nginx.conf" backup
+  [[ -f "$main_conf" ]] || { warn "$main_conf not found; stream include was not configured"; return 1; }
+  nginx_config_contains "/etc/nginx/stream-enabled/*.conf" && return 0
+  backup="$(mktemp)"
+  cp -a "$main_conf" "$backup"
+  printf '\nstream { include /etc/nginx/stream-enabled/*.conf; }\n' >> "$main_conf"
+  if ! nginx -t >/dev/null 2>&1; then
+    cp -a "$backup" "$main_conf"
+    rm -f "$backup"
+    warn "Could not add nginx stream include; restored $main_conf"
+    return 1
+  fi
+  rm -f "$backup"
+}
+
 xui_next_free_port() {
   local candidate="$1"
   [[ "$candidate" =~ ^[0-9]+$ && "$candidate" -gt 0 ]] || { printf '0\n'; return 0; }
@@ -477,9 +498,7 @@ server {
 }
 EOF
 
-  if ! grep -RqF "stream { include /etc/nginx/stream-enabled/*.conf; }" /etc/nginx 2>/dev/null; then
-    printf '%s\n' "stream { include /etc/nginx/stream-enabled/*.conf; }" >> /etc/nginx/nginx.conf
-  fi
+  nginx_enable_stream_include || return 0
   ufw allow "${XUI_WARP_EXTERNAL_PORT}/tcp" >/dev/null 2>&1 || true
   ok "x-ui WARP public nginx stream saved: $conf (${public_ip}:${XUI_WARP_EXTERNAL_PORT} -> 127.0.0.1:7443)"
 }

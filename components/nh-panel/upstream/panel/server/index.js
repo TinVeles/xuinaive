@@ -121,7 +121,7 @@ function saveConfig(cfg) {
 }
 
 function hy2Link(username, password, domain, name = username) {
-  return `hysteria2://${encodeURIComponent(`${username}:${password}`)}@${domain}:443?sni=${domain}&insecure=0#${encodeURIComponent(name)}`;
+  return `hysteria2://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${domain}:443?sni=${domain}&insecure=0#${encodeURIComponent(name)}`;
 }
 
 function loadUsers() {

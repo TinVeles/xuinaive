@@ -45,7 +45,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-awk -v domain="$ROUTE_DOMAIN" -v backend="$ROUTE_BACKEND" -v route_name="$ROUTE_NAME" '
+if ! awk -v domain="$ROUTE_DOMAIN" -v backend="$ROUTE_BACKEND" -v route_name="$ROUTE_NAME" '
   BEGIN {
     added_map = 0
     added_upstream = 0
@@ -69,7 +69,20 @@ awk -v domain="$ROUTE_DOMAIN" -v backend="$ROUTE_BACKEND" -v route_name="$ROUTE_
       added_map = 1
     }
   }
-' "$STREAM_CONF" > "$tmp"
+  END {
+    if (!have_upstream && !added_upstream) {
+      printf "missing server block anchor for upstream %s\n", route_name > "/dev/stderr"
+      exit 20
+    }
+    if (!have_domain && !added_map) {
+      printf "missing hostnames anchor for domain %s\n", domain > "/dev/stderr"
+      exit 21
+    }
+  }
+' "$STREAM_CONF" > "$tmp"; then
+  cp "$backup_dir/stream.conf" "$STREAM_CONF"
+  die "SNI route was not added; restored backup: $backup_dir/stream.conf"
+fi
 
 cp "$tmp" "$STREAM_CONF"
 if ! nginx -t; then

@@ -33,6 +33,27 @@ cleanup_existing() {
   rm -rf /etc/nginx/stream-enabled/*
 }
 
+nginx_config_contains() {
+  local needle="$1"
+  nginx -T 2>/dev/null | grep -Fq "$needle"
+}
+
+nginx_enable_stream_include() {
+  local main_conf="/etc/nginx/nginx.conf" backup
+  [[ -f "$main_conf" ]] || { msg_err "$main_conf not found"; return 1; }
+  nginx_config_contains "/etc/nginx/stream-enabled/*.conf" && return 0
+  backup="$(mktemp)"
+  cp -a "$main_conf" "$backup"
+  printf '\nstream { include /etc/nginx/stream-enabled/*.conf; }\n' >> "$main_conf"
+  if ! nginx -t >/dev/null 2>&1; then
+    cp -a "$backup" "$main_conf"
+    rm -f "$backup"
+    msg_err "Could not add nginx stream include; restored $main_conf"
+    return 1
+  fi
+  rm -f "$backup"
+}
+
 
 ##################################generate ports and paths#############################################################
 get_port() {
@@ -625,9 +646,9 @@ server {
 EOF
 fi
 
-grep -xqFR "stream { include /etc/nginx/stream-enabled/*.conf; }" /etc/nginx/* ||echo "stream { include /etc/nginx/stream-enabled/*.conf; }" >> /etc/nginx/nginx.conf
 grep -xqFR "load_module modules/ngx_stream_module.so;" /etc/nginx/* || sed -i '1s/^/load_module \/usr\/lib\/nginx\/modules\/ngx_stream_module.so; /' /etc/nginx/nginx.conf
 grep -xqFR "load_module modules/ngx_stream_geoip2_module.so;" /etc/nginx* || sed -i '2s/^/load_module \/usr\/lib\/nginx\/modules\/ngx_stream_geoip2_module.so; /' /etc/nginx/nginx.conf
+nginx_enable_stream_include || exit 1
 grep -xqFR "worker_rlimit_nofile 16384;" /etc/nginx/* ||echo "worker_rlimit_nofile 16384;" >> /etc/nginx/nginx.conf
 sed -i "/worker_connections/c\worker_connections 4096;" /etc/nginx/nginx.conf
 cat > "/etc/nginx/sites-available/80.conf" << EOF
@@ -896,8 +917,12 @@ if [[ -f $XUIDB ]]; then
         x-ui stop
         output=$(/usr/local/x-ui/bin/xray-linux-amd64 x25519)
 
-        private_key=$(echo "$output" | grep "^PrivateKey:" | awk '{print $2}')
-        public_key=$(echo "$output" | grep "^Password" | awk '{print $3}')
+        private_key=$(awk -F': *' 'tolower($1) ~ /^private[ _-]?key$/ {print $2; exit}' <<<"$output")
+        public_key=$(awk -F': *' 'tolower($1) ~ /^public[ _-]?key$/ {print $2; exit}' <<<"$output")
+        if [[ -z "$private_key" || -z "$public_key" ]]; then
+          printf '%s\n' "$output" >&2
+          msg_err "Could not parse xray x25519 key pair" && exit 1
+        fi
 
         client_id=$(/usr/local/x-ui/bin/xray-linux-amd64 uuid)
         client_id2=$(/usr/local/x-ui/bin/xray-linux-amd64 uuid)
@@ -1440,7 +1465,19 @@ su -c "/usr/bin/sub2sing-box server --bind 127.0.0.1 --port 8080 & disown" root
 
 ######################install_fake_site#################################################################
 
-sudo su -c "bash <(wget -qO- https://raw.githubusercontent.com/mozaroc/x-ui-pro/refs/heads/master/randomfakehtml.sh)"
+cat > /var/www/html/index.html <<EOF
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Welcome</title>
+</head>
+<body>
+  <h1>Welcome</h1>
+</body>
+</html>
+EOF
 
 ######################install_web_sub_page##############################################################
 

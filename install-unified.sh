@@ -98,6 +98,24 @@ config_value() {
   ' "$file" 2>/dev/null || true
 }
 
+env_quote() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"' "$value"
+}
+
+config_set() {
+  local key="$1" value="$2" file="${3:-$SCRIPT_DIR/config.env}" tmp
+  tmp="$(mktemp)"
+  if [[ -f "$file" ]]; then
+    grep -vE "^${key}=" "$file" > "$tmp" || true
+  fi
+  printf '%s=%s\n' "$key" "$(env_quote "$value")" >> "$tmp"
+  install -m 0600 "$tmp" "$file"
+  rm -f "$tmp"
+}
+
 sql_quote() {
   local escaped
   escaped="${1//\'/\'\'}"
@@ -259,29 +277,27 @@ NH_HY2_USER_FINAL="$(config_value NH_HY2_USER)"
 NH_HY2_PASSWORD_FINAL="$(config_value NH_HY2_PASSWORD)"
 NH_HY2_LINK_FINAL="$(config_value NH_HY2_LINK)"
 
-cat > "$SCRIPT_DIR/config.env" <<EOF
-XUI_DOMAIN="${XUI_DOMAIN}"
-NAIVE_DOMAIN="${NH_DOMAIN}"
-REALITY_DEST="${REALITY_DEST}"
-NH_PROXY_DOMAIN="${NH_DOMAIN}"
-NH_PANEL_DOMAIN=""
-NH_EMAIL="${NH_EMAIL}"
-NH_PANEL_PORT="${PANEL_PUBLIC_PORT}"
-NH_BACKEND_LISTEN="${NH_BACKEND}"
-NH_TLS_CERT="${NH_TLS_CERT_FINAL}"
-NH_TLS_KEY="${NH_TLS_KEY_FINAL}"
-NH_PANEL_URL="${NH_PANEL_URL_FINAL}"
-NH_PANEL_LOGIN="${NH_PANEL_LOGIN_FINAL}"
-NH_PANEL_PASSWORD="${NH_PANEL_PASSWORD_FINAL}"
-NH_NAIVE_LOGIN="${NH_NAIVE_LOGIN_FINAL}"
-NH_NAIVE_PASSWORD="${NH_NAIVE_PASSWORD_FINAL}"
-NH_NAIVE_LINK="${NH_NAIVE_LINK_FINAL}"
-NH_HY2_USER="${NH_HY2_USER_FINAL}"
-NH_HY2_PASSWORD="${NH_HY2_PASSWORD_FINAL}"
-NH_HY2_LINK="${NH_HY2_LINK_FINAL}"
-PROFILE_COUNT="${PROFILE_COUNT}"
-PROFILE_PREFIX="${PROFILE_PREFIX}"
-EOF
+config_set XUI_DOMAIN "$XUI_DOMAIN"
+config_set NAIVE_DOMAIN "$NH_DOMAIN"
+config_set REALITY_DEST "$REALITY_DEST"
+config_set NH_PROXY_DOMAIN "$NH_DOMAIN"
+config_set NH_PANEL_DOMAIN ""
+config_set NH_EMAIL "$NH_EMAIL"
+config_set NH_PANEL_PORT "$PANEL_PUBLIC_PORT"
+config_set NH_BACKEND_LISTEN "$NH_BACKEND"
+config_set NH_TLS_CERT "$NH_TLS_CERT_FINAL"
+config_set NH_TLS_KEY "$NH_TLS_KEY_FINAL"
+config_set NH_PANEL_URL "$NH_PANEL_URL_FINAL"
+config_set NH_PANEL_LOGIN "$NH_PANEL_LOGIN_FINAL"
+config_set NH_PANEL_PASSWORD "$NH_PANEL_PASSWORD_FINAL"
+config_set NH_NAIVE_LOGIN "$NH_NAIVE_LOGIN_FINAL"
+config_set NH_NAIVE_PASSWORD "$NH_NAIVE_PASSWORD_FINAL"
+config_set NH_NAIVE_LINK "$NH_NAIVE_LINK_FINAL"
+config_set NH_HY2_USER "$NH_HY2_USER_FINAL"
+config_set NH_HY2_PASSWORD "$NH_HY2_PASSWORD_FINAL"
+config_set NH_HY2_LINK "$NH_HY2_LINK_FINAL"
+config_set PROFILE_COUNT "$PROFILE_COUNT"
+config_set PROFILE_PREFIX "$PROFILE_PREFIX"
 ok "Saved final configuration: $SCRIPT_DIR/config.env"
 
 if [[ "$GENERATE_PROFILES" == "1" ]]; then
