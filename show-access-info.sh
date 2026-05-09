@@ -6,9 +6,15 @@ CONFIG_FILE="$SCRIPT_DIR/config.env"
 SUMMARY_FILE="$SCRIPT_DIR/access-info.txt"
 
 if [[ -t 1 ]]; then
-  BOLD=$'\033[1m'; BLUE=$'\033[0;34m'; NC=$'\033[0m'
+  BOLD=$'\033[1m'
+  PURPLE=$'\033[0;35m'
+  CYAN=$'\033[0;36m'
+  RESET=$'\033[0m'
 else
-  BOLD=""; BLUE=""; NC=""
+  BOLD=""
+  PURPLE=""
+  CYAN=""
+  RESET=""
 fi
 
 reset_terminal_style() {
@@ -111,8 +117,16 @@ nh_panel_password="$(config_value NH_PANEL_PASSWORD)"; [[ -n "$nh_panel_password
 
 naive_login="$(config_value NH_NAIVE_LOGIN)"
 naive_password="$(config_value NH_NAIVE_PASSWORD)"
+naive_link="$(config_value NH_NAIVE_LINK)"
+if [[ -z "$naive_link" && -n "$NH_DOMAIN" && -n "$naive_login" && -n "$naive_password" ]]; then
+  naive_link="naive+https://${naive_login}:${naive_password}@${NH_DOMAIN}:443"
+fi
 hy2_user="$(config_value NH_HY2_USER)"
 hy2_password="$(config_value NH_HY2_PASSWORD)"
+hy2_link="$(config_value NH_HY2_LINK)"
+if [[ -z "$hy2_link" && -n "$NH_DOMAIN" && -n "$hy2_password" ]]; then
+  hy2_link="hysteria2://${hy2_user:-default}:${hy2_password}@${NH_DOMAIN}:443?sni=${NH_DOMAIN}&insecure=0#${hy2_user:-default}"
+fi
 
 reset_terminal_style
 cat > "$SUMMARY_FILE" <<EOF
@@ -137,43 +151,59 @@ N+H Panel
 NaiveProxy
   Login:    ${naive_login:-check config.env}
   Password: ${naive_password:-check config.env}
+  Link:     ${naive_link:-check config.env}
 
 Hysteria2
   User:     ${hy2_user:-check config.env}
   Password: ${hy2_password:-check config.env}
+  Link:     ${hy2_link:-check config.env}
 EOF
 chmod 600 "$SUMMARY_FILE" 2>/dev/null || true
 
-cat <<EOF
+echo ""
+echo -e "${PURPLE}${BOLD}╔══════════════════════════════════════════════════════════════╗${RESET}"
+echo -e "${PURPLE}${BOLD}║   ✅  Установка завершена!                                  ║${RESET}"
+echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"
+echo -e "${PURPLE}${BOLD}║   🌐  3x-ui / x-ui panel                                    ║${RESET}"
+echo -e "${PURPLE}${BOLD}║   URL:      ${xui_url}${RESET}"
+echo -e "${PURPLE}${BOLD}║   Login:    ${xui_user:-check with: x-ui settings}${RESET}"
+echo -e "${PURPLE}${BOLD}║   Password: ${xui_pass:-check with: x-ui settings}${RESET}"
+echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"
+echo -e "${PURPLE}${BOLD}║   📡  3x-ui subscriptions                                   ║${RESET}"
+echo -e "${PURPLE}${BOLD}║   Web Sub Page:${RESET}"
+echo -e "${CYAN}   ${xui_web_sub_url}${RESET}"
+echo -e "${PURPLE}${BOLD}║   Raw Sub:${RESET}"
+echo -e "${CYAN}   ${xui_raw_sub_url}${RESET}"
+echo -e "${PURPLE}${BOLD}║   sub2sing-box:${RESET}"
+echo -e "${CYAN}   ${xui_sub2sing_url}${RESET}"
+echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"
+echo -e "${PURPLE}${BOLD}║   🧩  N+H Panel                                             ║${RESET}"
+echo -e "${PURPLE}${BOLD}║   URL:      ${nh_panel_url}${RESET}"
+echo -e "${PURPLE}${BOLD}║   Login:    ${nh_panel_login}${RESET}"
+echo -e "${PURPLE}${BOLD}║   Password: ${nh_panel_password}${RESET}"
 
-${BOLD}${BLUE}============================================================${NC}
-${BOLD}${BLUE}                 PANEL ACCESS                              ${NC}
-${BOLD}${BLUE}============================================================${NC}
+echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"
+echo -e "${PURPLE}${BOLD}║   🔒  NaiveProxy                                            ║${RESET}"
+echo -e "${PURPLE}${BOLD}║   Domain:   ${NH_DOMAIN:-check config.env}${RESET}"
+echo -e "${PURPLE}${BOLD}║   Login:    ${naive_login:-check config.env}${RESET}"
+echo -e "${PURPLE}${BOLD}║   Password: ${naive_password:-check config.env}${RESET}"
+echo -e "${PURPLE}${BOLD}║   Link:${RESET}"
+echo -e "${CYAN}   ${naive_link:-check config.env}${RESET}"
 
-${BOLD}${BLUE}3x-ui / x-ui panel${NC}
-  ${BOLD}${BLUE}URL:${NC}      ${BLUE}${xui_url}${NC}
-  ${BOLD}${BLUE}Login:${NC}    ${BLUE}${xui_user:-check with: x-ui settings}${NC}
-  ${BOLD}${BLUE}Password:${NC} ${BLUE}${xui_pass:-check with: x-ui settings}${NC}
+echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"
+echo -e "${PURPLE}${BOLD}║   ⚡  Hysteria2                                             ║${RESET}"
+echo -e "${PURPLE}${BOLD}║   Domain:   ${NH_DOMAIN:-check config.env}${RESET}"
+echo -e "${PURPLE}${BOLD}║   User:     ${hy2_user:-check config.env}${RESET}"
+echo -e "${PURPLE}${BOLD}║   Password: ${hy2_password:-check config.env}${RESET}"
+echo -e "${PURPLE}${BOLD}║   Link:${RESET}"
+echo -e "${CYAN}   ${hy2_link:-check config.env}${RESET}"
 
-${BOLD}${BLUE}3x-ui subscriptions${NC}
-  ${BOLD}${BLUE}Web page:${NC} ${BLUE}${xui_web_sub_url}${NC}
-  ${BOLD}${BLUE}Raw sub:${NC}  ${BLUE}${xui_raw_sub_url}${NC}
-  ${BOLD}${BLUE}sub2sing:${NC} ${BLUE}${xui_sub2sing_url}${NC}
-
-${BOLD}${BLUE}N+H Panel${NC}
-  ${BOLD}${BLUE}URL:${NC}      ${BLUE}${nh_panel_url}${NC}
-  ${BOLD}${BLUE}Login:${NC}    ${BLUE}${nh_panel_login}${NC}
-  ${BOLD}${BLUE}Password:${NC} ${BLUE}${nh_panel_password}${NC}
-
-${BOLD}${BLUE}NaiveProxy${NC}
-  ${BOLD}${BLUE}Login:${NC}    ${BLUE}${naive_login:-check config.env}${NC}
-  ${BOLD}${BLUE}Password:${NC} ${BLUE}${naive_password:-check config.env}${NC}
-
-${BOLD}${BLUE}Hysteria2${NC}
-  ${BOLD}${BLUE}User:${NC}     ${BLUE}${hy2_user:-check config.env}${NC}
-  ${BOLD}${BLUE}Password:${NC} ${BLUE}${hy2_password:-check config.env}${NC}
-
-${BOLD}${BLUE}Saved copy-friendly file:${NC}
-  ${BLUE}${SUMMARY_FILE}${NC}
-
-EOF
+echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"
+echo -e "${PURPLE}${BOLD}║   📌  Полезные команды                                      ║${RESET}"
+echo -e "${PURPLE}${BOLD}║   x-ui                           — меню 3x-ui               ║${RESET}"
+echo -e "${PURPLE}${BOLD}║   systemctl status x-ui          — статус x-ui              ║${RESET}"
+echo -e "${PURPLE}${BOLD}║   systemctl status caddy-nh      — NaiveProxy               ║${RESET}"
+echo -e "${PURPLE}${BOLD}║   systemctl status hysteria-server — Hysteria2              ║${RESET}"
+echo -e "${PURPLE}${BOLD}║   Saved file: ${SUMMARY_FILE}${RESET}"
+echo -e "${PURPLE}${BOLD}╚══════════════════════════════════════════════════════════════╝${RESET}"
+echo ""
