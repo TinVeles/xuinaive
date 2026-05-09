@@ -93,10 +93,7 @@ xui_warp_stream_settings() {
     def port_path($p):
       (path_tail($p)) as $tail
       | "/" + ($port | tostring) + (if $tail == "" then "" else "/" + $tail end);
-    def advertised_port:
-      if .network == "tcp" and .security == "reality" then $port else $externalPort end;
-
-    .externalProxy = ((.externalProxy // []) | map(.port = advertised_port))
+    .externalProxy = ((.externalProxy // []) | map(.port = $externalPort))
     | if .network == "ws" then
         .wsSettings.path = port_path(.wsSettings.path)
       elif .network == "grpc" then
@@ -105,7 +102,7 @@ xui_warp_stream_settings() {
         .xhttpSettings.path = port_path(.xhttpSettings.path)
         | .sockopt.acceptProxyProtocol = false
       elif .network == "tcp" and .security == "reality" then
-        .tcpSettings.acceptProxyProtocol = false
+        .tcpSettings.acceptProxyProtocol = true
       else
         .
       end
@@ -113,12 +110,7 @@ xui_warp_stream_settings() {
 }
 
 xui_warp_listen_host() {
-  local stream_settings="$1"
-  if jq -e '.network == "tcp" and .security == "reality"' >/dev/null 2>&1 <<<"$stream_settings"; then
-    printf '\n'
-  else
-    printf '127.0.0.1\n'
-  fi
+  printf '127.0.0.1\n'
 }
 
 xui_bind_direct_reality_local_if_needed() {
@@ -478,11 +470,11 @@ xui_warp_reality_ports() {
 xui_fix_warp_reality_external_proxy() {
   sqlite3 "$XUIDB" "
     UPDATE inbounds
-    SET listen='',
+    SET listen='127.0.0.1',
         stream_settings=json_set(
           stream_settings,
-          '$.externalProxy[0].port', port,
-          '$.tcpSettings.acceptProxyProtocol', json('false')
+          '$.externalProxy[0].port', $XUI_WARP_EXTERNAL_PORT,
+          '$.tcpSettings.acceptProxyProtocol', json('true')
         )
     WHERE protocol='vless'
       AND port > 0
@@ -501,6 +493,73 @@ xui_allow_warp_reality_ports() {
     [[ "$port" =~ ^[0-9]+$ && "$port" -gt 0 ]] || continue
     ufw allow "${port}/tcp" >/dev/null 2>&1 || true
   done < <(xui_warp_reality_ports)
+}
+
+xui_apply_warp_nginx_stream() {
+  [[ "${XUI_WARP_EXTERNAL_PORT}" != "443" ]] || return 0
+  command -v nginx >/dev/null 2>&1 || return 0
+  [[ -d /etc/nginx ]] || return 0
+
+  local public_ip conf reality_row reality_port reality_sni
+  public_ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')"
+  [[ "$public_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || public_ip="${IP4:-}"
+  [[ "$public_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 0
+
+  mkdir -p /etc/nginx/stream-enabled
+  conf="/etc/nginx/stream-enabled/warp-${XUI_WARP_EXTERNAL_PORT}.conf"
+  reality_row="$(sqlite3 -readonly -separator $'\t' "$XUIDB" "
+    SELECT port, json_extract(stream_settings,'$.realitySettings.serverNames[0]')
+    FROM inbounds
+    WHERE protocol='vless'
+      AND port > 0
+      AND lower(COALESCE(remark,'')) LIKE '%warp%'
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='tcp'
+      AND json_extract(stream_settings,'$.security')='reality'
+    LIMIT 1;
+  " 2>/dev/null || true)"
+  IFS=$'\t' read -r reality_port reality_sni <<<"$reality_row"
+
+  if [[ "$reality_port" =~ ^[0-9]+$ && "$reality_port" -gt 0 && -n "$reality_sni" ]]; then
+    cat > "$conf" <<EOF
+map \$ssl_preread_server_name \$warp_xui_sni_${XUI_WARP_EXTERNAL_PORT} {
+    hostnames;
+    ${reality_sni} warp_xui_reality_${XUI_WARP_EXTERNAL_PORT};
+    default warp_xui_www_${XUI_WARP_EXTERNAL_PORT};
+}
+
+upstream warp_xui_www_${XUI_WARP_EXTERNAL_PORT} {
+    server 127.0.0.1:7443;
+}
+
+upstream warp_xui_reality_${XUI_WARP_EXTERNAL_PORT} {
+    server 127.0.0.1:${reality_port};
+}
+
+server {
+    proxy_protocol on;
+    listen ${public_ip}:${XUI_WARP_EXTERNAL_PORT};
+    proxy_pass \$warp_xui_sni_${XUI_WARP_EXTERNAL_PORT};
+    ssl_preread on;
+}
+EOF
+  else
+    cat > "$conf" <<EOF
+upstream warp_xui_www_${XUI_WARP_EXTERNAL_PORT} {
+    server 127.0.0.1:7443;
+}
+
+server {
+    proxy_protocol on;
+    listen ${public_ip}:${XUI_WARP_EXTERNAL_PORT};
+    proxy_pass warp_xui_www_${XUI_WARP_EXTERNAL_PORT};
+    ssl_preread on;
+}
+EOF
+  fi
+
+  nginx_enable_stream_include || return 0
+  ufw allow "${XUI_WARP_EXTERNAL_PORT}/tcp" >/dev/null 2>&1 || true
 }
 
 xui_apply_warp_template() {
@@ -894,18 +953,6 @@ server {
     ssl_preread     on;
 }
 EOF
-
-if [[ "${XUI_WARP_EXTERNAL_PORT}" != "443" ]]; then
-cat >> "/etc/nginx/stream-enabled/stream.conf" << EOF
-server {
-    proxy_protocol on;
-    listen          ${IP4}:${XUI_WARP_EXTERNAL_PORT};
-    proxy_pass      www;
-    ssl_preread     on;
-}
-
-EOF
-fi
 
 grep -xqFR "load_module modules/ngx_stream_module.so;" /etc/nginx/* || sed -i '1s/^/load_module \/usr\/lib\/nginx\/modules\/ngx_stream_module.so; /' /etc/nginx/nginx.conf
 grep -xqFR "load_module modules/ngx_stream_geoip2_module.so;" /etc/nginx* || sed -i '2s/^/load_module \/usr\/lib\/nginx\/modules\/ngx_stream_geoip2_module.so; /' /etc/nginx/nginx.conf
@@ -1535,6 +1582,7 @@ EOF
 xui_repair_invalid_inbound_json
 xui_sanitize_inbound_tags
 xui_seed_bulk_profiles
+xui_apply_warp_nginx_stream
 xui_cleanup_unix_sockets
 /usr/local/x-ui/x-ui setting -username "${config_username}" -password "${config_password}" -port "${panel_port}" -webBasePath "${panel_path}"
 /usr/local/x-ui/x-ui cert -webCert "/root/cert/${domain}/fullchain.pem" -webCertKey "/root/cert/${domain}/privkey.pem"
