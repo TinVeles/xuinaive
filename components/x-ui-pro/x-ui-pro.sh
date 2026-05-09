@@ -461,6 +461,48 @@ xui_ensure_warp_inbound() {
   sqlite3 -readonly "$XUIDB" "SELECT id FROM inbounds WHERE tag=$(sql_quote "$warp_tag") ORDER BY id DESC LIMIT 1;"
 }
 
+xui_warp_reality_ports() {
+  sqlite3 -readonly "$XUIDB" "
+    SELECT DISTINCT port
+    FROM inbounds
+    WHERE protocol='vless'
+      AND port > 0
+      AND lower(COALESCE(remark,'')) LIKE '%warp%'
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='tcp'
+      AND json_extract(stream_settings,'$.security')='reality'
+    ORDER BY port;
+  " 2>/dev/null || true
+}
+
+xui_fix_warp_reality_external_proxy() {
+  sqlite3 "$XUIDB" "
+    UPDATE inbounds
+    SET listen='',
+        stream_settings=json_set(
+          stream_settings,
+          '$.externalProxy[0].port', port,
+          '$.tcpSettings.acceptProxyProtocol', json('false')
+        )
+    WHERE protocol='vless'
+      AND port > 0
+      AND lower(COALESCE(remark,'')) LIKE '%warp%'
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='tcp'
+      AND json_extract(stream_settings,'$.security')='reality';
+  " 2>/dev/null || true
+}
+
+xui_allow_warp_reality_ports() {
+  local port
+  command -v ufw >/dev/null 2>&1 || return 0
+  xui_fix_warp_reality_external_proxy
+  while IFS= read -r port; do
+    [[ "$port" =~ ^[0-9]+$ && "$port" -gt 0 ]] || continue
+    ufw allow "${port}/tcp" >/dev/null 2>&1 || true
+  done < <(xui_warp_reality_ports)
+}
+
 xui_apply_warp_template() {
   local warp_tags_file="$1" tags_json domains_json snippet_file current updated key
   [[ -s "$warp_tags_file" ]] || return 0
@@ -1749,6 +1791,7 @@ ufw allow 22/tcp
 ufw allow 80/tcp
 ufw allow 443/tcp
 ufw allow ${XUI_WARP_EXTERNAL_PORT}/tcp
+xui_allow_warp_reality_ports
 ufw --force enable  
 ##################################Show Details##########################################################
 
