@@ -4,6 +4,8 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config.env"
 SUMMARY_FILE="$SCRIPT_DIR/access-info.txt"
+NH_CONFIG_JSON="${NH_CONFIG_JSON:-/opt/panel-naive-hy2/panel/data/config.json}"
+NH_GENERATED_PROFILES="${NH_GENERATED_PROFILES:-/opt/panel-naive-hy2/generated-profiles.txt}"
 
 if [[ -t 1 ]]; then
   BOLD=$'\033[1m'
@@ -25,14 +27,54 @@ reset_terminal_style
 
 config_value() {
   local key="$1"
-  [[ -f "$CONFIG_FILE" ]] || return 0
-  awk -F= -v key="$key" '
-    $1 == key {
-      value = substr($0, length(key) + 2)
-      gsub(/^"/, "", value); gsub(/"$/, "", value)
-      print value; exit
+  local file value
+  for file in \
+    "$CONFIG_FILE" \
+    "/root/unified-proxy-manager/config.env" \
+    "/opt/unified-proxy-manager/config.env" \
+    "/etc/nh-panel/config.env"; do
+    [[ -f "$file" ]] || continue
+    value="$(awk -F= -v key="$key" '
+      $1 == key {
+        value = substr($0, length(key) + 2)
+        gsub(/^"/, "", value); gsub(/"$/, "", value)
+        print value; exit
+      }
+    ' "$file" 2>/dev/null || true)"
+    [[ -n "$value" ]] && { printf '%s\n' "$value"; return 0; }
+  done
+}
+
+json_value() {
+  local expr="$1" file="${2:-$NH_CONFIG_JSON}"
+  [[ -f "$file" ]] || return 0
+  node -e '
+    const fs = require("fs");
+    const expr = process.argv[2];
+    const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    function first(arr) {
+      return Array.isArray(arr) && arr.length ? arr[0] : {};
     }
-  ' "$CONFIG_FILE" 2>/dev/null || true
+    const map = {
+      domain: cfg.domain,
+      panelUrl: cfg.panelUrl || cfg.panelURL,
+      panelLogin: cfg.panelLogin || cfg.login,
+      panelPassword: cfg.panelPassword || cfg.password,
+      naiveLogin: first(cfg.naiveUsers).username,
+      naivePassword: first(cfg.naiveUsers).password,
+      hy2User: first(cfg.hy2Users).username || "default",
+      hy2Password: first(cfg.hy2Users).password
+    };
+    const value = map[expr];
+    if (value !== undefined && value !== null) process.stdout.write(String(value));
+  ' "$file" "$expr" 2>/dev/null || true
+}
+
+first_nonempty() {
+  local value
+  for value in "$@"; do
+    [[ -n "$value" ]] && { printf '%s\n' "$value"; return 0; }
+  done
 }
 
 sql_quote() {
@@ -48,28 +90,65 @@ xui_setting() {
   fi
 }
 
-XUI_DOMAIN="$(config_value XUI_DOMAIN)"
-NH_DOMAIN="$(config_value NH_PROXY_DOMAIN)"
+xui_user_from_db() {
+  if command -v sqlite3 >/dev/null 2>&1 && [[ -f /etc/x-ui/x-ui.db ]]; then
+    sqlite3 -noheader -batch /etc/x-ui/x-ui.db "SELECT username FROM users LIMIT 1;" 2>/dev/null || true
+  fi
+}
 
-xui_user="$(xui_setting username)"
-xui_pass="$(xui_setting password)"
+xui_pass_from_db() {
+  if command -v sqlite3 >/dev/null 2>&1 && [[ -f /etc/x-ui/x-ui.db ]]; then
+    sqlite3 -noheader -batch /etc/x-ui/x-ui.db "SELECT password FROM users LIMIT 1;" 2>/dev/null || true
+  fi
+}
+
+xui_domain_from_cert() {
+  local cert cert_dir
+  cert="$(xui_setting webCertFile)"
+  if [[ -n "$cert" && "$cert" == */fullchain.pem ]]; then
+    cert_dir="$(dirname "$cert")"
+    basename "$cert_dir"
+    return 0
+  fi
+  find /root/cert -mindepth 2 -maxdepth 2 -name fullchain.pem -print 2>/dev/null \
+    | awk -F/ 'NF >= 5 { print $(NF-1); exit }' || true
+}
+
+profile_link() {
+  local section="$1" prefix="$2"
+  [[ -f "$NH_GENERATED_PROFILES" ]] || return 0
+  awk -v section="$section" -v prefix="$prefix" '
+    $0 == section ":" { in_section=1; next }
+    in_section && $0 == "" { exit }
+    in_section && index($0, prefix) == 1 { print; exit }
+  ' "$NH_GENERATED_PROFILES" 2>/dev/null || true
+}
+
+XUI_DOMAIN="$(first_nonempty "$(config_value XUI_DOMAIN)" "$(xui_setting webDomain)" "$(xui_setting subDomain)" "$(xui_domain_from_cert)")"
+NH_DOMAIN="$(first_nonempty "$(config_value NH_PROXY_DOMAIN)" "$(json_value domain)")"
+
+xui_user="$(first_nonempty "$(xui_setting username)" "$(xui_user_from_db)")"
+xui_pass="$(first_nonempty "$(xui_setting password)" "$(xui_pass_from_db)")"
 xui_path="$(xui_setting webBasePath)"
 xui_path="${xui_path#/}"; xui_path="${xui_path%/}"
-if [[ -n "$XUI_DOMAIN" ]]; then
+if [[ -n "$(xui_setting webPort)" && -n "$XUI_DOMAIN" ]]; then
+  xui_port="$(xui_setting webPort)"
+  [[ -n "$xui_path" ]] && xui_url="https://${XUI_DOMAIN}:${xui_port}/${xui_path}/" || xui_url="https://${XUI_DOMAIN}:${xui_port}/"
+elif [[ -n "$XUI_DOMAIN" ]]; then
   [[ -n "$xui_path" ]] && xui_url="https://${XUI_DOMAIN}/${xui_path}/" || xui_url="https://${XUI_DOMAIN}/"
 else
   xui_url="check x-ui settings"
 fi
 
-naive_login="$(config_value NH_NAIVE_LOGIN)"
-naive_password="$(config_value NH_NAIVE_PASSWORD)"
-naive_link="$(config_value NH_NAIVE_LINK)"
+naive_login="$(first_nonempty "$(config_value NH_NAIVE_LOGIN)" "$(json_value naiveLogin)")"
+naive_password="$(first_nonempty "$(config_value NH_NAIVE_PASSWORD)" "$(json_value naivePassword)")"
+naive_link="$(first_nonempty "$(config_value NH_NAIVE_LINK)" "$(profile_link NaiveProxy 'naive+https://')")"
 if [[ -z "$naive_link" && -n "$NH_DOMAIN" && -n "$naive_login" && -n "$naive_password" ]]; then
   naive_link="naive+https://${naive_login}:${naive_password}@${NH_DOMAIN}:443"
 fi
-hy2_user="$(config_value NH_HY2_USER)"
-hy2_password="$(config_value NH_HY2_PASSWORD)"
-hy2_link="$(config_value NH_HY2_LINK)"
+hy2_user="$(first_nonempty "$(config_value NH_HY2_USER)" "$(json_value hy2User)")"
+hy2_password="$(first_nonempty "$(config_value NH_HY2_PASSWORD)" "$(json_value hy2Password)")"
+hy2_link="$(first_nonempty "$(config_value NH_HY2_LINK)" "$(profile_link Hysteria2 'hysteria2://')")"
 if [[ -z "$hy2_link" && -n "$NH_DOMAIN" && -n "$hy2_password" ]]; then
   hy2_link="hysteria2://${hy2_user:-default}:${hy2_password}@${NH_DOMAIN}:443?sni=${NH_DOMAIN}&insecure=0#${hy2_user:-default}"
 fi
