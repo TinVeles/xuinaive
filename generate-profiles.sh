@@ -245,6 +245,15 @@ xui_client_json() {
   fi
 }
 
+xui_normalize_inbound_settings() {
+  local protocol="$1"
+  if [[ "$protocol" == "vless" ]]; then
+    jq -c '.decryption = "none"'
+  else
+    jq -c '.'
+  fi
+}
+
 xui_warp_stream_settings() {
   local stream_settings="$1" warp_port="$2" external_port="$3"
   jq -c --argjson port "$warp_port" --argjson externalPort "$external_port" '
@@ -312,7 +321,7 @@ xui_replace_generated_clients() {
   done
 
   if [[ "$XUI_REPLACE_CLIENTS" == "1" ]]; then
-    new_settings="$(jq -c --argjson clients "$clients_json" '.clients = $clients' <<<"$settings")"
+    new_settings="$(jq -c --argjson clients "$clients_json" '.clients = $clients' <<<"$settings" | xui_normalize_inbound_settings "$protocol")"
   else
     new_settings="$(jq -c --arg prefix "$PREFIX" --argjson clients "$clients_json" '
       def generated_email:
@@ -321,7 +330,7 @@ xui_replace_generated_clients() {
       .clients = ((.clients // [])
         | map(select(generated_email | not))
         + $clients)
-    ' <<<"$settings")"
+    ' <<<"$settings" | xui_normalize_inbound_settings "$protocol")"
   fi
 
   sqlite3 "$XUI_DB" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
@@ -369,7 +378,7 @@ xui_ensure_warp_inbound() {
   fi
 
   settings="$(sqlite3 -readonly "$XUI_DB" "SELECT settings FROM inbounds WHERE id=$base_id;")"
-  empty_settings="$(jq -c '.clients = []' <<<"$settings")"
+  empty_settings="$(jq -c '.clients = []' <<<"$settings" | xui_normalize_inbound_settings "$protocol")"
   warp_stream_settings="$(xui_warp_stream_settings "$stream_settings" "$warp_port" "$XUI_WARP_EXTERNAL_PORT")"
   warp_listen="$(xui_warp_listen_host "$stream_settings")"
   if [[ -n "$existing_id" ]]; then

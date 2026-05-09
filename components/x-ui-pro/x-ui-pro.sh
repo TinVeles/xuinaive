@@ -191,6 +191,15 @@ xui_bulk_client_json() {
   fi
 }
 
+xui_normalize_inbound_settings() {
+  local protocol="$1"
+  if [[ "$protocol" == "vless" ]]; then
+    jq -c '.decryption = "none"'
+  else
+    jq -c '.'
+  fi
+}
+
 xui_set_inbound_clients() {
   local inbound_id="$1" protocol="$2" mode="$3" tag="$4" now index label email sub_id client_json clients_json settings new_settings traffic_result existing_json
   now="$(date +%s)000"
@@ -208,7 +217,7 @@ xui_set_inbound_clients() {
     clients_json="$(jq -c --argjson client "$client_json" '. + [$client]' <<<"$clients_json")"
   done
 
-  new_settings="$(jq -c --argjson clients "$clients_json" '.clients = $clients' <<<"$settings")"
+  new_settings="$(jq -c --argjson clients "$clients_json" '.clients = $clients' <<<"$settings" | xui_normalize_inbound_settings "$protocol")"
   sqlite3 "$XUIDB" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
   sqlite3 "$XUIDB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id;"
   for index in $(seq -w 1 "$XUI_PROFILE_COUNT"); do
@@ -258,7 +267,7 @@ xui_ensure_warp_inbound() {
     warp_port="$(xui_next_free_port "$((30000 + base_id))")"
   fi
   settings="$(sqlite3 -readonly "$XUIDB" "SELECT settings FROM inbounds WHERE id=$base_id;")"
-  empty_settings="$(jq -c '.clients = []' <<<"$settings")"
+  empty_settings="$(jq -c '.clients = []' <<<"$settings" | xui_normalize_inbound_settings "$protocol")"
   warp_stream_settings="$(xui_warp_stream_settings "$stream_settings" "$warp_port" "$XUI_WARP_EXTERNAL_PORT")"
   warp_listen="$(xui_warp_listen_host "$stream_settings")"
   sqlite3 "$XUIDB" "
