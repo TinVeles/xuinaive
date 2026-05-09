@@ -440,10 +440,59 @@ xui_apply_warp_template() {
   fi
 }
 
+xui_seed_default_warp_profiles() {
+  local inbound_rows inbound_id protocol tag remark port enable warp_id warp_tag warp_tags_file
+  local old_count old_prefix old_sub_mode old_common_sub_id
+  [[ -f "$XUIDB" ]] || return 0
+  if [[ "$XUI_CREATE_WARP_INBOUNDS" != "1" ]]; then
+    msg_ok "x-ui seed skipped: default inbounds keep one default client each; WARP clone inbounds disabled"
+    return 0
+  fi
+
+  : > /etc/x-ui/generated-clients.txt
+  warp_tags_file="$(mktemp)"
+  inbound_rows="$(sqlite3 -separator $'\t' "$XUIDB" \
+    "SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
+     FROM inbounds
+     WHERE protocol IN ('vless','trojan')
+       AND COALESCE(tag,'') NOT LIKE '%-warp'
+       AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+     ORDER BY id;")"
+
+  old_count="$XUI_PROFILE_COUNT"
+  old_prefix="$XUI_PROFILE_PREFIX"
+  old_sub_mode="$XUI_SUB_ID_MODE"
+  old_common_sub_id="$XUI_COMMON_SUB_ID"
+  XUI_PROFILE_COUNT=1
+  XUI_PROFILE_PREFIX=first
+  XUI_SUB_ID_MODE=common
+  XUI_COMMON_SUB_ID=first
+
+  while IFS=$'\t' read -r inbound_id protocol tag remark port enable; do
+    [[ -n "$inbound_id" ]] || continue
+    xui_bind_direct_reality_local_if_needed "$inbound_id" "$port"
+    warp_id="$(xui_ensure_warp_inbound "$inbound_id" "$protocol" "$tag" "$remark" "$port" "$enable" || true)"
+    if [[ -n "$warp_id" ]]; then
+      warp_tag="$(sqlite3 -readonly "$XUIDB" "SELECT COALESCE(tag,'') FROM inbounds WHERE id=$warp_id;")"
+      xui_set_inbound_clients "$warp_id" "$protocol" "warp" "$warp_tag"
+      [[ -n "$warp_tag" ]] && printf '%s\n' "$warp_tag" >> "$warp_tags_file"
+    fi
+  done <<<"$inbound_rows"
+
+  XUI_PROFILE_COUNT="$old_count"
+  XUI_PROFILE_PREFIX="$old_prefix"
+  XUI_SUB_ID_MODE="$old_sub_mode"
+  XUI_COMMON_SUB_ID="$old_common_sub_id"
+
+  xui_apply_warp_template "$warp_tags_file"
+  rm -f "$warp_tags_file"
+  msg_ok "x-ui seed: default inbounds keep one default client each; WARP clone inbounds have 1 client each"
+}
+
 xui_seed_bulk_profiles() {
   local inbound_rows inbound_id protocol tag remark port enable warp_id warp_tag warp_tags_file
   [[ -f "$XUIDB" ]] || return 0
-  [[ "$XUI_SEED_PROFILES" == "1" ]] || { msg_ok "x-ui seed skipped: default inbounds keep one default client each"; return 0; }
+  [[ "$XUI_SEED_PROFILES" == "1" ]] || { xui_seed_default_warp_profiles; return 0; }
   [[ "$XUI_PROFILE_COUNT" =~ ^[0-9]+$ && "$XUI_PROFILE_COUNT" -gt 0 ]] || XUI_PROFILE_COUNT=15
   : > /etc/x-ui/generated-clients.txt
   warp_tags_file="$(mktemp)"
