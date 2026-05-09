@@ -319,6 +319,7 @@ xui_post_update_db() {
   xui_repair_invalid_inbound_json
   xui_sanitize_inbound_tags
   xui_fix_all_vless_decryption
+  xui_fill_empty_warp_clients
   xui_validate_inbound_json
 }
 
@@ -355,6 +356,40 @@ xui_set_inbound_clients() {
     fi
     printf 'inbound=%s protocol=%s tag=%s mode=%s email=%s subId=%s\n' "$inbound_id" "$protocol" "${tag:-}" "$mode" "$email" "$sub_id" >> /etc/x-ui/generated-clients.txt
   done
+}
+
+xui_fill_empty_warp_clients() {
+  local inbound_rows inbound_id protocol tag old_count old_prefix old_sub_mode old_common_sub_id
+  [[ -f "$XUIDB" ]] || return 0
+  inbound_rows="$(sqlite3 -separator $'\t' "$XUIDB" "
+    SELECT id, protocol, COALESCE(tag,'')
+    FROM inbounds
+    WHERE protocol IN ('vless','trojan')
+      AND (COALESCE(tag,'') LIKE '%-warp' OR lower(COALESCE(remark,'')) LIKE '%warp%')
+      AND json_valid(settings)=1
+      AND COALESCE(json_array_length(json_extract(settings,'$.clients')), 0)=0
+    ORDER BY id;
+  " 2>/dev/null || true)"
+  [[ -n "$inbound_rows" ]] || return 0
+
+  old_count="$XUI_PROFILE_COUNT"
+  old_prefix="$XUI_PROFILE_PREFIX"
+  old_sub_mode="$XUI_SUB_ID_MODE"
+  old_common_sub_id="$XUI_COMMON_SUB_ID"
+  XUI_PROFILE_COUNT=1
+  XUI_PROFILE_PREFIX=first
+  XUI_SUB_ID_MODE=common
+  XUI_COMMON_SUB_ID=first
+
+  while IFS=$'\t' read -r inbound_id protocol tag; do
+    [[ -n "$inbound_id" ]] || continue
+    xui_set_inbound_clients "$inbound_id" "$protocol" "warp" "$tag"
+  done <<<"$inbound_rows"
+
+  XUI_PROFILE_COUNT="$old_count"
+  XUI_PROFILE_PREFIX="$old_prefix"
+  XUI_SUB_ID_MODE="$old_sub_mode"
+  XUI_COMMON_SUB_ID="$old_common_sub_id"
 }
 
 xui_ensure_warp_inbound() {
