@@ -221,6 +221,16 @@ xui_normalize_inbound_settings() {
   fi
 }
 
+xui_fix_all_vless_decryption() {
+  [[ -f "$XUIDB" ]] || return 0
+  sqlite3 "$XUIDB" "
+    UPDATE inbounds
+    SET settings=json_set(settings, '$.decryption', 'none')
+    WHERE protocol='vless'
+      AND json_valid(settings);
+  "
+}
+
 xui_set_inbound_clients() {
   local inbound_id="$1" protocol="$2" mode="$3" tag="$4" now index label email sub_id client_json clients_json settings new_settings traffic_result existing_json
   now="$(date +%s)000"
@@ -1413,8 +1423,9 @@ apt-get update && apt-get install -y -q wget curl tar tzdata
 }
 ###################################Install X-UI#########################################################
 if [[ ${INSTALL} == *"y"* ]]; then
-    install_panel
+	install_panel
 	UPDATE_XUIDB
+	xui_fix_all_vless_decryption
 	if ! systemctl is-enabled --quiet x-ui; then
 		systemctl daemon-reload && systemctl enable x-ui.service
 	fi
