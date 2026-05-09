@@ -205,6 +205,9 @@ xui_client_email() {
 
 xui_client_json() {
   local inbound_id="$1" protocol="$2" email="$3" sub_id="$4" now="$5" existing_json="${6:-{}}" password uid client_json is_reality
+  if [[ -z "$existing_json" ]] || ! jq -e . >/dev/null 2>&1 <<<"$existing_json"; then
+    existing_json="{}"
+  fi
   is_reality=0
   if sqlite3 "$XUI_DB" "SELECT stream_settings FROM inbounds WHERE id=$inbound_id;" | grep -q '"security"[[:space:]]*:[[:space:]]*"reality"'; then
     is_reality=1
@@ -390,6 +393,9 @@ xui_replace_generated_clients() {
     fi
     existing_json="$(jq -c --arg email "$email" '((.clients // []) | map(select((.email // "") == $email)) | .[0]) // {}' <<<"$settings")"
     client_json="$(xui_client_json "$inbound_id" "$protocol" "$email" "$sub_id" "$now" "$existing_json")"
+    if [[ -z "$client_json" ]] || ! jq -e . >/dev/null 2>&1 <<<"$client_json"; then
+      die "Invalid generated client JSON for inbound=$inbound_id email=$email"
+    fi
     clients_json="$(jq -c --argjson client "$client_json" '. + [$client]' <<<"$clients_json")"
   done
 
