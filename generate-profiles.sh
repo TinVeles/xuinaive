@@ -275,6 +275,36 @@ xui_normalize_inbound_settings() {
   fi
 }
 
+xui_repair_invalid_inbound_settings() {
+  sqlite3 "$XUI_DB" "
+    UPDATE inbounds
+    SET settings = CASE
+      WHEN protocol='vless' THEN '{\"clients\":[],\"decryption\":\"none\",\"fallbacks\":[]}'
+      WHEN protocol='trojan' THEN '{\"clients\":[],\"fallbacks\":[]}'
+      ELSE settings
+    END
+    WHERE protocol IN ('vless','trojan')
+      AND json_valid(settings)=0;
+  "
+}
+
+xui_repair_invalid_inbound_json() {
+  xui_repair_invalid_inbound_settings
+  sqlite3 "$XUI_DB" "
+    UPDATE inbounds
+    SET sniffing='{\"enabled\":false,\"destOverride\":[\"http\",\"tls\",\"quic\",\"fakedns\"],\"metadataOnly\":false,\"routeOnly\":false}'
+    WHERE sniffing IS NULL
+       OR sniffing=''
+       OR json_valid(sniffing)=0;
+
+    UPDATE inbounds
+    SET stream_settings='{\"network\":\"tcp\",\"security\":\"none\"}'
+    WHERE stream_settings IS NULL
+       OR stream_settings=''
+       OR json_valid(stream_settings)=0;
+  "
+}
+
 xui_warp_stream_settings() {
   local stream_settings="$1" warp_port="$2" external_port="$3"
   jq -c --argjson port "$warp_port" --argjson externalPort "$external_port" '
@@ -434,6 +464,7 @@ xui_add_clients() {
   warp_tags_file="$(mktemp)"
   mkdir -p "$(dirname "$report_file")"
   : > "$report_file"
+  xui_repair_invalid_inbound_json
 
   query="SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
      FROM inbounds

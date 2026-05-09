@@ -221,6 +221,38 @@ xui_normalize_inbound_settings() {
   fi
 }
 
+xui_repair_invalid_inbound_settings() {
+  [[ -f "$XUIDB" ]] || return 0
+  sqlite3 "$XUIDB" "
+    UPDATE inbounds
+    SET settings = CASE
+      WHEN protocol='vless' THEN '{\"clients\":[],\"decryption\":\"none\",\"fallbacks\":[]}'
+      WHEN protocol='trojan' THEN '{\"clients\":[],\"fallbacks\":[]}'
+      ELSE settings
+    END
+    WHERE protocol IN ('vless','trojan')
+      AND json_valid(settings)=0;
+  "
+}
+
+xui_repair_invalid_inbound_json() {
+  [[ -f "$XUIDB" ]] || return 0
+  xui_repair_invalid_inbound_settings
+  sqlite3 "$XUIDB" "
+    UPDATE inbounds
+    SET sniffing='{\"enabled\":false,\"destOverride\":[\"http\",\"tls\",\"quic\",\"fakedns\"],\"metadataOnly\":false,\"routeOnly\":false}'
+    WHERE sniffing IS NULL
+       OR sniffing=''
+       OR json_valid(sniffing)=0;
+
+    UPDATE inbounds
+    SET stream_settings='{\"network\":\"tcp\",\"security\":\"none\"}'
+    WHERE stream_settings IS NULL
+       OR stream_settings=''
+       OR json_valid(stream_settings)=0;
+  "
+}
+
 xui_fix_all_vless_decryption() {
   [[ -f "$XUIDB" ]] || return 0
   sqlite3 "$XUIDB" "
@@ -229,6 +261,40 @@ xui_fix_all_vless_decryption() {
     WHERE protocol='vless'
       AND json_valid(settings);
   "
+}
+
+xui_validate_inbound_json() {
+  [[ -f "$XUIDB" ]] || return 0
+  local bad missing
+  bad="$(sqlite3 -readonly "$XUIDB" "
+    SELECT id || ' tag=' || COALESCE(tag,'') || ' protocol=' || COALESCE(protocol,'') || ' invalid-json'
+    FROM inbounds
+    WHERE json_valid(settings)=0
+       OR json_valid(stream_settings)=0
+       OR json_valid(sniffing)=0;
+  " 2>/dev/null || true)"
+  if [[ -n "$bad" ]]; then
+    printf '%s\n' "$bad" >&2
+    msg_err "x-ui database has malformed inbound JSON; restore backup or regenerate inbounds before restart" && exit 1
+  fi
+
+  missing="$(sqlite3 -readonly "$XUIDB" "
+    SELECT id || ' tag=' || COALESCE(tag,'') || ' missing-decryption'
+    FROM inbounds
+    WHERE protocol='vless'
+      AND json_valid(settings)=1
+      AND COALESCE(json_extract(settings,'$.decryption'),'') != 'none';
+  " 2>/dev/null || true)"
+  if [[ -n "$missing" ]]; then
+    printf '%s\n' "$missing" >&2
+    msg_err "x-ui VLESS settings missing decryption=none after repair" && exit 1
+  fi
+}
+
+xui_post_update_db() {
+  xui_repair_invalid_inbound_json
+  xui_fix_all_vless_decryption
+  xui_validate_inbound_json
 }
 
 xui_set_inbound_clients() {
@@ -1281,6 +1347,7 @@ if [[ -f $XUIDB ]]; then
 }'
 	);
 EOF
+xui_repair_invalid_inbound_json
 xui_seed_bulk_profiles
 xui_cleanup_unix_sockets
 /usr/local/x-ui/x-ui setting -username "${config_username}" -password "${config_password}" -port "${panel_port}" -webBasePath "${panel_path}"
@@ -1425,16 +1492,18 @@ apt-get update && apt-get install -y -q wget curl tar tzdata
 if [[ ${INSTALL} == *"y"* ]]; then
 	install_panel
 	UPDATE_XUIDB
-	xui_fix_all_vless_decryption
+	xui_post_update_db
 	if ! systemctl is-enabled --quiet x-ui; then
 		systemctl daemon-reload && systemctl enable x-ui.service
 	fi
 	x-ui restart
 elif systemctl is-active --quiet x-ui; then
+	xui_post_update_db
 	x-ui restart
 else
     install_panel	
 	UPDATE_XUIDB
+	xui_post_update_db
 	if ! systemctl is-enabled --quiet x-ui; then
 		systemctl daemon-reload && systemctl enable x-ui.service
 	fi
