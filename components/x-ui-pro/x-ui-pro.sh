@@ -254,6 +254,29 @@ xui_repair_invalid_inbound_json() {
   "
 }
 
+xui_sanitize_inbound_tags() {
+  [[ -f "$XUIDB" ]] || return 0
+  sqlite3 "$XUIDB" "
+    UPDATE inbounds
+    SET tag = 'inbound-' ||
+      CASE
+        WHEN port IS NOT NULL AND port > 0 THEN port
+        ELSE id
+      END ||
+      CASE
+        WHEN lower(COALESCE(remark,'')) LIKE '%warp%' THEN '-warp'
+        ELSE ''
+      END
+    WHERE tag IS NULL
+       OR tag = ''
+       OR tag LIKE '%/%'
+       OR tag LIKE '%,%'
+       OR tag LIKE '%:%'
+       OR tag LIKE '%|%'
+       OR tag LIKE '% %';
+  "
+}
+
 xui_fix_all_vless_decryption() {
   [[ -f "$XUIDB" ]] || return 0
   sqlite3 "$XUIDB" "
@@ -294,6 +317,7 @@ xui_validate_inbound_json() {
 
 xui_post_update_db() {
   xui_repair_invalid_inbound_json
+  xui_sanitize_inbound_tags
   xui_fix_all_vless_decryption
   xui_validate_inbound_json
 }
@@ -1401,6 +1425,7 @@ if [[ -f $XUIDB ]]; then
 	);
 EOF
 xui_repair_invalid_inbound_json
+xui_sanitize_inbound_tags
 xui_seed_bulk_profiles
 xui_cleanup_unix_sockets
 /usr/local/x-ui/x-ui setting -username "${config_username}" -password "${config_password}" -port "${panel_port}" -webBasePath "${panel_path}"

@@ -305,6 +305,28 @@ xui_repair_invalid_inbound_json() {
   "
 }
 
+xui_sanitize_inbound_tags() {
+  sqlite3 "$XUI_DB" "
+    UPDATE inbounds
+    SET tag = 'inbound-' ||
+      CASE
+        WHEN port IS NOT NULL AND port > 0 THEN port
+        ELSE id
+      END ||
+      CASE
+        WHEN lower(COALESCE(remark,'')) LIKE '%warp%' THEN '-warp'
+        ELSE ''
+      END
+    WHERE tag IS NULL
+       OR tag = ''
+       OR tag LIKE '%/%'
+       OR tag LIKE '%,%'
+       OR tag LIKE '%:%'
+       OR tag LIKE '%|%'
+       OR tag LIKE '% %';
+  "
+}
+
 xui_warp_stream_settings() {
   local stream_settings="$1" warp_port="$2" external_port="$3"
   jq -c --argjson port "$warp_port" --argjson externalPort "$external_port" '
@@ -467,6 +489,7 @@ xui_add_clients() {
   mkdir -p "$(dirname "$report_file")"
   : > "$report_file"
   xui_repair_invalid_inbound_json
+  xui_sanitize_inbound_tags
 
   query="SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
      FROM inbounds
