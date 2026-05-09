@@ -22,6 +22,7 @@ WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google}"
 XUI_WARP_EXTERNAL_PORT="${XUI_WARP_EXTERNAL_PORT:-8443}"
+XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
 Pak=$(type apt &>/dev/null && echo "apt" || echo "yum")
 
 cleanup_existing() {
@@ -473,6 +474,11 @@ xui_apply_warp_template() {
     --argjson inboundTags "$tags_json" \
     --argjson domains "$domains_json" \
     '{outbound:{tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port}]}}, routingRule:{type:"field", inboundTag:$inboundTags, domain:$domains, outboundTag:$tag}}' > "$snippet_file"
+
+  if [[ "$XUI_APPLY_WARP_TEMPLATE" != "1" ]]; then
+    msg_ok "WARP routing snippet saved: $snippet_file"
+    return 0
+  fi
 
   key="$(sqlite3 -readonly "$XUIDB" "SELECT key FROM settings WHERE key IN ('xrayTemplateConfig','xrayConfig','xraySetting') LIMIT 1;" || true)"
   [[ -n "$key" ]] || key="xrayTemplateConfig"

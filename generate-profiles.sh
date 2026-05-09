@@ -22,6 +22,7 @@ WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google}"
 XUI_WARP_EXTERNAL_PORT="${XUI_WARP_EXTERNAL_PORT:-8443}"
+XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
 XUI_WARP_NGINX_STREAM="${XUI_WARP_NGINX_STREAM:-1}"
 XUI_INBOUND_ID="${XUI_INBOUND_ID:-}"
 XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-$PREFIX}"
@@ -604,6 +605,12 @@ xui_apply_warp_template() {
       outbound: {tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port}]}},
       routingRule: {type:"field", inboundTag:$inboundTags, domain:$domains, outboundTag:$tag}
     }' > "$snippet_file"
+
+  if [[ "$XUI_APPLY_WARP_TEMPLATE" != "1" ]]; then
+    ok "WARP routing snippet saved: $snippet_file"
+    ok "WARP routing not written to x-ui template; set XUI_APPLY_WARP_TEMPLATE=1 to opt in"
+    return 0
+  fi
 
   key="$(sqlite3 -readonly "$XUI_DB" "SELECT key FROM settings WHERE key IN ('xrayTemplateConfig','xrayConfig','xraySetting') LIMIT 1;" || true)"
   if [[ -z "$key" ]]; then
