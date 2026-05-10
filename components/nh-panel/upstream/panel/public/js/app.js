@@ -17,6 +17,13 @@ let currentStatus = null;
 document.addEventListener('DOMContentLoaded', () => {
   checkAuth();
 
+  document.addEventListener('click', (e) => {
+    const copyTarget = e.target.closest('[data-copy]');
+    if (!copyTarget) return;
+    e.preventDefault();
+    copyText(copyTarget.dataset.copy || '');
+  });
+
   document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     await doLogin();
@@ -282,7 +289,7 @@ async function renderQuickLinks(status) {
             <span class="ql-type naive-tag">Naive</span>
             <span class="ql-user">${escapeHtml(u.username)}</span>
             <span class="ql-url">${escapeHtml(link)}</span>
-            <button class="quick-link-copy" onclick="copyText(${jsString(link)})">Копировать</button>
+            <button class="quick-link-copy" data-copy="${escapeHtml(link)}">Копировать</button>
           </div>`;
       });
     } catch {}
@@ -302,7 +309,7 @@ async function renderQuickLinks(status) {
             <span class="ql-type hy2-tag">Hy2</span>
             <span class="ql-user">${escapeHtml(u.username)}</span>
             <span class="ql-url">${escapeHtml(link)}</span>
-            <button class="quick-link-copy" onclick="copyText(${jsString(link)})">Копировать</button>
+            <button class="quick-link-copy" data-copy="${escapeHtml(link)}">Копировать</button>
           </div>`;
       });
     } catch {}
@@ -490,7 +497,7 @@ function showInstallDone(links) {
       <div class="done-link-item">
         <div class="done-link-label"><span class="ql-type naive-tag">Naive</span> Ссылка для подключения:</div>
         <div class="done-link">${escapeHtml(links.naive)}</div>
-        <button class="btn btn-outline btn-sm" onclick="copyText(${jsString(links.naive)})">
+        <button class="btn btn-outline btn-sm" data-copy="${escapeHtml(links.naive)}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           Копировать
         </button>
@@ -501,7 +508,7 @@ function showInstallDone(links) {
       <div class="done-link-item">
         <div class="done-link-label"><span class="ql-type hy2-tag">Hy2</span> Ссылка для подключения:</div>
         <div class="done-link">${escapeHtml(links.hy2)}</div>
-        <button class="btn btn-outline btn-sm" onclick="copyText(${jsString(links.hy2)})">
+        <button class="btn btn-outline btn-sm" data-copy="${escapeHtml(links.hy2)}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           Копировать
         </button>
@@ -575,12 +582,12 @@ async function loadUsers() {
           <td class="td-login">${escapeHtml(u.username)}</td>
           <td class="td-pwd">${escapeHtml(u.password)}</td>
           <td class="td-link" title="${escapeHtml(link)}">
-            ${link ? `<span style="cursor:pointer" onclick="copyText(${jsString(link)})" title="Скопировать">${escapeHtml(link)}</span>` : '<span style="color:var(--text-muted)">Сервер не установлен</span>'}
+            ${link ? `<span style="cursor:pointer" data-copy="${escapeHtml(link)}" title="Скопировать">${escapeHtml(link)}</span>` : '<span style="color:var(--text-muted)">Сервер не установлен</span>'}
           </td>
           <td>${date}</td>
           <td class="td-expire">${expireCell}</td>
           <td class="td-actions">
-            ${link ? `<button class="btn btn-outline btn-sm" onclick="copyText(${jsString(link)})" title="Копировать">
+            ${link ? `<button class="btn btn-outline btn-sm" data-copy="${escapeHtml(link)}" title="Копировать">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             </button>` : ''}
             <button class="btn btn-outline btn-sm" onclick="showExtendModal('${currentUsersTab}', '${escapeHtml(u.username)}')" title="Продлить / изменить срок">
@@ -935,13 +942,4 @@ function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-function jsString(str) {
-  return JSON.stringify(String(str))
-    .replace(/</g, '\\u003c')
-    .replace(/>/g, '\\u003e')
-    .replace(/&/g, '\\u0026')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029');
 }
