@@ -38,6 +38,7 @@ const CADDY_LISTENER_SERVER = process.env.CADDY_LISTENER_SERVER || '';
 const CADDY_PROXY_PROTOCOL = process.env.CADDY_PROXY_PROTOCOL === '1';
 const CADDY_TLS_CERT = process.env.CADDY_TLS_CERT || '';
 const CADDY_TLS_KEY = process.env.CADDY_TLS_KEY || '';
+const MIERU_CONFIG_PATH = process.env.MIERU_CONFIG_PATH || '/etc/mieru/server_config.json';
 // LISTEN_HOST: 0.0.0.0 (по умолчанию — публично) | 127.0.0.1 (SSH-only режим).
 // Управляется через Environment=LISTEN_HOST=... в systemd-юните или
 // --env LISTEN_HOST=... в PM2. Дефолт сохраняет обратную совместимость
@@ -68,13 +69,16 @@ try {
 function defaultConfig() {
   return {
     installed: false,
-    stack: { naive: false, hy2: false },
+    stack: { naive: false, hy2: false, mieru: false },
     domain: '',
     email: '',
     serverIp: '',
     arch: '',
     naiveUsers: [],
-    hy2Users: []
+    hy2Users: [],
+    mieruUsers: [],
+    mieruPort: 0,
+    mieruProtocol: 'TCP'
   };
 }
 
@@ -94,14 +98,18 @@ function loadConfig() {
     const raw = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
     // Миграция со старого формата (только Naive)
     if (!raw.stack) {
-      raw.stack = { naive: !!raw.installed, hy2: false };
+      raw.stack = { naive: !!raw.installed, hy2: false, mieru: false };
       raw.naiveUsers = raw.proxyUsers || raw.naiveUsers || [];
       raw.hy2Users = raw.hy2Users || [];
       delete raw.proxyUsers;
       writeJsonFile(CONFIG_FILE, raw);
     }
+    if (typeof raw.stack.mieru !== 'boolean') raw.stack.mieru = false;
     if (!Array.isArray(raw.naiveUsers)) raw.naiveUsers = [];
     if (!Array.isArray(raw.hy2Users)) raw.hy2Users = [];
+    if (!Array.isArray(raw.mieruUsers)) raw.mieruUsers = [];
+    if (!raw.mieruProtocol) raw.mieruProtocol = 'TCP';
+    if (!Number.isInteger(raw.mieruPort)) raw.mieruPort = parseInt(raw.mieruPort || '0', 10) || 0;
 
     // Миграция: если panelDomain не записан в config, но в Caddyfile есть
     // второй site-блок для поддомена с reverse_proxy на 127.0.0.1 — вытащим его.
@@ -179,6 +187,46 @@ function hy2Link(username, password, domain, name = username) {
   return `hysteria2://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${domain}:443?sni=${domain}&insecure=0#${encodeURIComponent(name)}`;
 }
 
+function mieruServerHost(cfg) {
+  if (isValidDomain(cfg.domain)) return { key: 'domainName', value: cfg.domain };
+  return { key: 'ipAddress', value: cfg.serverIp || 'SERVER_IP' };
+}
+
+function mieruClientConfig(username, password, cfg) {
+  const host = mieruServerHost(cfg);
+  const server = {
+    portBindings: [{ port: cfg.mieruPort || 0, protocol: normalizeMieruProtocol(cfg.mieruProtocol) }]
+  };
+  if (host.value) server[host.key] = host.value;
+  return {
+    profiles: [{
+      profileName: username,
+      user: { name: username, password },
+      servers: [server],
+      mtu: 1400,
+      multiplexing: { level: 'MULTIPLEXING_LOW' }
+    }],
+    activeProfile: username,
+    socks5Port: 1080,
+    loggingLevel: 'INFO'
+  };
+}
+
+function mieruMihomoSnippet(username, password, cfg) {
+  const host = (isValidDomain(cfg.domain) ? cfg.domain : cfg.serverIp) || 'SERVER_IP';
+  return [
+    'proxies:',
+    `  - name: mieru-${username}`,
+    '    type: mieru',
+    `    server: ${host}`,
+    `    port: ${cfg.mieruPort || 0}`,
+    `    transport: ${normalizeMieruProtocol(cfg.mieruProtocol)}`,
+    `    username: ${username}`,
+    `    password: ${password}`,
+    '    multiplexing: MULTIPLEXING_LOW'
+  ].join('\n');
+}
+
 function loadUsers() {
   if (!fs.existsSync(USERS_FILE)) {
     const initialPassword = crypto.randomBytes(18).toString('base64url');
@@ -250,6 +298,14 @@ function isValidUsername(s) {
 function isValidPassword(s) {
   return typeof s === 'string' && s.length >= 8 && s.length <= 128
     && /^[A-Za-z0-9!@#$%^&*_+\-=.,~]+$/.test(s);
+}
+function isValidPort(n) {
+  const v = parseInt(n, 10);
+  return Number.isInteger(v) && v >= 1025 && v <= 65535;
+}
+function normalizeMieruProtocol(s) {
+  const p = String(s || 'TCP').toUpperCase();
+  return p === 'UDP' ? 'UDP' : 'TCP';
 }
 function isSafeMasqueradeUrl(s) {
   if (typeof s !== 'string' || /\s/.test(s) || s.length > 2048) return false;
@@ -404,14 +460,26 @@ function checkServiceActive(unit) {
   });
 }
 
+function checkMieruRunning() {
+  return new Promise((resolve) => {
+    const p = spawn('mita', ['status']);
+    let out = '';
+    p.stdout.on('data', d => out += d.toString());
+    p.stderr.on('data', d => out += d.toString());
+    p.on('close', () => resolve(/RUNNING/i.test(out)));
+    p.on('error', () => resolve(false));
+  });
+}
+
 app.get('/api/status', requireAuth, async (req, res) => {
   const cfg = loadConfig();
   if (!cfg.installed) {
-    return res.json({ installed: false, stack: cfg.stack || { naive: false, hy2: false } });
+    return res.json({ installed: false, stack: cfg.stack || { naive: false, hy2: false, mieru: false } });
   }
-  const [naiveActive, hy2Active] = await Promise.all([
+  const [naiveActive, hy2Active, mieruActive] = await Promise.all([
     cfg.stack.naive ? checkServiceActive(CADDY_SERVICE) : Promise.resolve(null),
-    cfg.stack.hy2 ? checkServiceActive('hysteria-server') : Promise.resolve(null)
+    cfg.stack.hy2 ? checkServiceActive('hysteria-server') : Promise.resolve(null),
+    cfg.stack.mieru ? checkMieruRunning() : Promise.resolve(null)
   ]);
   res.json({
     installed: true,
@@ -422,13 +490,36 @@ app.get('/api/status', requireAuth, async (req, res) => {
     arch: cfg.arch,
     naive: cfg.stack.naive ? { active: naiveActive, usersCount: cfg.naiveUsers.length } : null,
     hy2:   cfg.stack.hy2   ? { active: hy2Active,   usersCount: cfg.hy2Users.length }   : null,
+    mieru: cfg.stack.mieru ? {
+      active: mieruActive,
+      usersCount: cfg.mieruUsers.length,
+      port: cfg.mieruPort || 0,
+      protocol: normalizeMieruProtocol(cfg.mieruProtocol)
+    } : null,
   });
 });
 
-app.post('/api/service/:kind/:action', requireAuth, (req, res) => {
+app.post('/api/service/:kind/:action', requireAuth, async (req, res) => {
   const { kind, action } = req.params;
   if (!['start', 'stop', 'restart'].includes(action)) return res.status(400).json({ error: 'bad action' });
-  const unit = kind === 'naive' ? CADDY_SERVICE : kind === 'hy2' ? 'hysteria-server' : null;
+  if (kind === 'mieru') {
+    let result;
+    if (action === 'restart') {
+      await runCommand('mita', ['stop']);
+      result = await runCommand('mita', ['start']);
+    } else {
+      result = await runCommand('mita', [action]);
+    }
+    if (result.code !== 0) return res.json({ success: false, message: result.err || result.out || `mita ${action} failed` });
+    const active = await checkMieruRunning();
+    res.json({
+      success: true,
+      active,
+      message: active ? `mita ${action} — прокси запущен` : `mita ${action} — прокси остановлен`
+    });
+    return;
+  }
+  const unit = kind === 'naive' ? CADDY_SERVICE : kind === 'hy2' ? 'hysteria-server' : kind === 'mieru' ? 'mita' : null;
   if (!unit) return res.status(400).json({ error: 'bad kind' });
 
   const p = spawn('systemctl', [action, unit]);
@@ -1024,6 +1115,119 @@ app.patch('/api/hy2/users/:username', requireAuth, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
+//  MIERU / MITA
+// ═══════════════════════════════════════════════════════════
+function writeMieruConfig(cfg) {
+  if (!cfg.stack.mieru || !isValidPort(cfg.mieruPort)) return false;
+  const users = (cfg.mieruUsers || [])
+    .filter(u => u.username && u.password && !isExpired(u))
+    .map(u => ({ name: u.username, password: u.password }));
+  if (users.length === 0) users.push({ name: 'disabled', password: crypto.randomBytes(18).toString('base64url') });
+  const mitaCfg = {
+    portBindings: [{ port: parseInt(cfg.mieruPort, 10), protocol: normalizeMieruProtocol(cfg.mieruProtocol) }],
+    users,
+    loggingLevel: 'INFO',
+    mtu: 1400
+  };
+  writeJsonFile(MIERU_CONFIG_PATH, mitaCfg);
+  return true;
+}
+
+function runCommand(cmd, args) {
+  return new Promise((resolve) => {
+    const p = spawn(cmd, args);
+    let out = '', err = '';
+    p.stdout.on('data', d => out += d.toString());
+    p.stderr.on('data', d => err += d.toString());
+    p.on('close', code => resolve({ code, out, err }));
+    p.on('error', e => resolve({ code: -1, out, err: e.message }));
+  });
+}
+
+async function applyMieruConfig(cfg, restart = false) {
+  if (!writeMieruConfig(cfg)) return { success: false, message: 'Mieru port/config invalid' };
+  const applied = await runCommand('mita', ['apply', 'config', MIERU_CONFIG_PATH]);
+  if (applied.code !== 0) return { success: false, message: applied.err || applied.out || 'mita apply failed' };
+  if (restart) {
+    await runCommand('mita', ['stop']);
+    const started = await runCommand('mita', ['start']);
+    if (started.code !== 0) return { success: false, message: started.err || started.out || 'mita start failed' };
+  } else {
+    const reloaded = await runCommand('mita', ['reload']);
+    if (reloaded.code !== 0) await runCommand('mita', ['start']);
+  }
+  return { success: true };
+}
+
+app.get('/api/mieru/users', requireAuth, (req, res) => {
+  const cfg = loadConfig();
+  res.json({
+    users: (cfg.mieruUsers || []).map(enrichUser),
+    port: cfg.mieruPort || 0,
+    protocol: normalizeMieruProtocol(cfg.mieruProtocol)
+  });
+});
+
+app.post('/api/mieru/users', requireAuth, async (req, res) => {
+  const { username, password, expireDays } = req.body || {};
+  if (!isValidUsername(username)) return res.json({ success: false, message: 'Логин 1-32 символа' });
+  if (!isValidPassword(password)) return res.json({ success: false, message: 'Пароль 8-128 символов' });
+  if (!isValidExpireDays(expireDays)) return res.json({ success: false, message: 'Срок: 1..3650 дней или 0 (бессрочно)' });
+
+  const cfg = loadConfig();
+  if (cfg.mieruUsers.find(u => u.username === username)) {
+    return res.json({ success: false, message: 'Пользователь уже существует' });
+  }
+  cfg.mieruUsers.push({ username, password, createdAt: new Date().toISOString(), expiresAt: computeExpiresAt(expireDays) });
+  saveConfig(cfg);
+  if (cfg.installed && cfg.stack.mieru) {
+    const applied = await applyMieruConfig(cfg);
+    if (!applied.success) return res.json(applied);
+  }
+  res.json({ success: true, clientConfig: mieruClientConfig(username, password, cfg), mihomo: mieruMihomoSnippet(username, password, cfg) });
+});
+
+app.delete('/api/mieru/users/:username', requireAuth, async (req, res) => {
+  const { username } = req.params;
+  const cfg = loadConfig();
+  const before = cfg.mieruUsers.length;
+  cfg.mieruUsers = cfg.mieruUsers.filter(u => u.username !== username);
+  if (cfg.mieruUsers.length === before) return res.json({ success: false, message: 'Не найден' });
+  saveConfig(cfg);
+  if (cfg.installed && cfg.stack.mieru) {
+    const applied = await applyMieruConfig(cfg);
+    if (!applied.success) return res.json(applied);
+  }
+  res.json({ success: true });
+});
+
+app.patch('/api/mieru/users/:username', requireAuth, async (req, res) => {
+  const { username } = req.params;
+  const { expireDays } = req.body || {};
+  if (!isValidExpireDays(expireDays)) return res.json({ success: false, message: 'Срок: 1..3650 дней или 0' });
+  const cfg = loadConfig();
+  const user = cfg.mieruUsers.find(u => u.username === username);
+  if (!user) return res.json({ success: false, message: 'Не найден' });
+  user.expiresAt = computeExpiresAt(expireDays);
+  saveConfig(cfg);
+  if (cfg.installed && cfg.stack.mieru) {
+    const applied = await applyMieruConfig(cfg);
+    if (!applied.success) return res.json(applied);
+  }
+  res.json({ success: true, expiresAt: user.expiresAt });
+});
+
+app.get('/api/mieru/client-config/:username', requireAuth, (req, res) => {
+  const cfg = loadConfig();
+  const user = (cfg.mieruUsers || []).find(u => u.username === req.params.username);
+  if (!user) return res.status(404).json({ error: 'not found' });
+  res.json({
+    clientConfig: mieruClientConfig(user.username, user.password, cfg),
+    mihomo: mieruMihomoSnippet(user.username, user.password, cfg)
+  });
+});
+
+// ═══════════════════════════════════════════════════════════
 //  LOGS / DIAGNOSTICS
 // ═══════════════════════════════════════════════════════════
 app.get('/api/logs/:kind', requireAuth, (req, res) => {
@@ -1032,6 +1236,7 @@ app.get('/api/logs/:kind', requireAuth, (req, res) => {
   const unitMap = {
     naive: CADDY_SERVICE,
     hy2: 'hysteria-server',
+    mieru: 'mita',
     panel: 'pm2-root'
   };
   const unit = unitMap[kind];
@@ -1256,6 +1461,7 @@ wss.on('connection', (ws, req) => {
         const data = JSON.parse(message);
         if (data.type === 'install_naive') return handleInstallNaive(ws, data);
         if (data.type === 'install_hy2')   return handleInstallHy2(ws, data);
+        if (data.type === 'install_mieru') return handleInstallMieru(ws, data);
         if (data.type === 'install_both')  return handleInstallBoth(ws, data);
       } catch (e) {
         ws.send(JSON.stringify({ type: 'error', message: 'bad message' }));
@@ -1319,15 +1525,35 @@ function runScript(ws, scriptName, env, onExit) {
 
 // Helper: вытянуть server_ip в конфиг
 function persistServerIp(cfg) {
-  const p = spawn('bash', ['-c', "curl -4 -s --connect-timeout 5 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}'"]);
-  let ip = '';
-  p.stdout.on('data', d => ip += d.toString().trim());
-  p.on('close', () => {
-    if (ip) {
-      cfg.serverIp = ip;
-      cfg.arch = require('os').arch();
-      saveConfig(cfg);
+  const saveIp = (raw) => {
+    const ip = String(raw || '').trim().split(/\s+/).find(Boolean);
+    if (!ip) return;
+    cfg.serverIp = ip;
+    cfg.arch = require('os').arch();
+    saveConfig(cfg);
+  };
+
+  const curl = spawn('curl', ['-4', '-s', '--connect-timeout', '5', 'ifconfig.me']);
+  let curlOut = '';
+  curl.stdout.on('data', d => curlOut += d.toString());
+  curl.on('close', (code) => {
+    if (code === 0 && curlOut.trim()) {
+      saveIp(curlOut);
+      return;
     }
+
+    const hostname = spawn('hostname', ['-I']);
+    let hostOut = '';
+    hostname.stdout.on('data', d => hostOut += d.toString());
+    hostname.on('close', () => saveIp(hostOut));
+    hostname.on('error', () => {});
+  });
+  curl.on('error', () => {
+    const hostname = spawn('hostname', ['-I']);
+    let hostOut = '';
+    hostname.stdout.on('data', d => hostOut += d.toString());
+    hostname.on('close', () => saveIp(hostOut));
+    hostname.on('error', () => {});
   });
 }
 
@@ -1408,6 +1634,53 @@ function handleInstallHy2(ws, data) {
   });
 }
 
+function handleInstallMieru(ws, data) {
+  const { username, password, port, protocol } = data;
+  const mieruPort = parseInt(port || '0', 10);
+  const mieruProtocol = normalizeMieruProtocol(protocol);
+  if (!isValidUsername(username)) return ws.send(JSON.stringify({ type: 'install_error', message: 'Неверный Mieru логин' }));
+  if (!isValidPassword(password)) return ws.send(JSON.stringify({ type: 'install_error', message: 'Mieru пароль минимум 8 символов' }));
+  if (!isValidPort(mieruPort)) return ws.send(JSON.stringify({ type: 'install_error', message: 'Mieru порт должен быть 1025..65535' }));
+
+  const cfg = loadConfig();
+  cfg.installed = true;
+  cfg.stack.mieru = true;
+  cfg.mieruPort = mieruPort;
+  cfg.mieruProtocol = mieruProtocol;
+  if (!cfg.serverIp) cfg.serverIp = '';
+  const existingMieruUser = cfg.mieruUsers.find(u => u.username === username);
+  if (existingMieruUser) {
+    existingMieruUser.password = password;
+  } else {
+    cfg.mieruUsers.push({ username, password, createdAt: new Date().toISOString() });
+  }
+  saveConfig(cfg);
+  persistServerIp(cfg);
+
+  sendLog(ws, '🔭 Запуск установки Mieru/mita...', 'init', 2, 'info');
+  runScript(ws, 'install_mieru.sh', {
+    MIERU_LOGIN: username,
+    MIERU_PASSWORD: password,
+    MIERU_PORT: String(mieruPort),
+    MIERU_PROTOCOL: mieruProtocol,
+    MIERU_CONFIG: MIERU_CONFIG_PATH
+  }, (code) => {
+    if (code === 0) {
+      cfg.installed = true;
+      saveConfig(cfg);
+      sendLog(ws, '✅ Mieru готов!', 'done', 100, 'success');
+      ws.send(JSON.stringify({
+        type: 'install_done',
+        links: {
+          mieru: JSON.stringify(mieruClientConfig(username, password, cfg), null, 2)
+        }
+      }));
+    } else {
+      ws.send(JSON.stringify({ type: 'install_error', message: `Mieru failed: ${code}` }));
+    }
+  });
+}
+
 function handleInstallBoth(ws, data) {
   const { domain, email, naiveLogin, naivePassword, hy2Password } = data;
   if (!isValidDomain(domain)) return ws.send(JSON.stringify({ type: 'install_error', message: 'Неверный домен' }));
@@ -1476,16 +1749,18 @@ async function expireChecker() {
     // Сигнатура «кто истёк» — чтобы не релоадить без причины
     const sig = JSON.stringify([
       (cfg.naiveUsers || []).filter(isExpired).map(u => u.username).sort(),
-      (cfg.hy2Users   || []).filter(isExpired).map(u => u.username).sort()
+      (cfg.hy2Users   || []).filter(isExpired).map(u => u.username).sort(),
+      (cfg.mieruUsers || []).filter(isExpired).map(u => u.username).sort()
     ]);
     if (sig === _lastExpireSig) return;
     _lastExpireSig = sig;
 
     const naiveExpired = (cfg.naiveUsers || []).filter(isExpired).length;
     const hy2Expired   = (cfg.hy2Users   || []).filter(isExpired).length;
-    if (naiveExpired === 0 && hy2Expired === 0) return;
+    const mieruExpired = (cfg.mieruUsers || []).filter(isExpired).length;
+    if (naiveExpired === 0 && hy2Expired === 0 && mieruExpired === 0) return;
 
-    console.log(`[expire-check] naive=${naiveExpired} hy2=${hy2Expired} — обновляю конфиги`);
+    console.log(`[expire-check] naive=${naiveExpired} hy2=${hy2Expired} mieru=${mieruExpired} — обновляю конфиги`);
     if (cfg.stack.naive && naiveExpired > 0) {
       writeCaddyfile(cfg);
       await reloadCaddy();
@@ -1493,6 +1768,9 @@ async function expireChecker() {
     if (cfg.stack.hy2 && hy2Expired > 0) {
       writeHysteriaConfig(cfg);
       await reloadHysteria();
+    }
+    if (cfg.stack.mieru && mieruExpired > 0) {
+      await applyMieruConfig(cfg);
     }
   } catch (e) {
     console.error('[expire-check] error:', e.message);

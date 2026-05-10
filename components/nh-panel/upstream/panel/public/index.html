@@ -38,8 +38,8 @@
         </div>
       </div>
       <div>
-        <div class="logo-title">Naive + Hy2</div>
-        <div class="logo-sub">NHM Panel</div>
+        <div class="logo-title">NHM Panel</div>
+        <div class="logo-sub">Naive + Hy2 + Mieru</div>
       </div>
     </div>
     <h2 class="login-heading">Добро пожаловать</h2>
@@ -92,8 +92,8 @@
         </div>
       </div>
       <div>
-        <div class="sidebar-title">Naive + Hy2</div>
-        <div class="sidebar-sub">NHM Panel</div>
+        <div class="sidebar-title">NHM Panel</div>
+        <div class="sidebar-sub">Naive + Hy2 + Mieru</div>
       </div>
     </div>
 
@@ -286,6 +286,42 @@
                 </button>
               </div>
             </div>
+        </div>
+      </div>
+
+        <!-- Mieru -->
+        <div class="card service-card" id="mieruCard">
+          <div class="card-header">
+            <div class="card-title-wrap">
+              <div class="service-icon mieru">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg>
+              </div>
+              <div>
+                <h3 class="card-title">Mieru</h3>
+                <div class="card-subtitle" id="mieruPortInfo">TCP/— • mita</div>
+              </div>
+            </div>
+            <div class="service-status" id="mieruStatusBadge"><span class="dot dot-gray"></span> —</div>
+          </div>
+          <div class="card-body">
+            <div class="not-installed-msg" id="mieruNotInstalled">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <p>Mieru ещё не установлен</p>
+              <button class="btn btn-shiny" onclick="goToPage('install'); setTimeout(() => switchInstallTab('mieru'), 50)">Установить</button>
+            </div>
+            <div class="service-installed hidden" id="mieruInstalled">
+              <div class="service-stats">
+                <div class="service-stat">
+                  <div class="service-stat-label">Пользователей</div>
+                  <div class="service-stat-val" id="mieruUsersCount">0</div>
+                </div>
+              </div>
+              <div class="service-btns">
+                <button class="btn btn-success btn-sm" onclick="serviceAction('mieru', 'start')">Старт</button>
+                <button class="btn btn-warning btn-sm" onclick="serviceAction('mieru', 'restart')">Рестарт</button>
+                <button class="btn btn-danger btn-sm" onclick="serviceAction('mieru', 'stop')">Стоп</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -319,6 +355,10 @@
         <button class="tab-btn" data-tab="hy2" onclick="switchInstallTab('hy2')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           Hysteria2
+        </button>
+        <button class="tab-btn" data-tab="mieru" onclick="switchInstallTab('mieru')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 12h8M12 8v8"/></svg>
+          Mieru
         </button>
         <button class="tab-btn" data-tab="both" onclick="switchInstallTab('both')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 6 6 1-4.5 4.5 1 6.5L12 17l-5.5 3 1-6.5L3 9l6-1z"/></svg>
@@ -406,6 +446,46 @@
               </div>
             </div>
 
+            <!-- Mieru-специфичные поля -->
+            <div id="mieruFields" class="form-grid hidden">
+              <div class="form-group">
+                <label class="form-label">
+                  Логин Mieru
+                  <span class="form-hint">Пользователь mita</span>
+                </label>
+                <input type="text" id="installMieruLogin" class="form-input" placeholder="mieruuser">
+              </div>
+              <div class="form-group">
+                <label class="form-label">
+                  Пароль Mieru
+                  <span class="form-hint">Минимум 8 символов</span>
+                </label>
+                <div class="input-group">
+                  <input type="text" id="installMieruPassword" class="form-input" placeholder="Будет сгенерирован">
+                  <button type="button" class="btn btn-outline btn-gen" onclick="genPwdInto('installMieruPassword')" title="Сгенерировать">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="4"/><circle cx="8" cy="8" r="1.5" fill="currentColor" stroke="none"/><circle cx="16" cy="8" r="1.5" fill="currentColor" stroke="none"/><circle cx="8" cy="16" r="1.5" fill="currentColor" stroke="none"/><circle cx="16" cy="16" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">
+                  Порт Mieru
+                  <span class="form-hint">Откроется отдельно, 1025..65535</span>
+                </label>
+                <input type="number" id="installMieruPort" class="form-input" min="1025" max="65535" placeholder="30000">
+              </div>
+              <div class="form-group">
+                <label class="form-label">
+                  Транспорт
+                  <span class="form-hint">TCP обычно быстрее и проще</span>
+                </label>
+                <select id="installMieruProtocol" class="form-input">
+                  <option value="TCP" selected>TCP</option>
+                  <option value="UDP">UDP</option>
+                </select>
+              </div>
+            </div>
+
             <div class="install-note" id="installNote">
               <strong>ℹ NaiveProxy</strong> — TCP на 443 порту. Маскируется под обычный HTTPS-сайт.
             </div>
@@ -478,6 +558,10 @@
         <button class="tab-btn" data-utab="hy2" onclick="switchUsersTab('hy2')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           Hysteria2 <span class="tab-count" id="hy2TabCount">0</span>
+        </button>
+        <button class="tab-btn" data-utab="mieru" onclick="switchUsersTab('mieru')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 12h8M12 8v8"/></svg>
+          Mieru <span class="tab-count" id="mieruTabCount">0</span>
         </button>
       </div>
 
@@ -846,7 +930,7 @@
             <div class="info-rows">
               <div class="info-row"><span class="info-key">Версия</span><span class="info-val">1.0.0</span></div>
               <div class="info-row"><span class="info-key">Панель</span><span class="info-val">NHM Panel</span></div>
-              <div class="info-row"><span class="info-key">Стек</span><span class="info-val">Node.js + Caddy + Hysteria2</span></div>
+              <div class="info-row"><span class="info-key">Стек</span><span class="info-val">Node.js + Caddy + Hysteria2 + Mieru</span></div>
               <div class="info-row"><span class="info-key">GitHub</span><a href="https://github.com/cwash797-cmd" target="_blank" class="info-val link">cwash797-cmd</a></div>
             </div>
             <div class="support-btns">
@@ -914,7 +998,8 @@
             </div>
             <div class="client-note">
               Naive: <code>naive+https://LOGIN:PASS@domain.com:443</code><br>
-              Hy2: <code>hysteria2://PASS@domain.com:443?sni=domain.com</code>
+              Hy2: <code>hysteria2://PASS@domain.com:443?sni=domain.com</code><br>
+              Mieru: <code>client_config.json</code>
             </div>
           </div>
         </div>

@@ -6,11 +6,11 @@
 
 // ─── STATE ───────────────────────────────────────────────
 let currentPage      = 'dashboard';
-let currentInstallTab = 'naive';   // naive | hy2 | both
-let currentUsersTab   = 'naive';   // naive | hy2
+let currentInstallTab = 'naive';   // naive | hy2 | mieru | both
+let currentUsersTab   = 'naive';   // naive | hy2 | mieru
 let ws = null;
 let installRunning = false;
-let deleteUserTarget = null;       // { kind: 'naive'|'hy2', username }
+let deleteUserTarget = null;       // { kind: 'naive'|'hy2'|'mieru', username }
 let currentStatus = null;
 
 // ─── INIT ─────────────────────────────────────────────────
@@ -39,6 +39,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Prefill passwords on install page
   genPwdInto('installNaivePassword');
   genPwdInto('installHy2Password');
+  genPwdInto('installMieruPassword');
+  const mieruPort = document.getElementById('installMieruPort');
+  if (mieruPort && !mieruPort.value) mieruPort.value = String(25000 + Math.floor(Math.random() * 25000));
 });
 
 // ─── AUTH ────────────────────────────────────────────────
@@ -216,7 +219,7 @@ async function loadDashboard() {
     document.getElementById('serverDomain').textContent = data.domain || '—';
     document.getElementById('serverIp').textContent = data.serverIp || '—';
     document.getElementById('serverArch').textContent = data.arch || '—';
-    const total = (data.naive?.usersCount || 0) + (data.hy2?.usersCount || 0);
+    const total = (data.naive?.usersCount || 0) + (data.hy2?.usersCount || 0) + (data.mieru?.usersCount || 0);
     document.getElementById('totalUsers').textContent = total;
 
     // NaiveProxy карточка
@@ -243,6 +246,19 @@ async function loadDashboard() {
       setStatusBadge('hy2StatusBadge', null);
     }
 
+    // Mieru карточка
+    if (data.stack?.mieru) {
+      document.getElementById('mieruNotInstalled').classList.add('hidden');
+      document.getElementById('mieruInstalled').classList.remove('hidden');
+      document.getElementById('mieruUsersCount').textContent = data.mieru.usersCount || 0;
+      document.getElementById('mieruPortInfo').textContent = `${data.mieru.protocol || 'TCP'}/${data.mieru.port || '—'}`;
+      setStatusBadge('mieruStatusBadge', data.mieru.active);
+    } else {
+      document.getElementById('mieruNotInstalled').classList.remove('hidden');
+      document.getElementById('mieruInstalled').classList.add('hidden');
+      setStatusBadge('mieruStatusBadge', null);
+    }
+
     // Quick links
     await renderQuickLinks(data);
 
@@ -266,7 +282,7 @@ async function renderQuickLinks(status) {
   const emptyEl = document.getElementById('quickLinksEmpty');
   const listEl = document.getElementById('quickLinksList');
 
-  if (!status.installed || !status.domain) {
+  if (!status.installed) {
     emptyEl.classList.remove('hidden');
     listEl.classList.add('hidden');
     listEl.innerHTML = '';
@@ -277,7 +293,7 @@ async function renderQuickLinks(status) {
   let hasAny = false;
 
   // Naive ссылки
-  if (status.stack.naive) {
+  if (status.stack.naive && status.domain) {
     try {
       const r = await fetch('/api/naive/users');
       const { users } = await r.json();
@@ -296,7 +312,7 @@ async function renderQuickLinks(status) {
   }
 
   // Hy2 ссылки
-  if (status.stack.hy2) {
+  if (status.stack.hy2 && status.domain) {
     try {
       const r = await fetch('/api/hy2/users');
       const { users } = await r.json();
@@ -315,6 +331,27 @@ async function renderQuickLinks(status) {
     } catch {}
   }
 
+  // Mieru config snippets
+  if (status.stack.mieru) {
+    try {
+      const r = await fetch('/api/mieru/users');
+      const { users } = await r.json();
+      for (const u of users.slice(0, 3)) {
+        const cfgRes = await fetch(`/api/mieru/client-config/${encodeURIComponent(u.username)}`);
+        const cfg = await cfgRes.json();
+        const link = JSON.stringify(cfg.clientConfig, null, 2);
+        hasAny = true;
+        listEl.innerHTML += `
+          <div class="quick-link-item">
+            <span class="ql-type mieru-tag">Mieru</span>
+            <span class="ql-user">${escapeHtml(u.username)}</span>
+            <span class="ql-url">client_config.json • ${escapeHtml(status.mieru?.protocol || 'TCP')}/${escapeHtml(status.mieru?.port || '')}</span>
+            <button class="quick-link-copy" data-copy="${escapeHtml(link)}">Копировать JSON</button>
+          </div>`;
+      }
+    } catch {}
+  }
+
   if (hasAny) {
     emptyEl.classList.add('hidden');
     listEl.classList.remove('hidden');
@@ -325,8 +362,8 @@ async function renderQuickLinks(status) {
 }
 
 async function serviceAction(kind, action) {
-  const label = kind === 'naive' ? 'Caddy' : 'Hysteria2';
-  const badgeId = kind === 'naive' ? 'naiveStatusBadge' : 'hy2StatusBadge';
+  const label = kind === 'naive' ? 'Caddy' : kind === 'hy2' ? 'Hysteria2' : 'Mieru';
+  const badgeId = kind === 'naive' ? 'naiveStatusBadge' : kind === 'hy2' ? 'hy2StatusBadge' : 'mieruStatusBadge';
   showToast(`${label}: ${action}...`, 'info');
   try {
     const res = await fetch(`/api/service/${kind}/${action}`, { method: 'POST' });
@@ -352,22 +389,32 @@ function switchInstallTab(tab) {
 
   const naiveFields = document.getElementById('naiveFields');
   const hy2Fields = document.getElementById('hy2Fields');
+  const mieruFields = document.getElementById('mieruFields');
   const title = document.getElementById('installFormTitle');
   const note = document.getElementById('installNote');
 
   if (tab === 'naive') {
     naiveFields.classList.remove('hidden');
     hy2Fields.classList.add('hidden');
+    mieruFields.classList.add('hidden');
     title.textContent = 'Параметры NaiveProxy';
     note.innerHTML = '<strong>ℹ NaiveProxy</strong> — TCP/443, HTTP/2 forward proxy через Caddy. Маскируется под сайт.';
   } else if (tab === 'hy2') {
     naiveFields.classList.add('hidden');
     hy2Fields.classList.remove('hidden');
+    mieruFields.classList.add('hidden');
     title.textContent = 'Параметры Hysteria2';
     note.innerHTML = '<strong>⚡ Hysteria2</strong> — UDP/443, QUIC-based. Свой congestion control Brutal. Быстрый.';
+  } else if (tab === 'mieru') {
+    naiveFields.classList.add('hidden');
+    hy2Fields.classList.add('hidden');
+    mieruFields.classList.remove('hidden');
+    title.textContent = 'Параметры Mieru';
+    note.innerHTML = '<strong>🔭 Mieru</strong> — отдельный TCP/UDP порт, без TLS/SNI. Панель сгенерирует client_config.json и mihomo snippet.';
   } else { // both
     naiveFields.classList.remove('hidden');
     hy2Fields.classList.remove('hidden');
+    mieruFields.classList.add('hidden');
     title.textContent = 'NHM: Naive + Hysteria2 на одном сервере';
     note.innerHTML = '<strong>✨ Оба протокола</strong> на одном домене и порту 443 (TCP + UDP). Hy2 использует сертификат Caddy.';
   }
@@ -388,9 +435,11 @@ function startInstall() {
   const email = document.getElementById('installEmail').value.trim();
   const alertEl = document.getElementById('installAlert');
 
-  if (!domain || !email) { showAlert(alertEl, '❌ Заполните домен и email', 'error'); return; }
-  if (!domain.includes('.')) { showAlert(alertEl, '❌ Неверный домен', 'error'); return; }
-  if (!email.includes('@')) { showAlert(alertEl, '❌ Неверный email', 'error'); return; }
+  if (currentInstallTab !== 'mieru') {
+    if (!domain || !email) { showAlert(alertEl, '❌ Заполните домен и email', 'error'); return; }
+    if (!domain.includes('.')) { showAlert(alertEl, '❌ Неверный домен', 'error'); return; }
+    if (!email.includes('@')) { showAlert(alertEl, '❌ Неверный email', 'error'); return; }
+  }
 
   // Payload по табу
   let payload;
@@ -404,6 +453,17 @@ function startInstall() {
     const password = document.getElementById('installHy2Password').value.trim();
     if (password.length < 8) { showAlert(alertEl, '❌ Пароль Hy2 минимум 8 символов', 'error'); return; }
     payload = { type: 'install_hy2', domain, email, password, useCaddyCert: false };
+  } else if (currentInstallTab === 'mieru') {
+    const username = document.getElementById('installMieruLogin').value.trim();
+    const password = document.getElementById('installMieruPassword').value.trim();
+    const port = document.getElementById('installMieruPort').value.trim();
+    const protocol = document.getElementById('installMieruProtocol').value;
+    if (!username) { showAlert(alertEl, '❌ Введите логин Mieru', 'error'); return; }
+    if (password.length < 8) { showAlert(alertEl, '❌ Пароль Mieru минимум 8 символов', 'error'); return; }
+    if (!/^\d+$/.test(port) || Number(port) < 1025 || Number(port) > 65535) {
+      showAlert(alertEl, '❌ Порт Mieru должен быть 1025..65535', 'error'); return;
+    }
+    payload = { type: 'install_mieru', username, password, port: Number(port), protocol };
   } else {
     const naiveLogin = document.getElementById('installNaiveLogin').value.trim();
     const naivePassword = document.getElementById('installNaivePassword').value.trim();
@@ -514,6 +574,17 @@ function showInstallDone(links) {
         </button>
       </div>`;
   }
+  if (links.mieru) {
+    wrap.innerHTML += `
+      <div class="done-link-item">
+        <div class="done-link-label"><span class="ql-type mieru-tag">Mieru</span> client_config.json:</div>
+        <div class="done-link">${escapeHtml(links.mieru)}</div>
+        <button class="btn btn-outline btn-sm" data-copy="${escapeHtml(links.mieru)}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Копировать JSON
+        </button>
+      </div>`;
+  }
   document.getElementById('installDone').classList.remove('hidden');
   document.querySelectorAll('.install-step').forEach(s => { s.classList.remove('active'); s.classList.add('done'); });
   showToast('✅ Установка завершена!', 'success');
@@ -553,8 +624,10 @@ async function loadUsers() {
     try {
       const n = await (await fetch('/api/naive/users')).json();
       const h = await (await fetch('/api/hy2/users')).json();
+      const m = await (await fetch('/api/mieru/users')).json();
       document.getElementById('naiveTabCount').textContent = (n.users || []).length;
       document.getElementById('hy2TabCount').textContent = (h.users || []).length;
+      document.getElementById('mieruTabCount').textContent = (m.users || []).length;
     } catch {}
 
     if (!users || users.length === 0) {
@@ -568,11 +641,31 @@ async function loadUsers() {
     tbody.innerHTML = '';
 
     users.forEach((u, i) => {
-      const link = status.installed && status.domain
-        ? (currentUsersTab === 'naive'
-            ? `naive+https://${u.username}:${u.password}@${status.domain}:443`
-            : `hysteria2://${encodeURIComponent(u.username)}:${encodeURIComponent(u.password)}@${status.domain}:443?sni=${status.domain}&insecure=0#${encodeURIComponent(u.username)}`)
-        : '';
+      let link = '';
+      if (status.installed) {
+        if (currentUsersTab === 'naive' && status.domain) {
+          link = `naive+https://${u.username}:${u.password}@${status.domain}:443`;
+        } else if (currentUsersTab === 'hy2' && status.domain) {
+          link = `hysteria2://${encodeURIComponent(u.username)}:${encodeURIComponent(u.password)}@${status.domain}:443?sni=${status.domain}&insecure=0#${encodeURIComponent(u.username)}`;
+        } else if (currentUsersTab === 'mieru') {
+          const cfg = {
+            profiles: [{
+              profileName: u.username,
+              user: { name: u.username, password: u.password },
+              servers: [{
+                [status.domain ? 'domainName' : 'ipAddress']: status.domain || status.serverIp || 'SERVER_IP',
+                portBindings: [{ port: status.mieru?.port || 0, protocol: status.mieru?.protocol || 'TCP' }]
+              }],
+              mtu: 1400,
+              multiplexing: { level: 'MULTIPLEXING_LOW' }
+            }],
+            activeProfile: u.username,
+            socks5Port: 1080,
+            loggingLevel: 'INFO'
+          };
+          link = JSON.stringify(cfg, null, 2);
+        }
+      }
       const date = u.createdAt ? new Date(u.createdAt).toLocaleDateString('ru') : '—';
       const expireCell = formatExpireCell(u);
       const rowClass = u.expired ? 'row-expired' : '';
@@ -607,7 +700,7 @@ async function loadUsers() {
 function showAddUserModal() {
   const isHy2 = currentUsersTab === 'hy2';
   document.getElementById('addUserModalTitle').textContent =
-    isHy2 ? 'Добавить Hy2 пользователя' : 'Добавить Naive пользователя';
+    currentUsersTab === 'mieru' ? 'Добавить Mieru пользователя' : isHy2 ? 'Добавить Hy2 пользователя' : 'Добавить Naive пользователя';
   document.getElementById('newUserLogin').value = '';
   genPwdInto('newUserPassword');
   const exp = document.getElementById('newUserExpire');
@@ -665,7 +758,7 @@ function formatExpireCell(u) {
 let extendUserTarget = null;
 function showExtendModal(kind, username) {
   extendUserTarget = { kind, username };
-  document.getElementById('extendUserName').textContent = `${kind === 'naive' ? 'Naive' : 'Hy2'}: ${username}`;
+  document.getElementById('extendUserName').textContent = `${kind === 'naive' ? 'Naive' : kind === 'hy2' ? 'Hy2' : 'Mieru'}: ${username}`;
   // Подгрузим текущее значение expiresAt
   fetch(`/api/${kind}/users`).then(r => r.json()).then(({ users }) => {
     const u = (users || []).find(x => x.username === username);
@@ -705,7 +798,7 @@ async function confirmExtendUser() {
 
 function showDeleteModal(kind, username) {
   deleteUserTarget = { kind, username };
-  document.getElementById('deleteUserName').textContent = `${kind === 'naive' ? 'Naive' : 'Hy2'}: ${username}`;
+  document.getElementById('deleteUserName').textContent = `${kind === 'naive' ? 'Naive' : kind === 'hy2' ? 'Hy2' : 'Mieru'}: ${username}`;
   openModal('deleteUserModal');
 }
 

@@ -299,6 +299,7 @@ body {
 }
 .service-icon.naive { background: rgba(236,72,153,0.12); color: var(--naive); border: 1px solid rgba(236,72,153,0.25); }
 .service-icon.hy2   { background: rgba(251,113,133,0.12); color: var(--hy2);   border: 1px solid rgba(251,113,133,0.25); }
+.service-icon.mieru { background: rgba(56,189,248,0.12); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.25); }
 
 .service-status {
   display: inline-flex; align-items: center; gap: 7px;
@@ -383,7 +384,7 @@ body {
 /* ════════════════ ROWS ════════════════ */
 .cards-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 16px;
 }
@@ -443,6 +444,7 @@ body {
 }
 .naive-tag { background: rgba(236,72,153,0.18); color: #f9a8d4; border: 1px solid rgba(236,72,153,0.3); }
 .hy2-tag   { background: rgba(251,113,133,0.18); color: #fecdd3; border: 1px solid rgba(251,113,133,0.3); }
+.mieru-tag { background: rgba(56,189,248,0.18); color: #bae6fd; border: 1px solid rgba(56,189,248,0.3); }
 .ql-user { min-width: 90px; color: var(--text-primary); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ql-url { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .quick-link-copy {
