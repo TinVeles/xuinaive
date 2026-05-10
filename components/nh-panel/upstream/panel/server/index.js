@@ -120,6 +120,47 @@ function saveConfig(cfg) {
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
 }
 
+function syncNaiveUsersFromCaddyfile(cfg) {
+  if (!cfg || !cfg.stack || !cfg.stack.naive || !fs.existsSync(CADDYFILE_PATH)) return cfg;
+  let text = '';
+  try {
+    text = fs.readFileSync(CADDYFILE_PATH, 'utf8');
+  } catch {
+    return cfg;
+  }
+
+  const parsed = [];
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(/^\s*basic_auth\s+(\S+)\s+(\S+)/);
+    if (match) parsed.push({ username: match[1], password: match[2] });
+  }
+  if (!parsed.length) return cfg;
+
+  const existing = new Map((cfg.naiveUsers || []).map(u => [String(u.username || ''), u]));
+  let changed = !Array.isArray(cfg.naiveUsers) || cfg.naiveUsers.length !== parsed.length;
+  const now = new Date().toISOString();
+  const synced = parsed.map(u => {
+    const previous = existing.get(u.username) || {};
+    if (previous.password !== u.password) changed = true;
+    return {
+      ...previous,
+      username: u.username,
+      password: u.password,
+      createdAt: previous.createdAt || now
+    };
+  });
+
+  for (const old of cfg.naiveUsers || []) {
+    if (!parsed.find(u => u.username === old.username)) changed = true;
+  }
+
+  if (changed) {
+    cfg.naiveUsers = synced;
+    saveConfig(cfg);
+  }
+  return cfg;
+}
+
 function hy2Link(username, password, domain, name = username) {
   return `hysteria2://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${domain}:443?sni=${domain}&insecure=0#${encodeURIComponent(name)}`;
 }
@@ -509,7 +550,7 @@ function enrichUser(u) {
 }
 
 app.get('/api/naive/users', requireAuth, (req, res) => {
-  const cfg = loadConfig();
+  const cfg = syncNaiveUsersFromCaddyfile(loadConfig());
   res.json({ users: (cfg.naiveUsers || []).map(enrichUser) });
 });
 

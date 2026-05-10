@@ -207,6 +207,49 @@ nh_naive_password_from_caddy() {
   awk '/^[[:space:]]*basic_auth[[:space:]]/ { print $3; exit }' "$NH_CADDYFILE" 2>/dev/null || true
 }
 
+sync_nh_naive_config_from_caddy() {
+  is_root || return 0
+  [[ -f "$NH_CADDYFILE" && -f "$NH_CONFIG_JSON" ]] || return 0
+  CADDYFILE="$NH_CADDYFILE" CONFIG_JSON="$NH_CONFIG_JSON" node <<'NODE' >/dev/null 2>&1 || true
+const fs = require('fs');
+const caddyfile = process.env.CADDYFILE;
+const configJson = process.env.CONFIG_JSON;
+
+const text = fs.readFileSync(caddyfile, 'utf8');
+const users = [];
+for (const line of text.split(/\r?\n/)) {
+  const match = line.match(/^\s*basic_auth\s+(\S+)\s+(\S+)/);
+  if (match) users.push({ username: match[1], password: match[2] });
+}
+if (!users.length) process.exit(0);
+
+let cfg = {};
+try {
+  cfg = JSON.parse(fs.readFileSync(configJson, 'utf8'));
+} catch {
+  cfg = {};
+}
+
+const existing = new Map(
+  Array.isArray(cfg.naiveUsers)
+    ? cfg.naiveUsers.map(u => [String(u.username || ''), u])
+    : []
+);
+const now = new Date().toISOString();
+cfg.stack = cfg.stack || {};
+cfg.stack.naive = true;
+cfg.installed = cfg.installed !== false;
+cfg.naiveUsers = users.map(u => ({
+  ...(existing.get(u.username) || {}),
+  username: u.username,
+  password: u.password,
+  createdAt: (existing.get(u.username) || {}).createdAt || now
+}));
+
+fs.writeFileSync(configJson, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+NODE
+}
+
 persist_xui_access() {
   local file="/etc/x-ui/access-info.env"
   config_set_file "$file" XUI_DOMAIN "${XUI_DOMAIN:-}"
@@ -423,6 +466,7 @@ fi
 
 reset_xui_password_if_missing
 reset_nh_panel_password_if_missing
+sync_nh_naive_config_from_caddy
 persist_nh_naive_access
 ensure_nh_panel_nginx_proxy
 ensure_nh_naive_sni_route
