@@ -23,7 +23,15 @@ WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google}"
 XUI_WARP_EXTERNAL_PORT="${XUI_WARP_EXTERNAL_PORT:-8443}"
 XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
+XUI_VERSION="${XUI_VERSION:-}"
+XUI_TARBALL_SHA256="${XUI_TARBALL_SHA256:-}"
 Pak=$(type apt &>/dev/null && echo "apt" || echo "yum")
+
+verify_sha256_if_set() {
+  local file="$1" expected="$2"
+  [[ -n "$expected" ]] || return 0
+  echo "${expected}  ${file}" | sha256sum -c - >/dev/null
+}
 
 cleanup_existing() {
   systemctl stop x-ui 2>/dev/null || true
@@ -1624,7 +1632,11 @@ apt-get update && apt-get install -y -q wget curl tar tzdata
     
     # Download resources
     if [ $# == 0 ]; then
-        tag_version=$(curl -Ls "https://api.github.com/repos/MHSanaei/3x-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        if [[ -n "$XUI_VERSION" ]]; then
+            tag_version="$XUI_VERSION"
+        else
+            tag_version=$(curl -Ls "https://api.github.com/repos/MHSanaei/3x-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        fi
         if [[ ! -n "$tag_version" ]]; then
             echo -e "${yellow}Trying to fetch version with IPv4...${plain}"
             tag_version=$(curl -4 -Ls "https://api.github.com/repos/MHSanaei/3x-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
@@ -1637,6 +1649,10 @@ apt-get update && apt-get install -y -q wget curl tar tzdata
         wget -N -O /usr/local/x-ui-linux-$(arch).tar.gz https://github.com/MHSanaei/3x-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz
         if [[ $? -ne 0 ]]; then
             echo -e "${red}Downloading x-ui failed, please be sure that your server can access GitHub ${plain}"
+            exit 1
+        fi
+        if ! verify_sha256_if_set "/usr/local/x-ui-linux-$(arch).tar.gz" "$XUI_TARBALL_SHA256"; then
+            echo -e "${red}Downloaded x-ui archive SHA256 mismatch${plain}"
             exit 1
         fi
     else
@@ -1654,6 +1670,10 @@ apt-get update && apt-get install -y -q wget curl tar tzdata
         wget -N -O /usr/local/x-ui-linux-$(arch).tar.gz ${url}
         if [[ $? -ne 0 ]]; then
             echo -e "${red}Download x-ui $1 failed, please check if the version exists ${plain}"
+            exit 1
+        fi
+        if ! verify_sha256_if_set "/usr/local/x-ui-linux-$(arch).tar.gz" "$XUI_TARBALL_SHA256"; then
+            echo -e "${red}Downloaded x-ui archive SHA256 mismatch${plain}"
             exit 1
         fi
     fi

@@ -23,6 +23,12 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 3000;
+const TRUST_PROXY = process.env.TRUST_PROXY !== '0';
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+const SESSION_COOKIE_SECURE = process.env.SESSION_COOKIE_SECURE || 'auto';
 const CADDY_SERVICE = process.env.CADDY_SERVICE || 'caddy';
 const CADDY_BIN = process.env.CADDY_BIN || 'caddy';
 const CADDYFILE_PATH = process.env.CADDYFILE_PATH || '/etc/caddy/Caddyfile';
@@ -45,6 +51,8 @@ const SESSION_DIR = path.join(DATA_DIR, 'sessions');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true, mode: 0o700 });
+try { fs.chmodSync(DATA_DIR, 0o700); } catch {}
+try { fs.chmodSync(SESSION_DIR, 0o700); } catch {}
 
 // ─── Session secret (персистентный, генерится при первом запуске) ───
 let SESSION_SECRET;
@@ -70,10 +78,16 @@ function defaultConfig() {
   };
 }
 
+function writeJsonFile(file, data, mode = 0o600) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(data, null, 2), { mode });
+  try { fs.chmodSync(file, mode); } catch {}
+}
+
 function loadConfig() {
   if (!fs.existsSync(CONFIG_FILE)) {
     const cfg = defaultConfig();
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+    writeJsonFile(CONFIG_FILE, cfg);
     return cfg;
   }
   try {
@@ -84,7 +98,7 @@ function loadConfig() {
       raw.naiveUsers = raw.proxyUsers || raw.naiveUsers || [];
       raw.hy2Users = raw.hy2Users || [];
       delete raw.proxyUsers;
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2));
+      writeJsonFile(CONFIG_FILE, raw);
     }
     if (!Array.isArray(raw.naiveUsers)) raw.naiveUsers = [];
     if (!Array.isArray(raw.hy2Users)) raw.hy2Users = [];
@@ -101,7 +115,7 @@ function loadConfig() {
         if (m && m[1] && m[1] !== raw.domain && m[1].includes('.')) {
           raw.panelDomain = m[1];
           raw.panelEmail = m[2] || raw.email;
-          fs.writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2));
+          writeJsonFile(CONFIG_FILE, raw);
           console.log('[migrate] panelDomain восстановлен из Caddyfile:', raw.panelDomain);
         }
       } catch (_) { /* Caddyfile может отсутствовать — ничего страшного */ }
@@ -111,13 +125,13 @@ function loadConfig() {
   } catch (e) {
     console.error('config.json parse error, resetting:', e.message);
     const cfg = defaultConfig();
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+    writeJsonFile(CONFIG_FILE, cfg);
     return cfg;
   }
 }
 
 function saveConfig(cfg) {
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+  writeJsonFile(CONFIG_FILE, cfg);
 }
 
 function syncNaiveUsersFromCaddyfile(cfg) {
@@ -169,8 +183,9 @@ function loadUsers() {
   if (!fs.existsSync(USERS_FILE)) {
     const initialPassword = crypto.randomBytes(18).toString('base64url');
     const users = { admin: { password: bcrypt.hashSync(initialPassword, 10), role: 'admin' } };
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), { mode: 0o600 });
+    writeJsonFile(USERS_FILE, users);
     fs.writeFileSync(path.join(DATA_DIR, 'initial-admin.txt'), `admin:${initialPassword}\n`, { mode: 0o600 });
+    try { fs.chmodSync(path.join(DATA_DIR, 'initial-admin.txt'), 0o600); } catch {}
     console.warn('Initial admin password generated in data/initial-admin.txt');
     return users;
   }
@@ -178,14 +193,23 @@ function loadUsers() {
 }
 
 function saveUsers(users) {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), { mode: 0o600 });
+  writeJsonFile(USERS_FILE, users);
 }
 
 // ─── Middleware ─────────────────────────────────────────────
-app.use(cors({ origin: true, credentials: true }));
+if (TRUST_PROXY) app.set('trust proxy', 1);
+if (CORS_ORIGINS.length > 0) {
+  app.use(cors({
+    origin(origin, cb) {
+      if (!origin || CORS_ORIGINS.includes(origin)) return cb(null, true);
+      return cb(new Error('CORS origin denied'));
+    },
+    credentials: true
+  }));
+}
 app.use(bodyParser.json({ limit: '256kb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '256kb' }));
-app.use(session({
+const sessionMiddleware = session({
   name: 'nh_sid',
   store: new FileStore({
     path: SESSION_DIR,
@@ -197,12 +221,13 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false, // за Nginx-прокси http — cookie передаётся ок
+    secure: SESSION_COOKIE_SECURE === '1' ? true : SESSION_COOKIE_SECURE === '0' ? false : 'auto',
     httpOnly: true,
     sameSite: 'lax',
     maxAge: 24 * 60 * 60 * 1000
   }
-}));
+});
+app.use(sessionMiddleware);
 app.use(express.static(path.join(__dirname, '../public')));
 
 function requireAuth(req, res, next) {
@@ -225,6 +250,54 @@ function isValidUsername(s) {
 function isValidPassword(s) {
   return typeof s === 'string' && s.length >= 8 && s.length <= 128
     && /^[A-Za-z0-9!@#$%^&*_+\-=.,~]+$/.test(s);
+}
+function isSafeMasqueradeUrl(s) {
+  if (typeof s !== 'string' || /\s/.test(s) || s.length > 2048) return false;
+  try {
+    const u = new URL(s);
+    return (u.protocol === 'http:' || u.protocol === 'https:')
+      && !!u.hostname
+      && !u.username
+      && !u.password;
+  } catch {
+    return false;
+  }
+}
+function findFileByName(root, filename, maxDepth = 8) {
+  const stack = [{ dir: root, depth: 0 }];
+  while (stack.length) {
+    const item = stack.pop();
+    if (!item || item.depth > maxDepth) continue;
+    let entries = [];
+    try {
+      entries = fs.readdirSync(item.dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(item.dir, entry.name);
+      if (entry.isFile() && entry.name === filename) return full;
+      if (entry.isDirectory()) stack.push({ dir: full, depth: item.depth + 1 });
+    }
+  }
+  return null;
+}
+function findCaddyCertPair(domain) {
+  if (!isValidDomain(domain)) return null;
+  const roots = [
+    '/var/lib/caddy/.local/share/caddy/certificates',
+    '/root/.local/share/caddy/certificates'
+  ];
+  for (const root of roots) {
+    if (!fs.existsSync(root)) continue;
+    const cert = findFileByName(root, `${domain}.crt`);
+    if (!cert) continue;
+    const key = cert.replace(/\.crt$/, '.key');
+    if (fs.existsSync(key)) {
+      return { cert, key, ca: path.basename(path.dirname(path.dirname(cert))) };
+    }
+  }
+  return null;
 }
 
 // Срок действия пользователя: 0 = бессрочно, иначе число дней (1..3650)
@@ -425,7 +498,7 @@ function writeCaddyfile(cfg) {
 
   // Маскировка: local → file_server, mirror → reverse_proxy <url>.
   // Если masqueradeMode не задан (старая установка) — оставляем file_server (дефолт).
-  const masqueradeBlock = (cfg.masqueradeMode === 'mirror' && cfg.masqueradeUrl)
+  const masqueradeBlock = (cfg.masqueradeMode === 'mirror' && isSafeMasqueradeUrl(cfg.masqueradeUrl))
     ? `  reverse_proxy ${cfg.masqueradeUrl} {
     header_up Host {upstream_hostport}
   }`
@@ -531,13 +604,16 @@ ${cfg.panelDomain} {
 }
 
 function reloadCaddy() {
-  return new Promise((resolve) => {
-    const p = spawn('bash', ['-c',
-      `${CADDY_BIN} reload --config ${CADDYFILE_PATH} 2>/dev/null || systemctl reload ${CADDY_SERVICE} 2>/dev/null || systemctl restart ${CADDY_SERVICE} 2>/dev/null`
-    ]);
+  const run = (cmd, args) => new Promise((resolve) => {
+    const p = spawn(cmd, args);
     p.on('close', (code) => resolve(code === 0));
     p.on('error', () => resolve(false));
   });
+  return (async () => {
+    if (await run(CADDY_BIN, ['reload', '--config', CADDYFILE_PATH])) return true;
+    if (await run('systemctl', ['reload', CADDY_SERVICE])) return true;
+    return run('systemctl', ['restart', CADDY_SERVICE]);
+  })();
 }
 
 function enrichUser(u) {
@@ -651,7 +727,7 @@ function loadBypass() {
   }
 }
 function saveBypass(b) {
-  fs.writeFileSync(BYPASS_FILE, JSON.stringify(b, null, 2));
+  writeJsonFile(BYPASS_FILE, b);
 }
 
 // Применяет ACL bypass к переданному Hysteria-конфигу (in-place).
@@ -774,7 +850,7 @@ function writeHysteriaConfig(cfg) {
     // Masquerade: переписываем секцию ТОЛЬКО если в config.json явно задан режим.
     // Если masqueradeMode не указан (старая установка) — masquerade не трогаем,
     // чтобы не сломать существующую конфигурацию.
-    if (cfg.masqueradeMode === 'mirror' && cfg.masqueradeUrl) {
+    if (cfg.masqueradeMode === 'mirror' && isSafeMasqueradeUrl(cfg.masqueradeUrl)) {
       base.masquerade = {
         type: 'proxy',
         proxy: { url: cfg.masqueradeUrl, rewriteHost: true }
@@ -801,13 +877,9 @@ function writeHysteriaConfig(cfg) {
       ];
       for (const root of roots) {
         if (!fs.existsSync(root)) continue;
-        // find <root> -type f -name "<domain>.crt"
-        const result = require('child_process').execSync(
-          `find "${root}" -type f -name "${cfg.domain}.crt" 2>/dev/null | head -1`,
-          { encoding: 'utf8' }
-        ).trim();
-        if (result && fs.existsSync(result) && fs.existsSync(result.replace(/\.crt$/, '.key'))) {
-          tlsBlock = { cert: result, key: result.replace(/\.crt$/, '.key') };
+        const pair = findCaddyCertPair(cfg.domain);
+        if (pair) {
+          tlsBlock = { cert: pair.cert, key: pair.key };
           console.log('[writeHysteriaConfig] Found Caddy cert:', tlsBlock.cert);
           break;
         }
@@ -815,7 +887,7 @@ function writeHysteriaConfig(cfg) {
     } catch (e) { /* ignore */ }
 
     // Masquerade: учитываем выбор пользователя (по умолчанию — local).
-    const masqueradeBlock = (cfg.masqueradeMode === 'mirror' && cfg.masqueradeUrl)
+    const masqueradeBlock = (cfg.masqueradeMode === 'mirror' && isSafeMasqueradeUrl(cfg.masqueradeUrl))
       ? { type: 'proxy', proxy: { url: cfg.masqueradeUrl, rewriteHost: true } }
       : { type: 'file', file: { dir: '/var/www/html' } };
 
@@ -1057,30 +1129,10 @@ app.post('/api/diag/fix-hy2-tls', requireAuth, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Домен не задан в config' });
     }
 
-    // Ищем cert по всем возможным путям и CA
-    const roots = [
-      '/var/lib/caddy/.local/share/caddy/certificates',
-      '/root/.local/share/caddy/certificates'
-    ];
-    let certPath = null, keyPath = null, ca = null;
-    for (const root of roots) {
-      if (!fs.existsSync(root)) continue;
-      try {
-        const result = require('child_process').execSync(
-          `find "${root}" -type f -name "${domain}.crt" 2>/dev/null | head -1`,
-          { encoding: 'utf8' }
-        ).trim();
-        if (result && fs.existsSync(result)) {
-          const k = result.replace(/\.crt$/, '.key');
-          if (fs.existsSync(k)) {
-            certPath = result;
-            keyPath = k;
-            ca = path.basename(path.dirname(path.dirname(result)));
-            break;
-          }
-        }
-      } catch (e) { /* ignore find errors */ }
-    }
+    const certPair = findCaddyCertPair(domain);
+    const certPath = certPair && certPair.cert;
+    const keyPath = certPair && certPair.key;
+    const ca = certPair && certPair.ca;
 
     if (!certPath) {
       return res.status(404).json({
@@ -1090,14 +1142,10 @@ app.post('/api/diag/fix-hy2-tls', requireAuth, async (req, res) => {
       });
     }
 
-    // Ставим права чтоб Hy2 мог читать
+    // Ставим права на сами файлы; рекурсивно открывать директории сертификатов нельзя.
     try {
-      require('child_process').execSync(
-        `chmod -R 755 "${path.dirname(path.dirname(path.dirname(certPath)))}" 2>/dev/null; ` +
-        `chmod 644 "${certPath}" 2>/dev/null; ` +
-        `chmod 640 "${keyPath}" 2>/dev/null`,
-        { encoding: 'utf8' }
-      );
+      fs.chmodSync(certPath, 0o644);
+      fs.chmodSync(keyPath, 0o640);
     } catch {}
 
     // Читаем config.yaml
@@ -1190,23 +1238,29 @@ app.post('/api/tuning/apply', requireAuth, (req, res) => {
 //  INSTALL VIA WEBSOCKET
 // ═══════════════════════════════════════════════════════════
 wss.on('connection', (ws, req) => {
-  // Минимальная защита: проверим session cookie
-  const cookie = (req.headers.cookie || '');
-  if (!cookie.includes('nh_sid=')) {
-    ws.send(JSON.stringify({ type: 'error', message: 'unauthorized' }));
-    ws.close();
-    return;
-  }
-
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message);
-      if (data.type === 'install_naive') return handleInstallNaive(ws, data);
-      if (data.type === 'install_hy2')   return handleInstallHy2(ws, data);
-      if (data.type === 'install_both')  return handleInstallBoth(ws, data);
-    } catch (e) {
-      ws.send(JSON.stringify({ type: 'error', message: 'bad message' }));
+  const wsRes = {
+    getHeader() { return undefined; },
+    setHeader() {},
+    writeHead() {},
+    end() {}
+  };
+  sessionMiddleware(req, wsRes, (err) => {
+    if (err || !req.session || !req.session.authenticated) {
+      ws.send(JSON.stringify({ type: 'error', message: 'unauthorized' }));
+      ws.close();
+      return;
     }
+
+    ws.on('message', (message) => {
+      try {
+        const data = JSON.parse(message);
+        if (data.type === 'install_naive') return handleInstallNaive(ws, data);
+        if (data.type === 'install_hy2')   return handleInstallHy2(ws, data);
+        if (data.type === 'install_both')  return handleInstallBoth(ws, data);
+      } catch (e) {
+        ws.send(JSON.stringify({ type: 'error', message: 'bad message' }));
+      }
+    });
   });
 });
 

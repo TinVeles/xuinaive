@@ -165,6 +165,25 @@ random_alnum() {
   printf '%s\n' "$value"
 }
 
+is_valid_domain() {
+  [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ && ${#1} -le 253 ]]
+}
+
+is_valid_email() {
+  [[ "$1" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ && ${#1} -le 254 ]]
+}
+
+is_valid_port() {
+  [[ "$1" =~ ^[0-9]+$ && "$1" -ge 1 && "$1" -le 65535 ]]
+}
+
+is_valid_hostport() {
+  local host="${1%:*}" port="${1##*:}"
+  [[ -n "$host" && "$host" != "$1" ]] || return 1
+  [[ "$host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$|^localhost$|^[A-Za-z0-9_.-]+$ ]] || return 1
+  is_valid_port "$port"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain) DOMAIN="${2:-}"; shift 2 ;;
@@ -186,6 +205,12 @@ done
 [[ -n "$DOMAIN" ]] || die "--domain is required"
 [[ -n "$EMAIL" ]] || die "--email is required"
 [[ -d "$UPSTREAM_DIR/panel" ]] || die "Missing vendored N+H panel: $UPSTREAM_DIR/panel"
+is_valid_domain "$DOMAIN" || die "--domain is invalid: $DOMAIN"
+is_valid_email "$EMAIL" || die "--email is invalid: $EMAIL"
+[[ -z "$PANEL_DOMAIN" ]] || is_valid_domain "$PANEL_DOMAIN" || die "--panel-domain is invalid: $PANEL_DOMAIN"
+is_valid_port "$PANEL_PUBLIC_PORT" || die "--panel-public-port must be 1..65535"
+is_valid_hostport "$CADDY_LISTEN" || die "--listen must be safe host:port"
+[[ "$LISTEN_HOST" =~ ^(127\.0\.0\.1|0\.0\.0\.0|localhost)$ ]] || die "--panel-listen-host must be 127.0.0.1, 0.0.0.0, or localhost"
 if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
   [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
   [[ -f "$TLS_KEY" ]] || die "--tls-key file not found: $TLS_KEY"
@@ -474,7 +499,6 @@ EOF
 
 if [[ -n "$CADDY_CERT" ]]; then
   CADDY_KEY="${CADDY_KEY:-${CADDY_CERT%.crt}.key}"
-  chmod -R 755 "$(dirname "$(dirname "$(dirname "$CADDY_CERT")")")" 2>/dev/null || true
   chmod 644 "$CADDY_CERT" 2>/dev/null || true
   chmod 640 "$CADDY_KEY" 2>/dev/null || true
   cat >> /etc/hysteria/config.yaml <<EOF
@@ -542,7 +566,11 @@ mkdir -p "$PANEL_DIR"
 cp -a "$UPSTREAM_DIR/." "$PANEL_DIR/"
 [[ -d "$PANEL_DIR" ]] || die "ERROR: $PANEL_DIR was not created"
 cd "$PANEL_DIR/panel"
-npm install --omit=dev
+if [[ -f package-lock.json ]]; then
+  npm ci --omit=dev
+else
+  npm install --omit=dev
+fi
 mkdir -p "$PANEL_DIR/panel/data"
 PANEL_LOGIN="$PANEL_LOGIN" PANEL_PASSWORD="$PANEL_PASSWORD" node <<'NODE'
 const fs = require('fs');
@@ -606,6 +634,9 @@ Environment=CADDY_LISTENER_SERVER=${CADDY_HOST}:${CADDY_PORT}
 Environment=CADDY_PROXY_PROTOCOL=1
 Environment=CADDY_TLS_CERT=${TLS_CERT}
 Environment=CADDY_TLS_KEY=${TLS_KEY}
+Environment=TRUST_PROXY=1
+Environment=SESSION_COOKIE_SECURE=auto
+UMask=0077
 ExecStart=/usr/bin/node server/index.js
 Restart=always
 RestartSec=5
@@ -693,6 +724,7 @@ NH_HY2_USER="default"
 NH_HY2_PASSWORD="${HY2_PASS}"
 NH_HY2_LINK="hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#N+H"
 EOF
+chmod 600 "$PROJECT_DIR/config.env"
 ok "Saved N+H configuration: $PROJECT_DIR/config.env"
 
 service_state() {

@@ -66,12 +66,14 @@ run() {
   fi
 }
 
-run_shell() {
+write_file() {
+  local path="$1"
+  local content="$2"
   if [[ "$APPLY" -eq 1 ]]; then
-    printf '+ %s\n' "$*"
-    bash -c "$*"
+    printf '+ write %s\n' "$path"
+    printf '%s\n' "$content" > "$path"
   else
-    printf '[dry-run] %s\n' "$*"
+    printf '[dry-run] write %s\n' "$path"
   fi
 }
 
@@ -188,15 +190,13 @@ fi
 
 if [[ "$INSTALL_FAIL2BAN" -eq 1 ]]; then
   run mkdir -p /etc/fail2ban/jail.d
-  run_shell "cat > /etc/fail2ban/jail.d/unified-proxy-manager.local <<'EOF'
-[sshd]
+  write_file /etc/fail2ban/jail.d/unified-proxy-manager.local "[sshd]
 enabled = true
 port = ${SSH_PORT}
 backend = systemd
 maxretry = 4
 findtime = 10m
-bantime = 1h
-EOF"
+bantime = 1h"
   run systemctl enable fail2ban
   run systemctl restart fail2ban
 fi
@@ -217,10 +217,8 @@ if [[ "$SSH_DISABLE_PASSWORD" -eq 1 || "$SSH_DISABLE_ROOT" -eq 1 ]]; then
     ssh_password_lines=$'PasswordAuthentication no\nKbdInteractiveAuthentication no\nChallengeResponseAuthentication no'
     [[ "$SSH_DISABLE_ROOT" -eq 0 ]] && ssh_root_line="PermitRootLogin prohibit-password"
   fi
-  run_shell "cat > /etc/ssh/sshd_config.d/99-unified-hardening.conf <<'EOF'
-${ssh_password_lines}
-${ssh_root_line}
-EOF"
+  write_file /etc/ssh/sshd_config.d/99-unified-hardening.conf "${ssh_password_lines}
+${ssh_root_line}"
   if [[ "$APPLY" -eq 1 ]]; then
     sshd -t || die "sshd config validation failed; backup is in $backup_dir"
   else
@@ -234,7 +232,7 @@ if [[ "$ENABLE_PROBE_RESISTANCE" -eq 1 ]]; then
     if grep -q 'probe_resistance' /etc/caddy-nh/Caddyfile; then
       ok "probe_resistance is already present in /etc/caddy-nh/Caddyfile"
     else
-      run_shell "sed -i '/hide_via/a\\    probe_resistance' /etc/caddy-nh/Caddyfile"
+      run sed -i '/hide_via/a\    probe_resistance' /etc/caddy-nh/Caddyfile
       if [[ "$APPLY" -eq 1 ]]; then
         /usr/bin/caddy-nh validate --config /etc/caddy-nh/Caddyfile || die "Caddyfile validation failed after probe_resistance change"
       else

@@ -19,10 +19,34 @@ WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_SNIPPET_FILE="${WARP_SNIPPET_FILE:-/etc/x-ui/warp-xray-snippets.json}"
 
+load_config_env() {
+  local file="$1" line key value
+  [[ -f "$file" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" == *"="* ]] || continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    case "$value" in
+      \"*\") value="${value:1:${#value}-2}"; value="${value//\\\"/\"}"; value="${value//\\\\/\\}" ;;
+      \'*\') value="${value:1:${#value}-2}" ;;
+    esac
+    case "$key" in
+      XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_EMAIL|NH_PROXY_EMAIL|NH_PANEL_PORT|NH_BACKEND_LISTEN|NH_TLS_CERT|NH_TLS_KEY|WARP_ENABLED|WARP_PROXY_HOST|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_SNIPPET_FILE)
+        printf -v "$key" '%s' "$value"
+        ;;
+    esac
+  done < "$file"
+}
+
 if [[ -f "$SCRIPT_DIR/config.env" ]]; then
-  # shellcheck disable=SC1090
-  source "$SCRIPT_DIR/config.env"
+  load_config_env "$SCRIPT_DIR/config.env"
 fi
+NH_PROXY_DOMAIN="${NH_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
+NH_PANEL_DOMAIN="${NH_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
+NH_EMAIL="${NH_EMAIL:-${NH_PROXY_EMAIL:-}}"
 
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 

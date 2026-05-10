@@ -241,8 +241,7 @@ PYEOF
 #   3) systemctl restart hysteria-server
 HYNOTLSEOF
   else
-    # Разрешаем hysteria читать файлы Caddy
-    chmod -R 755 "$(dirname "$CADDY_CERT_DIR")" 2>/dev/null || true
+    # Разрешаем hysteria читать сами файлы сертификата, не открывая рекурсивно весь cert storage.
     chmod 644 "${CADDY_CERT_DIR}/${DOMAIN}.crt" 2>/dev/null || true
     chmod 640 "${CADDY_CERT_DIR}/${DOMAIN}.key" 2>/dev/null || true
 

@@ -424,8 +424,8 @@ ensure_nh_naive_sni_route() {
   is_root || return 0
   [[ -f "$stream_conf" && -f "$patch_script" ]] || return 0
 
-  if grep -Eq "^[[:space:]]*${domain}[[:space:]]+nh_naive;" "$stream_conf" 2>/dev/null \
-     && grep -Eq "^[[:space:]]*server[[:space:]]+${backend//./\\.};" "$stream_conf" 2>/dev/null; then
+  if awk -v d="$domain" '$1 == d && $2 == "nh_naive;" { found = 1 } END { exit found ? 0 : 1 }' "$stream_conf" 2>/dev/null \
+     && awk -v b="$backend;" '$1 == "server" && $2 == b { found = 1 } END { exit found ? 0 : 1 }' "$stream_conf" 2>/dev/null; then
     return 0
   fi
 

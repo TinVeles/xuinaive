@@ -193,10 +193,23 @@ load_config() {
       warn "config.env exists but not readable"
       return 1
     fi
-    set -a
-    # shellcheck disable=SC1090
-    source "$config_file"
-    set +a
+    local line key value
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ "$line" =~ ^[[:space:]]*# || -z "$line" ]] && continue
+      [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
+      key="${line%%=*}"
+      value="${line#*=}"
+      if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+        value="${value:1:${#value}-2}"
+        value="${value//\\\"/\"}"
+        value="${value//\\\\/\\}"
+      fi
+      case "$key" in
+        MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NAIVE_EMAIL|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PROXY_EMAIL|PROXY_EMAIL|NH_STACK|NH_ACCESS|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_EMAIL|PANEL_EMAIL|NH_SSH_ONLY|NH_MASQUERADE|NH_MASQUERADE_URL|NH_ALLOW_PORT_CONFLICT|TLS_CERT|TLS_KEY|INSTALL_WARP|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_AI_DOMAINS|WARP_INBOUND_TAG|WARP_ROUTE_PORT|GENERATE_PROFILES|PROFILE_COUNT|PROFILE_PREFIX|UPM_PROJECT_DIR)
+          printf -v "$key" '%s' "$value"
+          ;;
+      esac
+    done < "$config_file"
   fi
 }
 

@@ -102,6 +102,8 @@ env_quote() {
   local value="$1"
   value="${value//\\/\\\\}"
   value="${value//\"/\\\"}"
+  value="${value//\$/\\\$}"
+  value="${value//\`/\\\`}"
   printf '"%s"' "$value"
 }
 
@@ -138,6 +140,25 @@ public_ipv4() {
     ip="$(ip route get 8.8.8.8 2>/dev/null | awk '/src/ {for (i=1;i<=NF;i++) if ($i=="src") {print $(i+1); exit}}' || true)"
   fi
   printf '%s\n' "$ip"
+}
+
+is_valid_domain() {
+  [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ && ${#1} -le 253 ]]
+}
+
+is_valid_email() {
+  [[ "$1" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ && ${#1} -le 254 ]]
+}
+
+is_valid_port() {
+  [[ "$1" =~ ^[0-9]+$ && "$1" -ge 1 && "$1" -le 65535 ]]
+}
+
+is_valid_hostport() {
+  local host="${1%:*}" port="${1##*:}"
+  [[ -n "$host" && "$host" != "$1" ]] || return 1
+  [[ "$host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$|^localhost$|^[A-Za-z0-9_.-]+$ ]] || return 1
+  is_valid_port "$port"
 }
 
 write_access_summary() {
@@ -180,6 +201,12 @@ done
 [[ -n "$NH_DOMAIN" ]] || die "--nh-domain is required"
 [[ -n "$REALITY_DEST" ]] || die "--reality-dest is required"
 [[ -n "$NH_EMAIL" ]] || die "--nh-email is required"
+is_valid_domain "$XUI_DOMAIN" || die "--xui-domain is invalid: $XUI_DOMAIN"
+is_valid_domain "$NH_DOMAIN" || die "--nh-domain is invalid: $NH_DOMAIN"
+is_valid_domain "$REALITY_DEST" || die "--reality-dest is invalid: $REALITY_DEST"
+is_valid_email "$NH_EMAIL" || die "--nh-email is invalid: $NH_EMAIL"
+is_valid_port "$PANEL_PUBLIC_PORT" || die "--panel-public-port must be 1..65535"
+is_valid_hostport "$NH_BACKEND" || die "--nh-backend must be safe host:port"
 if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
   [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
   [[ -f "$TLS_KEY" ]] || die "--tls-key file not found: $TLS_KEY"

@@ -18,6 +18,17 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 info() { printf 'INFO: %s\n' "$*"; }
 ok() { printf 'OK: %s\n' "$*"; }
 
+is_valid_domain() {
+  [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ && ${#1} -le 253 ]]
+}
+
+is_valid_hostport() {
+  local host="${1%:*}" port="${1##*:}"
+  [[ -n "$host" && "$host" != "$1" ]] || return 1
+  [[ "$host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$|^localhost$|^[A-Za-z0-9_.-]+$ ]] || return 1
+  [[ "$port" =~ ^[0-9]+$ && "$port" -ge 1 && "$port" -le 65535 ]]
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain) ROUTE_DOMAIN="${2:-}"; shift 2 ;;
@@ -31,7 +42,9 @@ done
 
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "Run as root"
 [[ -n "$ROUTE_DOMAIN" ]] || die "--domain or --naive-domain is required"
+is_valid_domain "$ROUTE_DOMAIN" || die "--domain is invalid: $ROUTE_DOMAIN"
 [[ "$ROUTE_NAME" =~ ^[A-Za-z0-9_]+$ ]] || die "--name must contain only letters, digits, and underscore"
+is_valid_hostport "$ROUTE_BACKEND" || die "--backend must be safe host:port"
 [[ -f "$STREAM_CONF" ]] || die "nginx stream config not found: $STREAM_CONF"
 
 backup_dir="/opt/unified-proxy-manager/backups/$(date '+%Y-%m-%d-%H-%M-%S')"

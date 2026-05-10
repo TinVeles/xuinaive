@@ -674,7 +674,7 @@ fi
 HYNOTLSEOF
     else
       # Даём Hy2 доступ к файлам сертификата
-      chmod -R 755 "$(dirname "$CADDY_CERT_DIR")" 2>/dev/null || true
+      # Не открываем рекурсивно весь storage сертификатов; прав на файлы достаточно для root-сервисов.
       chmod 644 "${CADDY_CERT_DIR}/${PROXY_DOMAIN}.crt" 2>/dev/null || true
       chmod 640 "${CADDY_CERT_DIR}/${PROXY_DOMAIN}.key" 2>/dev/null || true
 
@@ -903,7 +903,11 @@ else
 fi
 
 cd "${PANEL_DIR}/panel"
-npm install --omit=dev 2>&1 | grep -v "^npm warn" | tail -3 || true
+if [[ -f package-lock.json ]]; then
+  npm ci --omit=dev 2>&1 | grep -v "^npm warn" | tail -3 || true
+else
+  npm install --omit=dev 2>&1 | grep -v "^npm warn" | tail -3 || true
+fi
 mkdir -p "${PANEL_DIR}/panel/data"
 
 log_ok "Панель загружена в ${PANEL_DIR}"
@@ -948,6 +952,7 @@ if [[ ! -f "${PANEL_DIR}/panel/data/config.json" ]]; then
   "hy2Users":   ${HY2_USERS_JSON}
 }
 CONFIGEOF
+  chmod 600 "${PANEL_DIR}/panel/data/config.json" 2>/dev/null || true
   log_ok "config.json записан"
 else
   log_warn "config.json уже существует — не перезаписываем"
@@ -994,8 +999,7 @@ pm2 start server/index.js \
 
 pm2 save --force >/dev/null 2>&1 || true
 
-PM2_STARTUP=$(pm2 startup systemd -u root --hp /root 2>/dev/null | grep "^sudo" || true)
-[[ -n "$PM2_STARTUP" ]] && eval "$PM2_STARTUP" >/dev/null 2>&1 || true
+pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
 
 sleep 2
 

@@ -900,7 +900,8 @@ if (fs.existsSync(hyPath)) {
   }
 }
 
-fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+try { fs.chmodSync(cfgPath, 0o600); } catch (_) {}
 
 const domain = cfg.domain || 'DOMAIN_NOT_SET';
 const generatedNaiveLinks = generatedNaive.map(u => `naive+https://${u.username}:${u.password}@${domain}:443#${encodeURIComponent(u.username)}`);
@@ -980,6 +981,19 @@ if (generatedNaive.length !== count || generatedHy2.length !== count) {
   throw new Error(`Generated count mismatch: naive=${generatedNaive.length}, hy2=${generatedHy2.length}, expected=${count}`);
 }
 NODE
+
+  local sub_dir="${NH_SUBSCRIPTION_DIR%/}/$NH_SUBSCRIPTION_TOKEN"
+  if [[ -d "$sub_dir" ]]; then
+    if getent group www-data >/dev/null 2>&1; then
+      chgrp -R www-data "${NH_SUBSCRIPTION_DIR%/}" "$sub_dir" 2>/dev/null || true
+      chmod 0750 "${NH_SUBSCRIPTION_DIR%/}" "$sub_dir" 2>/dev/null || true
+      find "$sub_dir" -type f -exec chmod 0640 {} + 2>/dev/null || true
+    else
+      chmod 0755 "${NH_SUBSCRIPTION_DIR%/}" "$sub_dir" 2>/dev/null || true
+      find "$sub_dir" -type f -exec chmod 0644 {} + 2>/dev/null || true
+      warn "www-data group not found; subscription files kept world-readable for nginx compatibility"
+    fi
+  fi
 
   if [[ -f "$CADDYFILE" ]]; then
     if command_exists caddy-nh; then

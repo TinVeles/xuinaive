@@ -255,7 +255,8 @@ migrate_listen_localhost() {
       const c=JSON.parse(fs.readFileSync(p,'utf8'));
       if (typeof c.sshOnly === 'undefined')    c.sshOnly = 0;
       if (typeof c.listenHost === 'undefined') c.listenHost = '0.0.0.0';
-      fs.writeFileSync(p, JSON.stringify(c, null, 2));
+      fs.writeFileSync(p, JSON.stringify(c, null, 2), { mode: 0o600 });
+      try { fs.chmodSync(p, 0o600); } catch {}
     " || { log_err "Не удалось обновить config.json"; return 1; }
     log_ok "config.json обновлён (listenHost=0.0.0.0, sshOnly=0)"
   else
@@ -303,7 +304,8 @@ migrate_masquerade_default() {
       const c=JSON.parse(fs.readFileSync(p,'utf8'));
       if (typeof c.masqueradeMode === 'undefined') c.masqueradeMode = 'local';
       if (typeof c.masqueradeUrl  === 'undefined') c.masqueradeUrl  = '';
-      fs.writeFileSync(p, JSON.stringify(c, null, 2));
+      fs.writeFileSync(p, JSON.stringify(c, null, 2), { mode: 0o600 });
+      try { fs.chmodSync(p, 0o600); } catch {}
     " || { log_err "Не удалось обновить config.json"; return 1; }
     log_ok "config.json обновлён (masqueradeMode=local)"
   else
@@ -548,7 +550,8 @@ do_masquerade() {
     const c=JSON.parse(fs.readFileSync(p,'utf8'));
     c.masqueradeMode = '$new_mode';
     c.masqueradeUrl  = '$new_url';
-    fs.writeFileSync(p, JSON.stringify(c, null, 2));
+    fs.writeFileSync(p, JSON.stringify(c, null, 2), { mode: 0o600 });
+    try { fs.chmodSync(p, 0o600); } catch {}
   " || { log_err "Не удалось обновить config.json"; return 1; }
   log_ok "config.json обновлён (masqueradeMode=${new_mode}, masqueradeUrl=${new_url:-—})"
 
@@ -715,7 +718,8 @@ EOF
       // listenHost оставляем как был (127.0.0.1 для reverse_proxy подходит).
       if (!c.listenHost) c.listenHost = '127.0.0.1';
       if (!c.accessMode) c.accessMode = '3';
-      fs.writeFileSync(p, JSON.stringify(c, null, 2));
+      fs.writeFileSync(p, JSON.stringify(c, null, 2), { mode: 0o600 });
+      try { fs.chmodSync(p, 0o600); } catch {}
     " && log_ok "config.json обновлён (panelDomain=${EXPOSE_DOMAIN}, sshOnly=0)"
   fi
 
@@ -958,7 +962,8 @@ do_ssh_only() {
     const c=JSON.parse(fs.readFileSync(p,'utf8'));
     c.sshOnly = 1;
     c.listenHost = '127.0.0.1';
-    fs.writeFileSync(p, JSON.stringify(c, null, 2));
+    fs.writeFileSync(p, JSON.stringify(c, null, 2), { mode: 0o600 });
+    try { fs.chmodSync(p, 0o600); } catch {}
   " && log_ok "config.json обновлён (sshOnly=1, listenHost=127.0.0.1, panelDomain сохранён)"
 
   # 7) systemd-юнит: Environment=LISTEN_HOST=127.0.0.1.
