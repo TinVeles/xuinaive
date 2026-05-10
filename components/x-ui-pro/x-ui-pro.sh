@@ -1847,6 +1847,10 @@ ufw disable
 ufw allow 22/tcp
 ufw allow 80/tcp
 ufw allow 443/tcp
+ufw allow "${panel_port}/tcp"
+ufw allow "${sub_port}/tcp"
+ufw allow "${ws_port}/tcp"
+ufw allow "${trojan_port}/tcp"
 ufw allow ${XUI_WARP_EXTERNAL_PORT}/tcp
 xui_allow_warp_reality_ports
 ufw --force enable  

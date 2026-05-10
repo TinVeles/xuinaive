@@ -382,6 +382,9 @@ ensure_nh_panel_nginx_proxy() {
   is_root || return 0
   command -v nginx >/dev/null 2>&1 || return 0
   [[ -d /etc/nginx/sites-available && -d /etc/nginx/sites-enabled ]] || return 0
+  if command -v ufw >/dev/null 2>&1; then
+    ufw allow "${port}/tcp" >/dev/null 2>&1 || true
+  fi
 
   if ss -tln 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)${port}$"; then
     return 0
