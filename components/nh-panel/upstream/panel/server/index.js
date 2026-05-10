@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   N+H Panel — Backend
+   NHM Panel — Backend
    ═══════════════════════════════════════════════════════════ */
 
 'use strict';
@@ -1399,7 +1399,7 @@ function handleInstallHy2(ws, data) {
       ws.send(JSON.stringify({
         type: 'install_done',
         links: {
-          hy2: hy2Link('default', password, domain, 'N+H')
+          hy2: hy2Link('default', password, domain, 'NHM')
         }
       }));
     } else {
@@ -1454,7 +1454,7 @@ function handleInstallBoth(ws, data) {
           type: 'install_done',
           links: {
             naive: `naive+https://${naiveLogin}:${naivePassword}@${domain}:443`,
-            hy2:   hy2Link('default', hy2Password, domain, 'N+H')
+            hy2:   hy2Link('default', hy2Password, domain, 'NHM')
           }
         }));
       } else {
@@ -1509,7 +1509,7 @@ app.get(/^(?!\/api).*/, (req, res) => {
 server.listen(PORT, LISTEN_HOST, () => {
   const isLocal = LISTEN_HOST === '127.0.0.1' || LISTEN_HOST === 'localhost';
   console.log(`\n╔═══════════════════════════════════════════════╗`);
-  console.log(`║   N+H Panel            ║`);
+  console.log(`║   NHM Panel            ║`);
   console.log(`║   Running on http://${LISTEN_HOST}:${PORT}${' '.repeat(Math.max(0, 14 - LISTEN_HOST.length))}║`);
   if (isLocal) {
     console.log(`║   SSH-only mode (доступ через ssh -L)         ║`);

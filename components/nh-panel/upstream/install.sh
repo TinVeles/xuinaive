@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════
-#  N+H Panel — Полный установщик
+#  NHM Panel — Полный установщик
 #  Устанавливает: панель управления + NaiveProxy (Caddy) + Hysteria2
 #  Запуск:
 #    sudo ./components/nh-panel/install.sh
@@ -28,7 +28,7 @@ header() {
   clear
   echo ""
   echo -e "${PURPLE}${BOLD}╔══════════════════════════════════════════════════════════╗${RESET}"
-  echo -e "${PURPLE}${BOLD}║   N+H Panel — Установщик                              ║${RESET}"
+  echo -e "${PURPLE}${BOLD}║   NHM Panel — Установщик                              ║${RESET}"
   echo -e "${PURPLE}${BOLD}╚══════════════════════════════════════════════════════════╝${RESET}"
   echo ""
 }
@@ -304,7 +304,7 @@ log_ok "Система подготовлена"
 next_step "Включение BBR и UDP-оптимизации..."
 
 cat > /etc/sysctl.d/99-nh-tune.conf << 'SYSCTLEOF'
-# N+H Panel — сетевой тюнинг для Naive (TCP) + Hy2 (UDP)
+# NHM Panel — сетевой тюнинг для Naive (TCP) + Hy2 (UDP)
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 # UDP буферы для Hysteria2 (рекомендация apernet)
@@ -485,7 +485,7 @@ HTMLEOF
   # эти правки ломали Caddy (серт не получается, сервис не стартует).
   cat > /etc/systemd/system/caddy.service << 'SVCEOF'
 [Unit]
-Description=Caddy with NaiveProxy (N+H Panel)
+Description=Caddy with NaiveProxy (NHM Panel)
 Documentation=https://caddyserver.com/docs/
 After=network.target network-online.target
 Requires=network-online.target
@@ -588,7 +588,7 @@ if [[ $INSTALL_HY2 -eq 1 ]]; then
 
   cat > /etc/hysteria/config.yaml << HYCFGEOF
 # ═══════════════════════════════════════════════
-#  Hysteria2 config — N+H Panel
+#  Hysteria2 config — NHM Panel
 #  https://v2.hysteria.network/
 # ═══════════════════════════════════════════════
 
@@ -752,7 +752,7 @@ HYBWEOF
 
   cat > /etc/systemd/system/hysteria-server.service << HYSVCEOF
 [Unit]
-Description=Hysteria2 Server (N+H Panel)
+Description=Hysteria2 Server (NHM Panel)
 Documentation=https://v2.hysteria.network/
 ${HY_UNIT_AFTER}
 ${HY_UNIT_WANTS}
@@ -1011,7 +1011,7 @@ else
   # Fallback: создаём systemd-юнит и запускаем напрямую через Node.js
   cat > /etc/systemd/system/panel-naive-hy2.service << SVCFALLBACKEOF
 [Unit]
-Description=N+H Panel (fallback)
+Description=NHM Panel (fallback)
 After=network.target
 
 [Service]
@@ -1427,7 +1427,7 @@ fi
 if [[ $INSTALL_HY2 -eq 1 ]]; then
   # ВАЖНО: при userpass-авторизации в URI auth = username:password
   # (см. https://v2.hysteria.network/docs/developers/URI-Scheme/)
-  HY2_LINK="hysteria2://default:${HY2_PASS}@${PROXY_DOMAIN}:443?sni=${PROXY_DOMAIN}&insecure=0#N+H"
+  HY2_LINK="hysteria2://default:${HY2_PASS}@${PROXY_DOMAIN}:443?sni=${PROXY_DOMAIN}&insecure=0#NHM"
   echo -e "${PURPLE}${BOLD}║                                                               ║${RESET}"
   echo -e "${PURPLE}${BOLD}║   ⚡  Hysteria2                                               ║${RESET}"
   echo -e "${PURPLE}${BOLD}║   Домен:  ${PROXY_DOMAIN}                                     ║${RESET}"

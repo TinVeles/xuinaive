@@ -104,7 +104,7 @@ port_443_busy() {
 }
 
 if [[ "$ASSUME_YES" != "1" ]]; then
-  warn "Starting the original interactive N+H installer."
+  warn "Starting the original interactive NHM installer."
   warn "It installs a public Caddy/NaiveProxy/Hy2 stack and can change packages, firewall, services, and /etc configs."
   warn "Press Ctrl+C now to abort, or Enter to continue..."
   read -r -t 10 || true
@@ -134,7 +134,7 @@ if port_443_busy && [[ "$ALLOW_PORT_CONFLICT" != "1" ]]; then
 fi
 
 cat <<EOF
-N+H panel install plan
+NHM Panel install plan
 ------------------------
 Stack:       $STACK
 Access:      $ACCESS
@@ -144,7 +144,7 @@ Panel domain: ${PANEL_DOMAIN:-not used}
 SSH-only:    $SSH_ONLY
 Masquerade:  $MASQUERADE ${MASQUERADE_URL:-}
 
-This will run the vendored N+H installer with LOCAL_PANEL_SOURCE=$UPSTREAM_DIR.
+This will run the vendored NHM installer with LOCAL_PANEL_SOURCE=$UPSTREAM_DIR.
 EOF
 
 if [[ "$DRY_RUN" == "1" ]]; then

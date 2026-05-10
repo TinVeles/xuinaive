@@ -58,7 +58,7 @@ Usage:
 Creates:
   x-ui:  COUNT clients on every selected preset inbound.
          Default subscriptions: one subId per client index.
-  N+H:   COUNT NaiveProxy profiles and COUNT Hysteria2 profiles.
+  NHM:   COUNT NaiveProxy profiles and COUNT Hysteria2 profiles.
          Subscription files are written to ${NH_SUBSCRIPTION_DIR}.
 
 WARP variants:
@@ -760,8 +760,8 @@ xui_cleanup_unix_sockets() {
 }
 
 nh_generate() {
-  info "Creating N+H NaiveProxy and Hysteria2 profiles"
-  [[ -f "$NH_CONFIG" ]] || die "N+H config not found: $NH_CONFIG"
+  info "Creating NHM NaiveProxy and Hysteria2 profiles"
+  [[ -f "$NH_CONFIG" ]] || die "NHM config not found: $NH_CONFIG"
 
   mkdir -p "$(dirname "$NH_SUBSCRIPTION_TOKEN_FILE")"
   if [[ -s "$NH_SUBSCRIPTION_TOKEN_FILE" ]]; then
@@ -771,7 +771,7 @@ nh_generate() {
     printf '%s\n' "$NH_SUBSCRIPTION_TOKEN" > "$NH_SUBSCRIPTION_TOKEN_FILE"
     chmod 0600 "$NH_SUBSCRIPTION_TOKEN_FILE"
   fi
-  [[ -n "$NH_SUBSCRIPTION_TOKEN" ]] || die "Could not create N+H subscription token"
+  [[ -n "$NH_SUBSCRIPTION_TOKEN" ]] || die "Could not create NHM subscription token"
   chmod 0600 "$NH_SUBSCRIPTION_TOKEN_FILE" 2>/dev/null || true
 
   COUNT="$COUNT" PREFIX="$PREFIX" NH_CONFIG="$NH_CONFIG" CADDYFILE="$CADDYFILE" HYSTERIA_CONFIG="$HYSTERIA_CONFIG" NH_SUBSCRIPTION_DIR="$NH_SUBSCRIPTION_DIR" NH_SUBSCRIPTION_TOKEN="$NH_SUBSCRIPTION_TOKEN" SCRIPT_DIR="$SCRIPT_DIR" node <<'NODE'
@@ -910,7 +910,7 @@ const generatedHy2Links = generatedHy2.map(u => `hysteria2://${hy2UserpassAuth(u
 const naiveLinks = generatedNaiveLinks;
 const hy2Links = generatedHy2Links;
 const lines = [];
-lines.push('Generated N+H profiles');
+lines.push('Generated NHM profiles');
 lines.push('======================');
 lines.push('');
 lines.push('NaiveProxy:');
@@ -1002,9 +1002,9 @@ NODE
       caddy validate --config "$CADDYFILE" >/dev/null || die "Generated Caddyfile is invalid"
     fi
   fi
-  ok "N+H config updated: $COUNT NaiveProxy + $COUNT Hysteria2 profiles"
-  ok "N+H generated links saved: /opt/panel-naive-hy2/generated-profiles.txt"
-  ok "N+H subscriptions saved: ${NH_SUBSCRIPTION_DIR%/}/$NH_SUBSCRIPTION_TOKEN"
+  ok "NHM config updated: $COUNT NaiveProxy + $COUNT Hysteria2 profiles"
+  ok "NHM generated links saved: /opt/panel-naive-hy2/generated-profiles.txt"
+  ok "NHM subscriptions saved: ${NH_SUBSCRIPTION_DIR%/}/$NH_SUBSCRIPTION_TOKEN"
   configure_nginx_subscription
 }
 
@@ -1102,7 +1102,7 @@ x-ui:
   WARP snippet: /etc/x-ui/warp-generated-routing.json
   x-ui report: /etc/x-ui/generated-clients.txt
 
-N+H:
+NHM:
   NaiveProxy profiles: ${COUNT}
   Hysteria2 profiles: ${COUNT}
   links: /opt/panel-naive-hy2/generated-profiles.txt

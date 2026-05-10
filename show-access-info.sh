@@ -484,7 +484,7 @@ Install access
   Login:    ${xui_user:-check with: x-ui settings}
   Password: ${xui_pass:-check with: x-ui settings}
 
-Naive + Hysteria2 panel
+NHM Panel
   URL:      ${nh_panel_url:-check config.env}
   Login:    ${nh_panel_login:-check config.env}
   Password: ${nh_panel_password:-check config.env}
@@ -501,7 +501,7 @@ echo -e "${CYAN}   ${xui_url}${RESET}"
 echo -e "${PURPLE}${BOLD}║   Login:    ${xui_user:-check with: x-ui settings}${RESET}"
 echo -e "${PURPLE}${BOLD}║   Password: ${xui_pass:-check with: x-ui settings}${RESET}"
 echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"
-echo -e "${PURPLE}${BOLD}║   🖥  Naive + Hysteria2 Panel                               ║${RESET}"
+echo -e "${PURPLE}${BOLD}║   🖥  NHM Panel                               ║${RESET}"
 echo -e "${PURPLE}${BOLD}║   URL:${RESET}"
 echo -e "${CYAN}   ${nh_panel_url:-check config.env}${RESET}"
 echo -e "${PURPLE}${BOLD}║   Login:    ${nh_panel_login:-check config.env}${RESET}"
@@ -511,6 +511,6 @@ echo -e "${PURPLE}${BOLD}╠═════════════════�
 echo -e "${PURPLE}${BOLD}║   📌  Команды                                               ║${RESET}"
 echo -e "${PURPLE}${BOLD}║   x-ui                           — меню x-ui                ║${RESET}"
 echo -e "${PURPLE}${BOLD}║   systemctl status x-ui          — статус x-ui              ║${RESET}"
-echo -e "${PURPLE}${BOLD}║   systemctl status panel-naive-hy2 — статус N+H панели      ║${RESET}"
+echo -e "${PURPLE}${BOLD}║   systemctl status panel-naive-hy2 — статус NHM панели      ║${RESET}"
 echo -e "${PURPLE}${BOLD}╚══════════════════════════════════════════════════════════════╝${RESET}"
 echo ""

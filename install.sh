@@ -78,8 +78,8 @@ Usage:
 Default mode is dry-run only. Real install requires --install --yes.
 When values are omitted in an interactive terminal, the script asks for them.
 When run from a URL, relative paths are resolved from the current directory or --project-dir.
-Mode all installs 3x-ui + N+H Panel + NaiveProxy + Hysteria2 on one VPS.
-Mode nh installs only the standalone N+H NaiveProxy + Hysteria2 web panel.
+Mode all installs 3x-ui + NHM Panel + NaiveProxy + Hysteria2 on one VPS.
+Mode nh installs only the standalone NHM NaiveProxy + Hysteria2 web panel.
 EOF
 }
 
@@ -108,9 +108,9 @@ prompt_mode() {
     echo "Choose install planning mode:"
     echo "  1) xui   - x-ui-pro / 3x-ui only"
     echo "  2) naive - NaiveProxy / Caddy only"
-    echo "  3) all   - 3x-ui + N+H Panel + NaiveProxy + Hysteria2"
+    echo "  3) all   - 3x-ui + NHM Panel + NaiveProxy + Hysteria2"
     echo "  4) both  - legacy x-ui + NaiveProxy plan"
-    echo "  5) nh - N+H NaiveProxy + Hysteria2 web panel only"
+    echo "  5) nh - NHM NaiveProxy + Hysteria2 web panel only"
     read -r -p "Mode [xui/naive/all/both/nh or 1/2/3/4/5]: " input
     case "$input" in
       1|xui) MODE="xui" ;;
@@ -143,12 +143,12 @@ collect_interactive_inputs() {
       ;;
     all)
       prompt_value XUI_DOMAIN "Enter x-ui domain, for example xui.example.com" "$XUI_DOMAIN"
-      prompt_value NH_PROXY_DOMAIN "Enter N+H/NaiveProxy domain, for example naive.example.com" "$NH_PROXY_DOMAIN"
+      prompt_value NH_PROXY_DOMAIN "Enter NHM/NaiveProxy domain, for example naive.example.com" "$NH_PROXY_DOMAIN"
       prompt_value REALITY_DEST "Enter REALITY destination domain, for example reality.example.com" "$REALITY_DEST"
       prompt_value NH_PROXY_EMAIL "Enter email for Caddy/Let's Encrypt" "$NH_PROXY_EMAIL"
       ;;
     nh)
-      prompt_value NH_PROXY_DOMAIN "Enter N+H proxy domain, for example vpn.example.com" "$NH_PROXY_DOMAIN"
+      prompt_value NH_PROXY_DOMAIN "Enter NHM proxy domain, for example vpn.example.com" "$NH_PROXY_DOMAIN"
       prompt_value NH_PROXY_EMAIL "Enter email for Let's Encrypt" "$NH_PROXY_EMAIL"
       ;;
     *) die "--mode must be xui, naive, all, both, or nh" ;;
@@ -168,12 +168,12 @@ collect_real_install_inputs() {
       ;;
     all)
       prompt_value XUI_DOMAIN "Enter x-ui domain, for example xui.example.com" "$XUI_DOMAIN"
-      prompt_value NH_PROXY_DOMAIN "Enter N+H/NaiveProxy domain, for example naive.example.com" "$NH_PROXY_DOMAIN"
+      prompt_value NH_PROXY_DOMAIN "Enter NHM/NaiveProxy domain, for example naive.example.com" "$NH_PROXY_DOMAIN"
       prompt_value REALITY_DEST "Enter REALITY destination domain, for example reality.example.com" "$REALITY_DEST"
       prompt_value NH_PROXY_EMAIL "Enter email for Caddy/Let's Encrypt" "$NH_PROXY_EMAIL"
       ;;
     nh)
-      prompt_value NH_PROXY_DOMAIN "Enter N+H proxy domain, for example vpn.example.com" "$NH_PROXY_DOMAIN"
+      prompt_value NH_PROXY_DOMAIN "Enter NHM proxy domain, for example vpn.example.com" "$NH_PROXY_DOMAIN"
       prompt_value NH_PROXY_EMAIL "Enter email for Let's Encrypt" "$NH_PROXY_EMAIL"
       ;;
     *) die "Real install currently supports --mode all, --mode both, or --mode nh" ;;
@@ -434,8 +434,8 @@ validate_real_install_args() {
       [[ -n "$REALITY_DEST" ]] || die "--reality-dest is required for real all install"
       ;;
     nh)
-      [[ -n "$NH_PROXY_DOMAIN" ]] || die "--domain is required for real N+H install"
-      [[ -n "$NH_PROXY_EMAIL" ]] || die "--proxy-email is required for real N+H install"
+      [[ -n "$NH_PROXY_DOMAIN" ]] || die "--domain is required for real NHM install"
+      [[ -n "$NH_PROXY_EMAIL" ]] || die "--proxy-email is required for real NHM install"
       ;;
     *) die "Real install currently supports --mode all, --mode both, or --mode nh" ;;
   esac
@@ -454,8 +454,8 @@ x-ui domain:    ${XUI_DOMAIN:-not set}
 Naive domain:   ${NAIVE_DOMAIN:-not set}
 REALITY dest:   ${REALITY_DEST:-not set}
 Naive email:    ${NAIVE_EMAIL:-not set}
-N+H domain:   ${NH_PROXY_DOMAIN:-not set}
-N+H email:    ${NH_PROXY_EMAIL:-not set}
+NHM domain:   ${NH_PROXY_DOMAIN:-not set}
+NHM email:    ${NH_PROXY_EMAIL:-not set}
 TLS cert:       ${TLS_CERT:-auto/ACME}
 TLS key:        ${TLS_KEY:-auto/ACME}
 Install WARP:   ${INSTALL_WARP}
@@ -479,8 +479,8 @@ x-ui domain:    ${XUI_DOMAIN:-not set}
 Naive domain:   ${NAIVE_DOMAIN:-not set}
 REALITY dest:   ${REALITY_DEST:-not set}
 Naive email:    ${NAIVE_EMAIL:-not set}
-N+H domain:   ${NH_PROXY_DOMAIN:-not set}
-N+H email:    ${NH_PROXY_EMAIL:-not set}
+NHM domain:   ${NH_PROXY_DOMAIN:-not set}
+NHM email:    ${NH_PROXY_EMAIL:-not set}
 TLS cert:       ${TLS_CERT:-auto/ACME}
 TLS key:        ${TLS_KEY:-auto/ACME}
 Install WARP:   ${INSTALL_WARP}
@@ -510,8 +510,8 @@ EOF
 
 Legacy NaiveProxy-only mode:
 - the old standalone NaiveProxy component has been removed;
-- use --mode nh for N+H Panel + NaiveProxy + Hysteria2;
-- use --mode all for 3x-ui + N+H Panel + NaiveProxy + Hysteria2.
+- use --mode nh for NHM Panel + NaiveProxy + Hysteria2;
+- use --mode all for 3x-ui + NHM Panel + NaiveProxy + Hysteria2.
 EOF
       ;;
     both)
@@ -528,12 +528,12 @@ EOF
 
 All-in-one layout:
 - x-ui-pro/nginx owns public 443/tcp.
-- N+H NaiveProxy/Caddy runs as caddy-nh on 127.0.0.1:9445.
-- nginx stream routes the N+H/NaiveProxy domain by SNI to 127.0.0.1:9445.
-- N+H TLS is issued automatically unless --tls-cert/--tls-key are provided.
+- NHM NaiveProxy/Caddy runs as caddy-nh on 127.0.0.1:9445.
+- nginx stream routes the NHM/NaiveProxy domain by SNI to 127.0.0.1:9445.
+- NHM TLS is issued automatically unless --tls-cert/--tls-key are provided.
 - Caddy accepts nginx stream PROXY protocol on the backend listener.
 - Hysteria2 listens on public 443/udp.
-- N+H panel runs as panel-naive-hy2 and is exposed by nginx on 8081 by default.
+- NHM Panel runs as panel-naive-hy2 and is exposed by nginx on 8081 by default.
 - Optional WARP local proxy installs on 127.0.0.1:${WARP_PROXY_PORT} when --install-warp is used.
 - Optional profile generator creates ${PROFILE_COUNT} shared-email direct x-ui profiles, ${PROFILE_COUNT} shared-email WARP x-ui profiles, plus ${PROFILE_COUNT} NaiveProxy and ${PROFILE_COUNT} Hy2 profiles when --generate-profiles is used.
 EOF
@@ -541,8 +541,8 @@ EOF
     nh)
       cat <<EOF
 
-N+H standalone panel actions:
-- install the N+H Node.js panel from the vendored component;
+NHM standalone panel actions:
+- install the NHM Node.js panel from the vendored component;
 - install selected stack: ${NH_STACK};
 - use proxy domain ${NH_PROXY_DOMAIN} and email ${NH_PROXY_EMAIL};
 - expose panel with access mode ${NH_ACCESS};
@@ -568,11 +568,11 @@ Real all-in-one install requested
 ---------------------------------
 Installer:      $installer
 x-ui domain:    $XUI_DOMAIN
-N+H domain:   $NH_PROXY_DOMAIN
+NHM domain:   $NH_PROXY_DOMAIN
 REALITY dest:   $REALITY_DEST
-N+H email:    $NH_PROXY_EMAIL
+NHM email:    $NH_PROXY_EMAIL
 
-This will install 3x-ui + N+H Panel + NaiveProxy + Hysteria2.
+This will install 3x-ui + NHM Panel + NaiveProxy + Hysteria2.
 EOF
 
     local -a all_args=(
@@ -598,11 +598,11 @@ EOF
 
   if [[ "$MODE" == "nh" ]]; then
     local nh_installer="$PROJECT_DIR/components/nh-panel/install.sh"
-    [[ -f "$nh_installer" ]] || die "N+H installer not found: $nh_installer. Pull latest repository version."
+    [[ -f "$nh_installer" ]] || die "NHM installer not found: $nh_installer. Pull latest repository version."
 
     cat <<EOF
 
-Real N+H panel install requested
+Real NHM Panel install requested
 ----------------------------------
 Installer:      $nh_installer
 Stack:          $NH_STACK
@@ -806,12 +806,12 @@ case "$MODE" in
     ;;
   all)
     check_domain "$XUI_DOMAIN" "x-ui"
-    check_domain "$NH_PROXY_DOMAIN" "N+H/NaiveProxy"
+    check_domain "$NH_PROXY_DOMAIN" "NHM/NaiveProxy"
     check_domain "$REALITY_DEST" "REALITY destination"
     ;;
   nh)
-    check_domain "$NH_PROXY_DOMAIN" "N+H proxy"
-    [[ -n "$NH_PANEL_DOMAIN" ]] && check_domain "$NH_PANEL_DOMAIN" "N+H panel"
+    check_domain "$NH_PROXY_DOMAIN" "NHM proxy"
+    [[ -n "$NH_PANEL_DOMAIN" ]] && check_domain "$NH_PANEL_DOMAIN" "NHM Panel"
     ;;
 esac
 

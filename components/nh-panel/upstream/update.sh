@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════
-#  N+H Panel — Update Script
+#  NHM Panel — Update Script
 #  Применяет инкрементальные патчи поверх существующей установки.
 #  НЕ трогает: пользователей, сертификаты, домены, sysctl, активные сервисы.
 #
@@ -107,7 +107,7 @@ header() {
   clear 2>/dev/null || true
   echo ""
   echo -e "${PURPLE}${BOLD}╔══════════════════════════════════════════════════════════╗${RESET}"
-  echo -e "${PURPLE}${BOLD}║   N+H Panel — Update                    ║${RESET}"
+  echo -e "${PURPLE}${BOLD}║   NHM Panel — Update                    ║${RESET}"
   echo -e "${PURPLE}${BOLD}║   Применение инкрементальных патчей                      ║${RESET}"
   echo -e "${PURPLE}${BOLD}╚══════════════════════════════════════════════════════════╝${RESET}"
   echo ""

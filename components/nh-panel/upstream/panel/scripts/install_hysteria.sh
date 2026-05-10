@@ -1,7 +1,7 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════
-#  Hysteria2 Auto-Installer — N+H Panel (multi-arch)
-#  N+H Panel
+#  Hysteria2 Auto-Installer — NHM Panel (multi-arch)
+#  NHM Panel
 #  ENV: HY_DOMAIN, HY_EMAIL, HY_PASSWORD, USE_CADDY_CERT (0/1)
 # ═══════════════════════════════════════════════════════
 
@@ -113,7 +113,7 @@ mkdir -p /etc/hysteria
 
 cat > /etc/hysteria/config.yaml << HYCFGEOF
 # ═══════════════════════════════════════════════
-#  Hysteria2 — N+H Panel
+#  Hysteria2 — NHM Panel
 #  https://v2.hysteria.network/
 # ═══════════════════════════════════════════════
 
@@ -323,7 +323,7 @@ fi
 
 cat > /etc/systemd/system/hysteria-server.service << HYSVCEOF
 [Unit]
-Description=Hysteria2 Server (N+H Panel)
+Description=Hysteria2 Server (NHM Panel)
 Documentation=https://v2.hysteria.network/
 ${HY_AFTER}
 ${HY_WANTS}

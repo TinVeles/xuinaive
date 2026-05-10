@@ -1,8 +1,8 @@
-# N+H Panel Component
+# NHM Panel Component
 
-Vendored N+H Panel component for NaiveProxy and Hysteria2.
+Vendored NHM Panel component for NaiveProxy and Hysteria2.
 
-This component installs the N+H Panel stack:
+This component installs the NHM Panel stack:
 
 - Node.js web panel on port `3000`;
 - NaiveProxy through Caddy on public `443/tcp`;
@@ -41,7 +41,7 @@ sudo ./components/nh-panel/install.sh \
   --yes
 ```
 
-Update an existing N+H panel install:
+Update an existing NHM Panel install:
 
 ```bash
 sudo ./components/nh-panel/update.sh --status
@@ -50,4 +50,4 @@ sudo ./components/nh-panel/update.sh
 
 ## Important
 
-This is a standalone public `443` stack. Do not run it on the same VPS as the current `x-ui-pro` unified layout unless you have intentionally reviewed the port and service conflicts. The current `x-ui-pro + NaiveProxy` layout uses nginx stream as the public `443` owner; N+H uses Caddy for public `443/tcp` and Hysteria2 for `443/udp`.
+This is a standalone public `443` stack. Do not run it on the same VPS as the current `x-ui-pro` unified layout unless you have intentionally reviewed the port and service conflicts. The current `x-ui-pro + NaiveProxy` layout uses nginx stream as the public `443` owner; NHM uses Caddy for public `443/tcp` and Hysteria2 for `443/udp`.

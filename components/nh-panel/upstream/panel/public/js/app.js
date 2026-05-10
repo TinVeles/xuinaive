@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   N+H Panel — Frontend App
+   NHM Panel — Frontend App
    ═══════════════════════════════════════════════════════════ */
 
 'use strict';
@@ -368,7 +368,7 @@ function switchInstallTab(tab) {
   } else { // both
     naiveFields.classList.remove('hidden');
     hy2Fields.classList.remove('hidden');
-    title.textContent = 'Naive + Hysteria2 на одном сервере';
+    title.textContent = 'NHM: Naive + Hysteria2 на одном сервере';
     note.innerHTML = '<strong>✨ Оба протокола</strong> на одном домене и порту 443 (TCP + UDP). Hy2 использует сертификат Caddy.';
   }
 }

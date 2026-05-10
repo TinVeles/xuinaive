@@ -1,7 +1,7 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════
-#  NaiveProxy Auto-Installer — N+H Panel (multi-arch)
-#  N+H Panel
+#  NaiveProxy Auto-Installer — NHM Panel (multi-arch)
+#  NHM Panel
 #  ENV: NAIVE_DOMAIN, NAIVE_EMAIL, NAIVE_LOGIN, NAIVE_PASSWORD
 # ═══════════════════════════════════════════════════════
 
@@ -246,7 +246,7 @@ sleep 1
 
 cat > /etc/systemd/system/caddy.service << 'SERVICEEOF'
 [Unit]
-Description=Caddy with NaiveProxy (N+H Panel)
+Description=Caddy with NaiveProxy (NHM Panel)
 Documentation=https://caddyserver.com/docs/
 After=network.target network-online.target
 Requires=network-online.target

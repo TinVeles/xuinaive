@@ -229,9 +229,9 @@ cat <<EOF
 Final configuration
 -------------------
 XUI domain:          ${XUI_DOMAIN}
-N+H/Naive domain: ${NH_DOMAIN}
+NHM/Naive domain: ${NH_DOMAIN}
 Reality dest:        ${REALITY_DEST}
-N+H email:         ${NH_EMAIL}
+NHM email:         ${NH_EMAIL}
 Panel port:          ${PANEL_PUBLIC_PORT}
 Backend listen:      ${NH_BACKEND}
 TLS cert:            ${TLS_CERT:-auto/ACME}
@@ -243,7 +243,7 @@ Unified all-in-one real install plan
    Public nginx stream will own 0.0.0.0:443.
 2. Patch /etc/nginx/stream-enabled/stream.conf:
    ${NH_DOMAIN} -> ${NH_BACKEND}
-3. Install N+H Panel + NaiveProxy + Hysteria2:
+3. Install NHM Panel + NaiveProxy + Hysteria2:
    caddy-nh binds ${NH_BACKEND} for TCP NaiveProxy.
    hysteria-server binds 0.0.0.0:443/udp.
    panel-naive-hy2 is exposed with panel access mode ${PANEL_ACCESS} on port ${PANEL_PUBLIC_PORT}.
@@ -269,10 +269,10 @@ XUI_PRINT_ACCESS_INFO=0 XUI_SEED_PROFILES=0 bash "$XUI_SCRIPT" -install yes -pan
 require_active x-ui
 require_active nginx
 
-info "Adding nginx stream route for N+H NaiveProxy"
+info "Adding nginx stream route for NHM NaiveProxy"
 bash "$SNI_PATCH" --domain "$NH_DOMAIN" --backend "$NH_BACKEND" --name nh_naive
 
-info "Installing N+H Panel + NaiveProxy + Hysteria2 backend"
+info "Installing NHM Panel + NaiveProxy + Hysteria2 backend"
 nh_args=(
   --domain "$NH_DOMAIN"
   --email "$NH_EMAIL"

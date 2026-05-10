@@ -308,14 +308,14 @@ if service_active nginx && service_active caddy; then
 elif service_active nginx && service_active caddy-nh && service_active hysteria-server; then
   ok "nginx, caddy-nh, and hysteria-server are active. This is expected for all-in-one mode."
 elif service_active caddy && service_active hysteria-server; then
-  ok "caddy and hysteria-server are both active. This is expected for N+H mode when Caddy owns TCP/443 and Hy2 owns UDP/443."
+  ok "caddy and hysteria-server are both active. This is expected for NHM mode when Caddy owns TCP/443 and Hy2 owns UDP/443."
 else
   ok "No obvious nginx+caddy dual-active conflict"
 fi
 
 if [[ -n "${NH_PROXY_DOMAIN:-}" ]]; then
   echo
-  echo "N+H/Naive TLS:"
+  echo "NHM/Naive TLS:"
   tls_check "${NH_BACKEND_LISTEN:-127.0.0.1:9445}" "$NH_PROXY_DOMAIN" "Caddy backend"
   tls_check "${NH_PROXY_DOMAIN}:443" "$NH_PROXY_DOMAIN" "Public nginx stream"
 
@@ -326,7 +326,7 @@ fi
 
 if service_active panel-naive-hy2 || [[ -n "${NH_PANEL_PORT:-}" ]]; then
   echo
-  echo "N+H Panel HTTP:"
+  echo "NHM Panel HTTP:"
   http_check "http://127.0.0.1:3000/" "Panel backend"
   if [[ -n "${NH_PANEL_PORT:-}" ]]; then
     http_check "http://127.0.0.1:${NH_PANEL_PORT}/" "Panel nginx proxy"
@@ -345,4 +345,4 @@ echo "- Make sure DNS A records point to this VPS before any TLS issuance."
 echo "- In --mode all, keep DNS and public 80/tcp reachable; the installer handles nginx webroot ACME and standalone fallback automatically."
 echo "- If WARP is enabled, use outbound tag ${WARP_OUTBOUND_TAG:-warp-cli} and local proxy ${WARP_PROXY_HOST:-127.0.0.1}:${WARP_PROXY_PORT:-40000} in 3x-ui/Xray routing."
 echo "- Do not run x-ui-pro.sh directly on a server with existing nginx/x-ui data without backups."
-echo "- Use --mode nh only as a standalone N+H panel deployment unless you have reviewed public 443 ownership."
+echo "- Use --mode nh only as a standalone NHM Panel deployment unless you have reviewed public 443 ownership."

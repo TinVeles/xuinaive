@@ -1,13 +1,13 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════
-#  Сетевой тюнинг (BBR + UDP buffers) — N+H Panel
+#  Сетевой тюнинг (BBR + UDP buffers) — NHM Panel
 #  Вызывается из панели кнопкой "Применить оптимизации"
 # ═══════════════════════════════════════════════════════
 
 set -uo pipefail
 
 cat > /etc/sysctl.d/99-nh-tune.conf << 'SYSCTLEOF'
-# N+H Panel — Naive (TCP) + Hy2 (UDP) tuning
+# NHM Panel — Naive (TCP) + Hy2 (UDP) tuning
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 

@@ -3,7 +3,7 @@
 Unified installer for all components on one VPS:
 
 - x-ui-pro / 3x-ui / Xray / nginx;
-- N+H Panel / NaiveProxy / Caddy backend;
+- NHM Panel / NaiveProxy / Caddy backend;
 - Hysteria2.
 
 Default `install.sh` mode is safe dry-run. Real install requires explicit `--install --yes`.
@@ -40,14 +40,14 @@ components/
 
 ## What You Get
 
-- `--mode all`: installs 3x-ui / x-ui-pro plus N+H Panel, NaiveProxy, and Hysteria2 on one VPS.
+- `--mode all`: installs 3x-ui / x-ui-pro plus NHM Panel, NaiveProxy, and Hysteria2 on one VPS.
 - nginx from x-ui-pro owns public `443/tcp`.
-- N+H Caddy/NaiveProxy runs behind nginx on `127.0.0.1:9445`.
+- NHM Caddy/NaiveProxy runs behind nginx on `127.0.0.1:9445`.
 - Hysteria2 uses public `443/udp`.
-- N+H Caddy uses a ready certificate/key and accepts nginx stream PROXY protocol on the backend listener.
+- NHM Caddy uses a ready certificate/key and accepts nginx stream PROXY protocol on the backend listener.
 - Optional Cloudflare WARP local proxy can be installed on `127.0.0.1:40000`.
 - Optional bulk profile generator can create x-ui, NaiveProxy, and Hysteria2 clients.
-- You still get two web panels: 3x-ui for Xray/3x-ui and N+H Panel for NaiveProxy + Hysteria2.
+- You still get two web panels: 3x-ui for Xray/3x-ui and NHM Panel for NaiveProxy + Hysteria2.
 
 ## Quick Start From VPS
 
@@ -69,7 +69,7 @@ sudo bash install.sh --mode all \
   --yes
 ```
 
-If you already have a certificate for the N+H/NaiveProxy domain, pass it explicitly:
+If you already have a certificate for the NHM/NaiveProxy domain, pass it explicitly:
 
 ```bash
 sudo bash install.sh --mode all \
@@ -83,7 +83,7 @@ sudo bash install.sh --mode all \
   --yes
 ```
 
-In `--mode all`, the installer does not let Caddy issue its own certificate on `127.0.0.1:9445`. If `--tls-cert` and `--tls-key` are omitted, it first issues the N+H/NaiveProxy certificate through nginx HTTP-01 on port `80`; if that fails, it automatically tries a standalone certbot fallback after stopping nginx/caddy and checking that `80/tcp` is free. It then configures both Caddy and Hysteria2 to use the same cert/key, installs a renewal deploy hook, and stops the install if backend TLS or public nginx stream TLS does not pass `openssl s_client` checks. The N+H panel is checked on `127.0.0.1:3000`, through local nginx on `127.0.0.1:8081`, and through the server public IP on `8081`; if the last check fails, open `8081/tcp` in the VPS provider firewall/security group.
+In `--mode all`, the installer does not let Caddy issue its own certificate on `127.0.0.1:9445`. If `--tls-cert` and `--tls-key` are omitted, it first issues the NHM/NaiveProxy certificate through nginx HTTP-01 on port `80`; if that fails, it automatically tries a standalone certbot fallback after stopping nginx/caddy and checking that `80/tcp` is free. It then configures both Caddy and Hysteria2 to use the same cert/key, installs a renewal deploy hook, and stops the install if backend TLS or public nginx stream TLS does not pass `openssl s_client` checks. The NHM Panel is checked on `127.0.0.1:3000`, through local nginx on `127.0.0.1:8081`, and through the server public IP on `8081`; if the last check fails, open `8081/tcp` in the VPS provider firewall/security group.
 
 `--install-warp` installs Cloudflare WARP in local proxy mode after the main stack is installed. It creates a local SOCKS/HTTP proxy on `127.0.0.1:40000` and saves ready 3x-ui/Xray snippets to `/etc/x-ui/warp-xray-snippets.json`.
 
@@ -140,7 +140,7 @@ sudo bash install.sh --mode all \
   --dry-run
 ```
 
-Standalone N+H panel plan:
+Standalone NHM Panel plan:
 
 ```bash
 sudo bash install.sh --mode nh \
@@ -149,7 +149,7 @@ sudo bash install.sh --mode nh \
   --dry-run
 ```
 
-Real N+H panel install:
+Real NHM Panel install:
 
 ```bash
 sudo bash install.sh --mode nh \
@@ -205,7 +205,7 @@ Apply the recommended profile:
 sudo bash security-hardening.sh --apply --yes
 ```
 
-The recommended profile keeps only SSH, `80/tcp`, `443/tcp`, and `443/udp` open, closes the N+H panel port `8081/tcp` publicly, installs fail2ban and unattended-upgrades, enables `probe_resistance` in `/etc/caddy-nh/Caddyfile`, and restricts access files to `0600`. After that, access the N+H panel through an SSH tunnel:
+The recommended profile keeps only SSH, `80/tcp`, `443/tcp`, and `443/udp` open, closes the NHM Panel port `8081/tcp` publicly, installs fail2ban and unattended-upgrades, enables `probe_resistance` in `/etc/caddy-nh/Caddyfile`, and restricts access files to `0600`. After that, access the NHM Panel through an SSH tunnel:
 
 ```bash
 ssh -L 8081:127.0.0.1:8081 root@SERVER_IP
@@ -300,12 +300,12 @@ x-ui:
   15 x-ui subscription subIds, one per client index
   WARP clone inbounds by default
 
-N+H:
+NHM:
   15 NaiveProxy profiles
   15 Hysteria2 profiles
 ```
 
-The script backs up `/etc/x-ui/x-ui.db`, N+H config, Caddyfile, and Hysteria config before writing. x-ui profiles use grouped `subId` values like `auto-01` and stable emails like `auto-01-direct-reality`; the same `subId` is reused across all direct and WARP clone inbounds for that client index. WARP clone inbounds get unique internal paths/ports and a routing rule by Xray `inboundTag` to outbound `warp-cli` when the x-ui template config is available. WARP WS/XHTTP/gRPC subscription links use the common public WARP port `8443` by default, and nginx routes those path-based requests to the matching internal inbound. Reality WARP clone still uses its own public port, usually base port + 10000, because Reality cannot share a single public port by path. The VPS firewall/security group must allow the WARP public port and any Reality WARP port you import. N+H generated subscriptions contain exactly `COUNT` NaiveProxy links and `COUNT` Hysteria2 links for the selected prefix.
+The script backs up `/etc/x-ui/x-ui.db`, NHM config, Caddyfile, and Hysteria config before writing. x-ui profiles use grouped `subId` values like `auto-01` and stable emails like `auto-01-direct-reality`; the same `subId` is reused across all direct and WARP clone inbounds for that client index. WARP clone inbounds get unique internal paths/ports and a routing rule by Xray `inboundTag` to outbound `warp-cli` when the x-ui template config is available. WARP WS/XHTTP/gRPC subscription links use the common public WARP port `8443` by default, and nginx routes those path-based requests to the matching internal inbound. Reality WARP clone still uses its own public port, usually base port + 10000, because Reality cannot share a single public port by path. The VPS firewall/security group must allow the WARP public port and any Reality WARP port you import. NHM generated subscriptions contain exactly `COUNT` NaiveProxy links and `COUNT` Hysteria2 links for the selected prefix.
 
 Generated reports:
 
@@ -314,7 +314,7 @@ Generated reports:
 /opt/panel-naive-hy2/generated-profiles.txt
 ```
 
-N+H subscription files:
+NHM subscription files:
 
 ```text
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/naive.txt
@@ -332,7 +332,7 @@ The token is generated once and stored root-only:
 sudo cat /etc/nh-panel/subscription-token
 ```
 
-When the N+H panel is exposed by nginx on `8081`, the generator also adds token-protected `/sub/` URLs:
+When the NHM Panel is exposed by nginx on `8081`, the generator also adds token-protected `/sub/` URLs:
 
 ```text
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/naive.txt
@@ -360,8 +360,8 @@ sudo bash generate-profiles.sh \
 - service states for `hysteria-server` and `panel-naive-hy2` when present;
 - listeners on `80`, `443`, `2053`, `8443`, `9443`;
 - DNS A records for provided domains against current public IPv4;
-- N+H backend/public TLS checks and SNI backend layout for `all` mode.
-- N+H panel HTTP checks on backend `3000`, nginx proxy `8081`, and public `SERVER_IP:8081`.
+- NHM backend/public TLS checks and SNI backend layout for `all` mode.
+- NHM Panel HTTP checks on backend `3000`, nginx proxy `8081`, and public `SERVER_IP:8081`.
 
 ## Important
 
@@ -394,13 +394,13 @@ sudo bash install.sh --mode all \
 This installer uses one public `443` owner:
 
 - x-ui-pro/nginx listens on public `443`;
-- N+H NaiveProxy/Caddy listens on `127.0.0.1:9445`;
-- nginx stream routes the N+H/NaiveProxy domain by SNI to `127.0.0.1:9445` and Caddy accepts the stream PROXY protocol before TLS;
+- NHM NaiveProxy/Caddy listens on `127.0.0.1:9445`;
+- nginx stream routes the NHM/NaiveProxy domain by SNI to `127.0.0.1:9445` and Caddy accepts the stream PROXY protocol before TLS;
 - Hysteria2 listens on public `443/udp`;
-- N+H Panel is available through nginx on `8081` by default.
+- NHM Panel is available through nginx on `8081` by default.
 
 Warning: `install-unified.sh` runs the vendored x-ui-pro installer, which is destructive like upstream. Use it only on a fresh VPS or after backups.
 
 ## Legacy / Standalone Modes
 
-`--mode nh` still exists for a standalone N+H Panel install without 3x-ui. For one-command 3x-ui + N+H, use `--mode all`.
+`--mode nh` still exists for a standalone NHM Panel install without 3x-ui. For one-command 3x-ui + NHM, use `--mode all`.

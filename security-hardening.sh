@@ -30,7 +30,7 @@ Options:
   --apply                     Apply changes. Without this, only prints actions.
   --yes                       Do not ask for confirmation.
   --ssh-port PORT             SSH port to keep open in UFW. Default: 22.
-  --panel-port PORT           N+H panel public nginx port. Default: 8081.
+  --panel-port PORT           NHM Panel public nginx port. Default: 8081.
   --panel-mode ssh-only       Close panel port publicly. Default.
   --panel-mode public         Keep panel port publicly open.
   --panel-mode allow-ip       Allow panel only from --allow-panel-from.
@@ -294,9 +294,9 @@ done
 
 if [[ -f /etc/caddy-nh/Caddyfile ]]; then
   if grep -qE '^:9445, .*:9445 \{' /etc/caddy-nh/Caddyfile; then
-    ok "N+H Caddyfile uses Naive-compatible :9445, domain:9445 site address"
+    ok "NHM Caddyfile uses Naive-compatible :9445, domain:9445 site address"
   else
-    warn "N+H Caddyfile site address does not look like ':9445, domain:9445 {'"
+    warn "NHM Caddyfile site address does not look like ':9445, domain:9445 {'"
   fi
   if grep -q 'bind 127.0.0.1' /etc/caddy-nh/Caddyfile; then
     ok "Caddy backend is bound to 127.0.0.1"
@@ -309,13 +309,13 @@ echo
 echo "Access hints"
 echo "------------"
 if [[ "$PANEL_MODE" == "ssh-only" ]]; then
-  echo "N+H panel via SSH tunnel:"
+  echo "NHM Panel via SSH tunnel:"
   echo "  ssh -L ${PANEL_PORT}:127.0.0.1:${PANEL_PORT} root@${server_ip:-SERVER_IP}"
   echo "  http://127.0.0.1:${PANEL_PORT}"
 elif [[ "$PANEL_MODE" == "allow-ip" ]]; then
-  echo "N+H panel allowed only from ${ALLOW_PANEL_FROM}: http://${server_ip:-SERVER_IP}:${PANEL_PORT}"
+  echo "NHM Panel allowed only from ${ALLOW_PANEL_FROM}: http://${server_ip:-SERVER_IP}:${PANEL_PORT}"
 else
-  echo "N+H panel remains public: http://${server_ip:-SERVER_IP}:${PANEL_PORT}"
+  echo "NHM Panel remains public: http://${server_ip:-SERVER_IP}:${PANEL_PORT}"
 fi
 
 echo

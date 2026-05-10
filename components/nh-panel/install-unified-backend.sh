@@ -33,7 +33,7 @@ Usage:
   sudo ./install-unified-backend.sh --domain naive.example.com --email admin@example.com [--panel-public-port 8081]
   sudo ./install-unified-backend.sh --domain naive.example.com --email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem
 
-Installs N+H Panel + NaiveProxy + Hysteria2 as a backend for the x-ui-pro nginx stream layout:
+Installs NHM Panel + NaiveProxy + Hysteria2 as a backend for the x-ui-pro nginx stream layout:
 - nginx owns public 443/tcp;
 - caddy-nh listens on 127.0.0.1:9445 for NaiveProxy;
 - Hysteria2 listens on public 443/udp;
@@ -76,7 +76,7 @@ wait_http() {
   done
 
   printf 'ERROR: %s is not responding at %s\n' "$label" "$url" >&2
-  if [[ "$label" == *"N+H panel"* ]]; then
+  if [[ "$label" == *"NHM Panel"* ]]; then
     journalctl -u panel-naive-hy2 -n 80 --no-pager -l >&2 || true
     if [[ "$label" == *"nginx"* || "$label" == *"public"* ]]; then
       systemctl status nginx --no-pager -l >&2 || true
@@ -204,7 +204,7 @@ done
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "Run as root"
 [[ -n "$DOMAIN" ]] || die "--domain is required"
 [[ -n "$EMAIL" ]] || die "--email is required"
-[[ -d "$UPSTREAM_DIR/panel" ]] || die "Missing vendored N+H panel: $UPSTREAM_DIR/panel"
+[[ -d "$UPSTREAM_DIR/panel" ]] || die "Missing vendored NHM Panel: $UPSTREAM_DIR/panel"
 is_valid_domain "$DOMAIN" || die "--domain is invalid: $DOMAIN"
 is_valid_email "$EMAIL" || die "--email is invalid: $EMAIL"
 [[ -z "$PANEL_DOMAIN" ]] || is_valid_domain "$PANEL_DOMAIN" || die "--panel-domain is invalid: $PANEL_DOMAIN"
@@ -394,8 +394,8 @@ EOF
     restore_nginx_after_acme
   fi
 fi
-[[ -f "$TLS_CERT" ]] || die "TLS cert is required for unified N+H backend: $TLS_CERT"
-[[ -f "$TLS_KEY" ]] || die "TLS key is required for unified N+H backend: $TLS_KEY"
+[[ -f "$TLS_CERT" ]] || die "TLS cert is required for unified NHM backend: $TLS_CERT"
+[[ -f "$TLS_KEY" ]] || die "TLS key is required for unified NHM backend: $TLS_KEY"
 install_certbot_deploy_hook
 
 cat > "$CADDY_DIR/Caddyfile" <<EOF
@@ -437,7 +437,7 @@ EOF
 
 cat > "/etc/systemd/system/${CADDY_SERVICE}.service" <<EOF
 [Unit]
-Description=Caddy N+H NaiveProxy Backend
+Description=Caddy NHM NaiveProxy Backend
 After=network.target network-online.target
 Requires=network-online.target
 
@@ -535,7 +535,7 @@ EOF
 
 cat > /etc/systemd/system/hysteria-server.service <<'EOF'
 [Unit]
-Description=Hysteria2 Server (N+H unified)
+Description=Hysteria2 Server (NHM unified)
 After=network.target network-online.target caddy-nh.service
 Wants=caddy-nh.service
 Requires=network-online.target
@@ -616,7 +616,7 @@ chmod 600 "$PANEL_DIR/panel/data/config.json"
 
 cat > /etc/systemd/system/panel-naive-hy2.service <<EOF
 [Unit]
-Description=N+H Panel Naive + Hysteria2
+Description=NHM Panel Naive + Hysteria2
 After=network.target ${CADDY_SERVICE}.service hysteria-server.service
 
 [Service]
@@ -678,9 +678,9 @@ else
   warn "nginx is not active; skipping public TLS check for ${DOMAIN}:443"
 fi
 
-wait_http "http://127.0.0.1:${INTERNAL_PORT}/" "N+H panel backend" 45 1 || die "N+H panel is not responding on 127.0.0.1:${INTERNAL_PORT}"
+wait_http "http://127.0.0.1:${INTERNAL_PORT}/" "NHM Panel backend" 45 1 || die "NHM Panel is not responding on 127.0.0.1:${INTERNAL_PORT}"
 if [[ "$PANEL_ACCESS" == "nginx8080" ]]; then
-  wait_http "http://127.0.0.1:${PANEL_PUBLIC_PORT}/" "N+H panel nginx proxy" 30 1 || die "N+H panel is not available through nginx on 127.0.0.1:${PANEL_PUBLIC_PORT}"
+  wait_http "http://127.0.0.1:${PANEL_PUBLIC_PORT}/" "NHM Panel nginx proxy" 30 1 || die "NHM Panel is not available through nginx on 127.0.0.1:${PANEL_PUBLIC_PORT}"
 fi
 
 ufw allow 22/tcp >/dev/null 2>&1 || true
@@ -692,13 +692,13 @@ ufw allow 443/udp >/dev/null 2>&1 || true
 if [[ "$PANEL_ACCESS" == "nginx8080" ]]; then
   SERVER_IP="$(public_ipv4)"
   if [[ -n "$SERVER_IP" ]]; then
-    wait_http "http://${SERVER_IP}:${PANEL_PUBLIC_PORT}/" "N+H panel public access" 15 2 || {
-      warn "N+H panel works locally but is not reachable through public IP ${SERVER_IP}:${PANEL_PUBLIC_PORT}."
+    wait_http "http://${SERVER_IP}:${PANEL_PUBLIC_PORT}/" "NHM Panel public access" 15 2 || {
+      warn "NHM Panel works locally but is not reachable through public IP ${SERVER_IP}:${PANEL_PUBLIC_PORT}."
       warn "The remaining blocker is usually a VPS provider firewall/security group for ${PANEL_PUBLIC_PORT}/tcp."
-      die "N+H panel public URL check failed: http://${SERVER_IP}:${PANEL_PUBLIC_PORT}/"
+      die "NHM Panel public URL check failed: http://${SERVER_IP}:${PANEL_PUBLIC_PORT}/"
     }
   else
-    warn "Could not detect public IPv4; skipping public N+H panel URL check"
+    warn "Could not detect public IPv4; skipping public NHM Panel URL check"
   fi
 fi
 
@@ -722,10 +722,10 @@ NH_NAIVE_PASSWORD="${NAIVE_PASS}"
 NH_NAIVE_LINK="naive+https://${NAIVE_LOGIN}:${NAIVE_PASS}@${DOMAIN}:443"
 NH_HY2_USER="default"
 NH_HY2_PASSWORD="${HY2_PASS}"
-NH_HY2_LINK="hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#N+H"
+NH_HY2_LINK="hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#NHM"
 EOF
 chmod 600 "$PROJECT_DIR/config.env"
-ok "Saved N+H configuration: $PROJECT_DIR/config.env"
+ok "Saved NHM configuration: $PROJECT_DIR/config.env"
 
 service_state() {
   local svc="$1"
@@ -741,7 +741,7 @@ service_state() {
 reset_terminal_style
 cat <<EOF
 
-N+H unified backend installed
+NHM unified backend installed
 -------------------------------
 
 Panel:
@@ -751,7 +751,7 @@ Panel:
 
 Links:
   Naive: naive+https://${NAIVE_LOGIN}:${NAIVE_PASS}@${DOMAIN}:443
-  Hy2:   hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#N+H
+  Hy2:   hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#NHM
 
 Services:
   ${CADDY_SERVICE}:     $(service_state "$CADDY_SERVICE")
@@ -765,5 +765,5 @@ Ports:
 
 Warnings:
   - Keep generated panel password private.
-  - N+H/Naive TLS was checked locally and through public nginx stream during install.
+  - NHM/Naive TLS was checked locally and through public nginx stream during install.
 EOF
