@@ -25,6 +25,7 @@ NH_SSH_ONLY="${NH_SSH_ONLY:-0}"
 NH_MASQUERADE="${NH_MASQUERADE:-local}"
 NH_MASQUERADE_URL="${NH_MASQUERADE_URL:-}"
 NH_ALLOW_PORT_CONFLICT="${NH_ALLOW_PORT_CONFLICT:-0}"
+NH_ENABLE_MIERU="${NH_ENABLE_MIERU:-0}"
 TLS_CERT="${TLS_CERT:-}"
 TLS_KEY="${TLS_KEY:-}"
 INSTALL_WARP="${INSTALL_WARP:-0}"
@@ -72,6 +73,7 @@ Usage:
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install-warp --install --yes
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install-warp --generate-profiles --install --yes
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem --install --yes
+  ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --with-mieru --install --yes
   ./install.sh --mode nh --domain vpn.example.com --proxy-email admin@example.com --install --yes
   bash <(wget -qO- RAW_INSTALL_URL)
 
@@ -80,6 +82,7 @@ When values are omitted in an interactive terminal, the script asks for them.
 When run from a URL, relative paths are resolved from the current directory or --project-dir.
 Mode all installs 3x-ui + NHM Panel + NaiveProxy + Hysteria2 on one VPS.
 Mode nh installs only the standalone NHM NaiveProxy + Hysteria2 web panel.
+Mieru is disabled by default. Add --with-mieru if you want the optional Mieru module in NHM Panel.
 EOF
 }
 
@@ -205,7 +208,7 @@ load_config() {
         value="${value//\\\\/\\}"
       fi
       case "$key" in
-        MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NAIVE_EMAIL|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PROXY_EMAIL|PROXY_EMAIL|NH_STACK|NH_ACCESS|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_EMAIL|PANEL_EMAIL|NH_SSH_ONLY|NH_MASQUERADE|NH_MASQUERADE_URL|NH_ALLOW_PORT_CONFLICT|TLS_CERT|TLS_KEY|INSTALL_WARP|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_AI_DOMAINS|WARP_INBOUND_TAG|WARP_ROUTE_PORT|GENERATE_PROFILES|PROFILE_COUNT|PROFILE_PREFIX|UPM_PROJECT_DIR)
+        MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NAIVE_EMAIL|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PROXY_EMAIL|PROXY_EMAIL|NH_STACK|NH_ACCESS|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_EMAIL|PANEL_EMAIL|NH_SSH_ONLY|NH_MASQUERADE|NH_MASQUERADE_URL|NH_ALLOW_PORT_CONFLICT|NH_ENABLE_MIERU|TLS_CERT|TLS_KEY|INSTALL_WARP|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_AI_DOMAINS|WARP_INBOUND_TAG|WARP_ROUTE_PORT|GENERATE_PROFILES|PROFILE_COUNT|PROFILE_PREFIX|UPM_PROJECT_DIR)
           printf -v "$key" '%s' "$value"
           ;;
       esac
@@ -456,6 +459,7 @@ REALITY dest:   ${REALITY_DEST:-not set}
 Naive email:    ${NAIVE_EMAIL:-not set}
 NHM domain:   ${NH_PROXY_DOMAIN:-not set}
 NHM email:    ${NH_PROXY_EMAIL:-not set}
+Mieru module:  $([[ "$NH_ENABLE_MIERU" == "1" ]] && printf enabled || printf disabled)
 TLS cert:       ${TLS_CERT:-auto/ACME}
 TLS key:        ${TLS_KEY:-auto/ACME}
 Install WARP:   ${INSTALL_WARP}
@@ -481,6 +485,7 @@ REALITY dest:   ${REALITY_DEST:-not set}
 Naive email:    ${NAIVE_EMAIL:-not set}
 NHM domain:   ${NH_PROXY_DOMAIN:-not set}
 NHM email:    ${NH_PROXY_EMAIL:-not set}
+Mieru module:  $([[ "$NH_ENABLE_MIERU" == "1" ]] && printf enabled || printf disabled)
 TLS cert:       ${TLS_CERT:-auto/ACME}
 TLS key:        ${TLS_KEY:-auto/ACME}
 Install WARP:   ${INSTALL_WARP}
@@ -589,6 +594,7 @@ EOF
     )
     [[ -n "$TLS_CERT" ]] && all_args+=(--tls-cert "$TLS_CERT")
     [[ -n "$TLS_KEY" ]] && all_args+=(--tls-key "$TLS_KEY")
+    [[ "$NH_ENABLE_MIERU" == "1" ]] && all_args+=(--with-mieru)
     bash "$installer" "${all_args[@]}"
     run_warp_install_if_requested
     run_profile_generation_if_requested
@@ -625,6 +631,7 @@ EOF
     [[ "$NH_SSH_ONLY" == "1" ]] && nh_args+=(--ssh-only)
     [[ -n "$NH_MASQUERADE_URL" ]] && nh_args+=(--masquerade-url "$NH_MASQUERADE_URL")
     [[ "$NH_ALLOW_PORT_CONFLICT" == "1" ]] && nh_args+=(--allow-port-conflict)
+    [[ "$NH_ENABLE_MIERU" == "1" ]] && nh_args+=(--with-mieru)
 
     bash "$nh_installer" "${nh_args[@]}"
     run_warp_install_if_requested
@@ -650,15 +657,19 @@ Naive email:    $NAIVE_EMAIL
 This will run the vendored x-ui-pro installer and write system configs.
 EOF
 
-  bash "$installer" --mode all \
-    --xui-domain "$XUI_DOMAIN" \
-    --nh-domain "$NAIVE_DOMAIN" \
-    --reality-dest "$REALITY_DEST" \
-    --nh-email "$NAIVE_EMAIL" \
-    --profile-count "$PROFILE_COUNT" \
-    --profile-prefix "$PROFILE_PREFIX" \
-    --no-access-info \
+  local -a legacy_args=(
+    --mode all
+    --xui-domain "$XUI_DOMAIN"
+    --nh-domain "$NAIVE_DOMAIN"
+    --reality-dest "$REALITY_DEST"
+    --nh-email "$NAIVE_EMAIL"
+    --profile-count "$PROFILE_COUNT"
+    --profile-prefix "$PROFILE_PREFIX"
+    --no-access-info
     --yes
+  )
+  [[ "$NH_ENABLE_MIERU" == "1" ]] && legacy_args+=(--with-mieru)
+  bash "$installer" "${legacy_args[@]}"
   run_warp_install_if_requested
   run_profile_generation_if_requested
   show_final_access_info
@@ -740,6 +751,7 @@ while [[ $# -gt 0 ]]; do
     --masquerade|--nh-masquerade) NH_MASQUERADE="${2:-}"; shift 2 ;;
     --masquerade-url|--nh-masquerade-url) NH_MASQUERADE_URL="${2:-}"; shift 2 ;;
     --allow-port-conflict|--nh-allow-port-conflict) NH_ALLOW_PORT_CONFLICT=1; shift ;;
+    --with-mieru|--enable-mieru) NH_ENABLE_MIERU=1; shift ;;
     --tls-cert) TLS_CERT="${2:-}"; shift 2 ;;
     --tls-key) TLS_KEY="${2:-}"; shift 2 ;;
     --install-warp) INSTALL_WARP=1; shift ;;
@@ -767,6 +779,7 @@ else
   collect_interactive_inputs
 fi
 case "$MODE" in xui|naive|all|both|nh) ;; *) die "--mode must be xui, naive, all, both, or nh" ;; esac
+[[ "$NH_ENABLE_MIERU" == "1" ]] || NH_ENABLE_MIERU=0
 
 validate_required_args
 validate_real_install_args

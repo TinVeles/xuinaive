@@ -18,6 +18,7 @@ PANEL_DIR="/opt/panel-naive-hy2"
 LOCAL_PANEL_SOURCE="${LOCAL_PANEL_SOURCE:-}"
 SERVICE_NAME="panel-naive-hy2"
 INTERNAL_PORT=3000
+NH_ENABLE_MIERU="${NH_ENABLE_MIERU:-0}"
 
 # ── Colors ──────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -990,6 +991,7 @@ sleep 1
 # Прокидываем через --update-env, чтобы PM2 запомнил env при pm2 save / restart.
 PM2_ENV_LISTEN="LISTEN_HOST=${LISTEN_HOST:-0.0.0.0}"
 LISTEN_HOST="${LISTEN_HOST:-0.0.0.0}" \
+NH_ENABLE_MIERU="${NH_ENABLE_MIERU}" \
 pm2 start server/index.js \
   --name "${SERVICE_NAME}" \
   --time \
@@ -1023,6 +1025,7 @@ RestartSec=5
 Environment=NODE_ENV=production
 Environment=PORT=${INTERNAL_PORT}
 Environment=LISTEN_HOST=${LISTEN_HOST:-0.0.0.0}
+Environment=NH_ENABLE_MIERU=${NH_ENABLE_MIERU}
 StandardOutput=journal
 StandardError=journal
 

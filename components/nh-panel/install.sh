@@ -14,6 +14,7 @@ PANEL_EMAIL="${NH_PANEL_EMAIL:-${PANEL_EMAIL:-}}"
 SSH_ONLY="${NH_SSH_ONLY:-0}"
 MASQUERADE="${NH_MASQUERADE:-local}"
 MASQUERADE_URL="${NH_MASQUERADE_URL:-}"
+NH_ENABLE_MIERU="${NH_ENABLE_MIERU:-0}"
 ASSUME_YES=0
 DRY_RUN=0
 ALLOW_PORT_CONFLICT=0
@@ -33,6 +34,7 @@ Options:
   --ssh-only
   --masquerade local|mirror
   --masquerade-url URL         Required with --masquerade mirror
+  --with-mieru                 Enable optional Mieru module in the panel
   --allow-port-conflict        Continue even if public 443 already has a listener
   --dry-run
   --yes
@@ -57,6 +59,7 @@ while [[ $# -gt 0 ]]; do
     --ssh-only) SSH_ONLY=1; shift ;;
     --masquerade) MASQUERADE="${2:-}"; shift 2 ;;
     --masquerade-url) MASQUERADE_URL="${2:-}"; shift 2 ;;
+    --with-mieru|--enable-mieru) NH_ENABLE_MIERU=1; shift ;;
     --allow-port-conflict) ALLOW_PORT_CONFLICT=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --yes) ASSUME_YES=1; shift ;;
@@ -64,6 +67,8 @@ while [[ $# -gt 0 ]]; do
     *) die "Unknown argument: $1" ;;
   esac
 done
+
+[[ "$NH_ENABLE_MIERU" == "1" ]] || NH_ENABLE_MIERU=0
 
 [[ -f "$UPSTREAM_INSTALL" ]] || die "Missing upstream installer: $UPSTREAM_INSTALL"
 
@@ -143,6 +148,7 @@ Proxy email:  $PROXY_EMAIL
 Panel domain: ${PANEL_DOMAIN:-not used}
 SSH-only:    $SSH_ONLY
 Masquerade:  $MASQUERADE ${MASQUERADE_URL:-}
+Mieru module: $([[ "$NH_ENABLE_MIERU" == "1" ]] && printf enabled || printf disabled)
 
 This will run the vendored NHM installer with LOCAL_PANEL_SOURCE=$UPSTREAM_DIR.
 EOF
@@ -173,4 +179,4 @@ fi
     printf '%s\n' "$MASQUERADE_URL"
   fi
   printf '\n'
-} | LOCAL_PANEL_SOURCE="$UPSTREAM_DIR" bash "$UPSTREAM_INSTALL"
+} | LOCAL_PANEL_SOURCE="$UPSTREAM_DIR" NH_ENABLE_MIERU="$NH_ENABLE_MIERU" bash "$UPSTREAM_INSTALL"

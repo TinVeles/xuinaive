@@ -38,6 +38,7 @@ const CADDY_LISTENER_SERVER = process.env.CADDY_LISTENER_SERVER || '';
 const CADDY_PROXY_PROTOCOL = process.env.CADDY_PROXY_PROTOCOL === '1';
 const CADDY_TLS_CERT = process.env.CADDY_TLS_CERT || '';
 const CADDY_TLS_KEY = process.env.CADDY_TLS_KEY || '';
+const MIERU_ENABLED = process.env.NH_ENABLE_MIERU === '1' || process.env.ENABLE_MIERU === '1';
 const MIERU_CONFIG_PATH = process.env.MIERU_CONFIG_PATH || '/etc/mieru/server_config.json';
 // LISTEN_HOST: 0.0.0.0 (по умолчанию — публично) | 127.0.0.1 (SSH-only режим).
 // Управляется через Environment=LISTEN_HOST=... в systemd-юните или
@@ -283,6 +284,11 @@ function requireAuth(req, res, next) {
   res.status(401).json({ error: 'Unauthorized' });
 }
 
+function requireMieruEnabled(req, res, next) {
+  if (MIERU_ENABLED) return next();
+  res.status(404).json({ error: 'Mieru module is disabled. Reinstall or restart panel with NH_ENABLE_MIERU=1.' });
+}
+
 // ─── Validation helpers ─────────────────────────────────────
 function isValidDomain(s) {
   return typeof s === 'string'
@@ -473,24 +479,30 @@ function checkMieruRunning() {
 
 app.get('/api/status', requireAuth, async (req, res) => {
   const cfg = loadConfig();
+  const exposedStack = { ...(cfg.stack || {}), mieru: MIERU_ENABLED && !!cfg.stack?.mieru };
   if (!cfg.installed) {
-    return res.json({ installed: false, stack: cfg.stack || { naive: false, hy2: false, mieru: false } });
+    return res.json({
+      installed: false,
+      features: { mieru: MIERU_ENABLED },
+      stack: exposedStack || { naive: false, hy2: false, mieru: false }
+    });
   }
   const [naiveActive, hy2Active, mieruActive] = await Promise.all([
     cfg.stack.naive ? checkServiceActive(CADDY_SERVICE) : Promise.resolve(null),
     cfg.stack.hy2 ? checkServiceActive('hysteria-server') : Promise.resolve(null),
-    cfg.stack.mieru ? checkMieruRunning() : Promise.resolve(null)
+    MIERU_ENABLED && cfg.stack.mieru ? checkMieruRunning() : Promise.resolve(null)
   ]);
   res.json({
     installed: true,
-    stack: cfg.stack,
+    features: { mieru: MIERU_ENABLED },
+    stack: exposedStack,
     domain: cfg.domain,
     email: cfg.email,
     serverIp: cfg.serverIp,
     arch: cfg.arch,
     naive: cfg.stack.naive ? { active: naiveActive, usersCount: cfg.naiveUsers.length } : null,
     hy2:   cfg.stack.hy2   ? { active: hy2Active,   usersCount: cfg.hy2Users.length }   : null,
-    mieru: cfg.stack.mieru ? {
+    mieru: MIERU_ENABLED && cfg.stack.mieru ? {
       active: mieruActive,
       usersCount: cfg.mieruUsers.length,
       port: cfg.mieruPort || 0,
@@ -503,6 +515,7 @@ app.post('/api/service/:kind/:action', requireAuth, async (req, res) => {
   const { kind, action } = req.params;
   if (!['start', 'stop', 'restart'].includes(action)) return res.status(400).json({ error: 'bad action' });
   if (kind === 'mieru') {
+    if (!MIERU_ENABLED) return res.status(404).json({ error: 'Mieru module is disabled' });
     let result;
     if (action === 'restart') {
       await runCommand('mita', ['stop']);
@@ -1159,7 +1172,7 @@ async function applyMieruConfig(cfg, restart = false) {
   return { success: true };
 }
 
-app.get('/api/mieru/users', requireAuth, (req, res) => {
+app.get('/api/mieru/users', requireAuth, requireMieruEnabled, (req, res) => {
   const cfg = loadConfig();
   res.json({
     users: (cfg.mieruUsers || []).map(enrichUser),
@@ -1168,7 +1181,7 @@ app.get('/api/mieru/users', requireAuth, (req, res) => {
   });
 });
 
-app.post('/api/mieru/users', requireAuth, async (req, res) => {
+app.post('/api/mieru/users', requireAuth, requireMieruEnabled, async (req, res) => {
   const { username, password, expireDays } = req.body || {};
   if (!isValidUsername(username)) return res.json({ success: false, message: 'Логин 1-32 символа' });
   if (!isValidPassword(password)) return res.json({ success: false, message: 'Пароль 8-128 символов' });
@@ -1187,7 +1200,7 @@ app.post('/api/mieru/users', requireAuth, async (req, res) => {
   res.json({ success: true, clientConfig: mieruClientConfig(username, password, cfg), mihomo: mieruMihomoSnippet(username, password, cfg) });
 });
 
-app.delete('/api/mieru/users/:username', requireAuth, async (req, res) => {
+app.delete('/api/mieru/users/:username', requireAuth, requireMieruEnabled, async (req, res) => {
   const { username } = req.params;
   const cfg = loadConfig();
   const before = cfg.mieruUsers.length;
@@ -1201,7 +1214,7 @@ app.delete('/api/mieru/users/:username', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
-app.patch('/api/mieru/users/:username', requireAuth, async (req, res) => {
+app.patch('/api/mieru/users/:username', requireAuth, requireMieruEnabled, async (req, res) => {
   const { username } = req.params;
   const { expireDays } = req.body || {};
   if (!isValidExpireDays(expireDays)) return res.json({ success: false, message: 'Срок: 1..3650 дней или 0' });
@@ -1217,7 +1230,7 @@ app.patch('/api/mieru/users/:username', requireAuth, async (req, res) => {
   res.json({ success: true, expiresAt: user.expiresAt });
 });
 
-app.get('/api/mieru/client-config/:username', requireAuth, (req, res) => {
+app.get('/api/mieru/client-config/:username', requireAuth, requireMieruEnabled, (req, res) => {
   const cfg = loadConfig();
   const user = (cfg.mieruUsers || []).find(u => u.username === req.params.username);
   if (!user) return res.status(404).json({ error: 'not found' });
@@ -1232,6 +1245,7 @@ app.get('/api/mieru/client-config/:username', requireAuth, (req, res) => {
 // ═══════════════════════════════════════════════════════════
 app.get('/api/logs/:kind', requireAuth, (req, res) => {
   const { kind } = req.params;
+  if (kind === 'mieru' && !MIERU_ENABLED) return res.status(404).json({ error: 'Mieru module is disabled' });
   const lines = Math.max(10, Math.min(parseInt(req.query.lines || '60', 10) || 60, 500));
   const unitMap = {
     naive: CADDY_SERVICE,
@@ -1635,6 +1649,12 @@ function handleInstallHy2(ws, data) {
 }
 
 function handleInstallMieru(ws, data) {
+  if (!MIERU_ENABLED) {
+    return ws.send(JSON.stringify({
+      type: 'install_error',
+      message: 'Mieru модуль выключен. Запустите установку панели с флагом --with-mieru.'
+    }));
+  }
   const { username, password, port, protocol } = data;
   const mieruPort = parseInt(port || '0', 10);
   const mieruProtocol = normalizeMieruProtocol(protocol);

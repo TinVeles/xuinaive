@@ -20,6 +20,7 @@ CADDY_DIR="/etc/caddy-nh"
 PANEL_DIR="/opt/panel-naive-hy2"
 TLS_CERT=""
 TLS_KEY=""
+NH_ENABLE_MIERU="${NH_ENABLE_MIERU:-0}"
 
 reset_terminal_style() {
   [[ -t 1 ]] && printf '\033[0m\033[24m\033[25m' || true
@@ -38,6 +39,8 @@ Installs NHM Panel + NaiveProxy + Hysteria2 as a backend for the x-ui-pro nginx 
 - caddy-nh listens on 127.0.0.1:9445 for NaiveProxy;
 - Hysteria2 listens on public 443/udp;
 - panel-naive-hy2 listens on 3000 and can be exposed through nginx on 8081.
+
+Mieru is disabled by default. Add --with-mieru to expose the optional Mieru module in the panel.
 EOF
 }
 
@@ -196,10 +199,13 @@ while [[ $# -gt 0 ]]; do
     --panel-listen-host) LISTEN_HOST="${2:-}"; shift 2 ;;
     --tls-cert) TLS_CERT="${2:-}"; shift 2 ;;
     --tls-key) TLS_KEY="${2:-}"; shift 2 ;;
+    --with-mieru|--enable-mieru) NH_ENABLE_MIERU=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
 done
+
+[[ "$NH_ENABLE_MIERU" == "1" ]] || NH_ENABLE_MIERU=0
 
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "Run as root"
 [[ -n "$DOMAIN" ]] || die "--domain is required"
@@ -311,6 +317,8 @@ hy2_users_json() {
 
 INITIAL_NAIVE_USERS_JSON="$(naive_users_json "$NAIVE_LOGIN" "$NAIVE_PASS" 15)"
 INITIAL_HY2_USERS_JSON="$(hy2_users_json "$HY2_PASS" 15)"
+MIERU_ENABLED_JSON=false
+[[ "$NH_ENABLE_MIERU" == "1" ]] && MIERU_ENABLED_JSON=true
 CADDY_AUTH_LINES="$(INITIAL_NAIVE_USERS_JSON="$INITIAL_NAIVE_USERS_JSON" node <<'NODE'
 const users = JSON.parse(process.env.INITIAL_NAIVE_USERS_JSON || '[]');
 for (const u of users) {
@@ -591,7 +599,8 @@ cat > "$PANEL_DIR/panel/data/config.json" <<EOF
   "installed": true,
   "stack": {
     "naive": true,
-    "hy2": true
+    "hy2": true,
+    "mieru": false
   },
   "domain": "${DOMAIN}",
   "email": "${EMAIL}",
@@ -608,6 +617,7 @@ cat > "$PANEL_DIR/panel/data/config.json" <<EOF
   "masqueradeUrl": "",
   "serverIp": "",
   "arch": "$(uname -m)",
+  "mieruEnabled": ${MIERU_ENABLED_JSON},
   "naiveUsers": ${INITIAL_NAIVE_USERS_JSON},
   "hy2Users": ${INITIAL_HY2_USERS_JSON}
 }
@@ -634,6 +644,7 @@ Environment=CADDY_LISTENER_SERVER=${CADDY_HOST}:${CADDY_PORT}
 Environment=CADDY_PROXY_PROTOCOL=1
 Environment=CADDY_TLS_CERT=${TLS_CERT}
 Environment=CADDY_TLS_KEY=${TLS_KEY}
+Environment=NH_ENABLE_MIERU=${NH_ENABLE_MIERU}
 Environment=TRUST_PROXY=1
 Environment=SESSION_COOKIE_SECURE=auto
 UMask=0077
@@ -712,6 +723,7 @@ NH_PANEL_DOMAIN="${PANEL_DOMAIN}"
 NH_EMAIL="${EMAIL}"
 NH_PANEL_PORT="${PANEL_PUBLIC_PORT}"
 NH_BACKEND_LISTEN="${CADDY_LISTEN}"
+NH_ENABLE_MIERU="${NH_ENABLE_MIERU}"
 NH_TLS_CERT="${TLS_CERT}"
 NH_TLS_KEY="${TLS_KEY}"
 NH_PANEL_URL="http://${SERVER_IP:-SERVER_IP}:${PANEL_PUBLIC_PORT}"
@@ -757,6 +769,7 @@ Services:
   ${CADDY_SERVICE}:     $(service_state "$CADDY_SERVICE")
   panel-naive-hy2:      $(service_state panel-naive-hy2)
   hysteria-server:      $(service_state hysteria-server)
+  Mieru module:         $([[ "$NH_ENABLE_MIERU" == "1" ]] && printf enabled || printf disabled)
 
 Ports:
   panel backend:        ${LISTEN_HOST}:${INTERNAL_PORT}

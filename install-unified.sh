@@ -23,6 +23,7 @@ WARP_PROXY_PORT=40000
 WARP_OUTBOUND_TAG="warp-cli"
 WARP_AI_DOMAINS="domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google"
 PRINT_ACCESS_INFO=1
+NH_ENABLE_MIERU=0
 
 usage() {
   cat <<'EOF'
@@ -33,9 +34,11 @@ Usage:
     --reality-dest reality.example.com \
     --nh-email admin@example.com \
     [--tls-cert /path/fullchain.pem --tls-key /path/privkey.pem] \
+    [--with-mieru] \
     --yes
 
 This is the explicit real installer. It runs vendored component scripts.
+Mieru is disabled by default. Add --with-mieru to expose the optional Mieru module in NHM Panel.
 For dry-run checks use ./install.sh.
 EOF
 }
@@ -186,6 +189,7 @@ while [[ $# -gt 0 ]]; do
     --warp-proxy-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
+    --with-mieru|--enable-mieru) NH_ENABLE_MIERU=1; shift ;;
     --no-access-info) PRINT_ACCESS_INFO=0; shift ;;
     --yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -234,6 +238,7 @@ Reality dest:        ${REALITY_DEST}
 NHM email:         ${NH_EMAIL}
 Panel port:          ${PANEL_PUBLIC_PORT}
 Backend listen:      ${NH_BACKEND}
+Mieru module:        $([[ "$NH_ENABLE_MIERU" == "1" ]] && printf enabled || printf disabled)
 TLS cert:            ${TLS_CERT:-auto/ACME}
 TLS key:             ${TLS_KEY:-auto/ACME}
 
@@ -282,6 +287,7 @@ nh_args=(
 )
 [[ -n "$TLS_CERT" ]] && nh_args+=(--tls-cert "$TLS_CERT")
 [[ -n "$TLS_KEY" ]] && nh_args+=(--tls-key "$TLS_KEY")
+[[ "$NH_ENABLE_MIERU" == "1" ]] && nh_args+=(--with-mieru)
 bash "$NH_BACKEND_INSTALL" "${nh_args[@]}"
 
 require_active caddy-nh
@@ -318,6 +324,7 @@ config_set NH_PANEL_DOMAIN ""
 config_set NH_EMAIL "$NH_EMAIL"
 config_set NH_PANEL_PORT "$PANEL_PUBLIC_PORT"
 config_set NH_BACKEND_LISTEN "$NH_BACKEND"
+config_set NH_ENABLE_MIERU "$NH_ENABLE_MIERU"
 config_set NH_TLS_CERT "$NH_TLS_CERT_FINAL"
 config_set NH_TLS_KEY "$NH_TLS_KEY_FINAL"
 config_set NH_PANEL_URL "$NH_PANEL_URL_FINAL"

@@ -121,6 +121,29 @@ function goToPage(page) {
   if (page === 'settings') loadSettingsInfo();
 }
 
+function isMieruEnabled(status = currentStatus) {
+  return !!status?.features?.mieru;
+}
+
+function applyFeatureFlags(status) {
+  const mieruEnabled = isMieruEnabled(status);
+  [
+    document.getElementById('mieruCard'),
+    document.querySelector('#installPage .tab-btn[data-tab="mieru"]'),
+    document.querySelector('#usersPage .tab-btn[data-utab="mieru"]')
+  ].forEach(el => {
+    if (el) el.classList.toggle('hidden', !mieruEnabled);
+  });
+
+  if (!mieruEnabled && currentInstallTab === 'mieru') switchInstallTab('naive');
+  if (!mieruEnabled && currentUsersTab === 'mieru') {
+    currentUsersTab = 'naive';
+    document.querySelectorAll('#usersPage .tab-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.utab === currentUsersTab);
+    });
+  }
+}
+
 // ─── SETTINGS — динамическая версия панели ──────────────
 async function loadSettingsInfo() {
   const el = document.getElementById('panelVersion');
@@ -214,6 +237,7 @@ async function loadDashboard() {
     const res = await fetch('/api/status');
     const data = await res.json();
     currentStatus = data;
+    applyFeatureFlags(data);
 
     // Общая инфа
     document.getElementById('serverDomain').textContent = data.domain || '—';
@@ -247,7 +271,7 @@ async function loadDashboard() {
     }
 
     // Mieru карточка
-    if (data.stack?.mieru) {
+    if (isMieruEnabled(data) && data.stack?.mieru) {
       document.getElementById('mieruNotInstalled').classList.add('hidden');
       document.getElementById('mieruInstalled').classList.remove('hidden');
       document.getElementById('mieruUsersCount').textContent = data.mieru.usersCount || 0;
@@ -332,7 +356,7 @@ async function renderQuickLinks(status) {
   }
 
   // Mieru config snippets
-  if (status.stack.mieru) {
+  if (isMieruEnabled(status) && status.stack.mieru) {
     try {
       const r = await fetch('/api/mieru/users');
       const { users } = await r.json();
@@ -382,6 +406,10 @@ async function serviceAction(kind, action) {
 
 // ─── INSTALL ────────────────────────────────────────────
 function switchInstallTab(tab) {
+  if (tab === 'mieru' && !isMieruEnabled()) {
+    showToast('Mieru выключен. Нужен флаг установки --with-mieru.', 'error');
+    tab = 'naive';
+  }
   currentInstallTab = tab;
   document.querySelectorAll('#installPage .tab-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.tab === tab);
@@ -613,18 +641,19 @@ async function loadUsers() {
   const empty = document.getElementById('emptyUsers');
 
   try {
-    const [usersRes, statusRes] = await Promise.all([
-      fetch(`/api/${currentUsersTab}/users`),
-      fetch('/api/status')
-    ]);
-    const { users } = await usersRes.json();
+    const statusRes = await fetch('/api/status');
     const status = await statusRes.json();
+    currentStatus = status;
+    applyFeatureFlags(status);
+
+    const usersRes = await fetch(`/api/${currentUsersTab}/users`);
+    const { users = [] } = await usersRes.json();
 
     // Обновляем счётчики табов
     try {
       const n = await (await fetch('/api/naive/users')).json();
       const h = await (await fetch('/api/hy2/users')).json();
-      const m = await (await fetch('/api/mieru/users')).json();
+      const m = isMieruEnabled(status) ? await (await fetch('/api/mieru/users')).json() : { users: [] };
       document.getElementById('naiveTabCount').textContent = (n.users || []).length;
       document.getElementById('hy2TabCount').textContent = (h.users || []).length;
       document.getElementById('mieruTabCount').textContent = (m.users || []).length;

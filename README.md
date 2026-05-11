@@ -46,6 +46,7 @@ components/
 - Hysteria2 uses public `443/udp`.
 - NHM Caddy uses a ready certificate/key and accepts nginx stream PROXY protocol on the backend listener.
 - Optional Cloudflare WARP local proxy can be installed on `127.0.0.1:40000`.
+- Optional Mieru support is disabled by default; add `--with-mieru` only when you want the NHM Panel to expose the Mieru module.
 - Optional bulk profile generator can create x-ui, NaiveProxy, and Hysteria2 clients.
 - You still get two web panels: 3x-ui for Xray/3x-ui and NHM Panel for NaiveProxy + Hysteria2.
 
@@ -86,6 +87,8 @@ sudo bash install.sh --mode all \
 In `--mode all`, the installer does not let Caddy issue its own certificate on `127.0.0.1:9445`. If `--tls-cert` and `--tls-key` are omitted, it first issues the NHM/NaiveProxy certificate through nginx HTTP-01 on port `80`; if that fails, it automatically tries a standalone certbot fallback after stopping nginx/caddy and checking that `80/tcp` is free. It then configures both Caddy and Hysteria2 to use the same cert/key, installs a renewal deploy hook, and stops the install if backend TLS or public nginx stream TLS does not pass `openssl s_client` checks. The NHM Panel is checked on `127.0.0.1:3000`, through local nginx on `127.0.0.1:8081`, and through the server public IP on `8081`; if the last check fails, open `8081/tcp` in the VPS provider firewall/security group.
 
 `--install-warp` installs Cloudflare WARP in local proxy mode after the main stack is installed. It creates a local SOCKS/HTTP proxy on `127.0.0.1:40000` and saves ready 3x-ui/Xray snippets to `/etc/x-ui/warp-xray-snippets.json`.
+
+`--with-mieru` exposes the optional Mieru module inside NHM Panel. The default install does not install `mita`, does not show Mieru controls, and keeps the base stack as x-ui + NHM Panel + NaiveProxy + Hysteria2.
 
 By default the x-ui installer creates the preset direct inbounds with one default client on each inbound, plus matching WARP clone inbounds for the same protocols with one WARP client each. This keeps the 3x-ui manual inbound/client editor clean while preserving WARP variants.
 
