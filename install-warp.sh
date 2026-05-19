@@ -12,6 +12,7 @@ WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-inbound-443}"
 WARP_ROUTE_PORT="${WARP_ROUTE_PORT:-443}"
+WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google}"
 WARP_SNIPPET_DIR="${WARP_SNIPPET_DIR:-/etc/x-ui}"
 ASSUME_YES=0
 
@@ -37,7 +38,8 @@ Usage:
 Installs Cloudflare WARP in local proxy mode and prepares 3x-ui/Xray snippets:
   SOCKS/HTTP proxy: 127.0.0.1:${WARP_PROXY_PORT}
   Xray outbound tag: ${WARP_OUTBOUND_TAG}
-  Routing rule: inboundTag=${WARP_INBOUND_TAG}, port=${WARP_ROUTE_PORT}, outboundTag=${WARP_OUTBOUND_TAG}
+  Routing rule: inboundTag=${WARP_INBOUND_TAG}, AI domains only, outboundTag=${WARP_OUTBOUND_TAG}
+  AI domains: ${WARP_AI_DOMAINS}
 EOF
 }
 
@@ -47,6 +49,7 @@ while [[ $# -gt 0 ]]; do
     --outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
     --inbound-tag) WARP_INBOUND_TAG="${2:-}"; shift 2 ;;
     --route-port) WARP_ROUTE_PORT="${2:-}"; shift 2 ;;
+    --warp-ai-domains|--ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
     --snippet-dir) WARP_SNIPPET_DIR="${2:-}"; shift 2 ;;
     --yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -77,7 +80,7 @@ fi
 
 info "Installing Cloudflare WARP apt repository"
 apt-get update
-apt-get install -y ca-certificates curl gpg lsb-release
+apt-get install -y ca-certificates curl gpg jq lsb-release
 install -d -m 0755 /usr/share/keyrings /etc/apt/sources.list.d
 curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg \
   | gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
@@ -150,36 +153,24 @@ fi
 
 mkdir -p "$WARP_SNIPPET_DIR"
 snippet_file="$WARP_SNIPPET_DIR/warp-xray-snippets.json"
-cat > "$snippet_file" <<EOF
-{
-  "outbound": {
-    "tag": "${WARP_OUTBOUND_TAG}",
-    "protocol": "socks",
-    "settings": {
-      "servers": [
-        {
-          "address": "127.0.0.1",
-          "port": ${WARP_PROXY_PORT}
-        }
-      ]
-    }
-  },
-  "routingRule": {
-    "type": "field",
-    "inboundTag": [
-      "${WARP_INBOUND_TAG}"
-    ],
-    "port": "${WARP_ROUTE_PORT}",
-    "outboundTag": "${WARP_OUTBOUND_TAG}"
-  }
-}
-EOF
+domains_json="$(printf '%s\n' "$WARP_AI_DOMAINS" \
+  | tr ',' '\n' \
+  | jq -Rsc 'split("\n") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(length > 0)) | unique')"
+jq -cn \
+  --arg tag "$WARP_OUTBOUND_TAG" \
+  --argjson port "$WARP_PROXY_PORT" \
+  --arg inboundTag "$WARP_INBOUND_TAG" \
+  --argjson domains "$domains_json" \
+  '{
+    outbound: {tag:$tag, protocol:"socks", settings:{servers:[{address:"127.0.0.1", port:$port}]}},
+    routingRule: {type:"field", inboundTag:[$inboundTag], domain:$domains, outboundTag:$tag}
+  }' > "$snippet_file"
 chmod 0644 "$snippet_file"
 ok "Saved Xray/3x-ui snippets: $snippet_file"
 
 if [[ -f "$SCRIPT_DIR/config.env" ]]; then
   tmp_config="$(mktemp)"
-  grep -vE '^(WARP_ENABLED|WARP_PROXY_HOST|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_INBOUND_TAG|WARP_ROUTE_PORT|WARP_SNIPPET_FILE)=' "$SCRIPT_DIR/config.env" > "$tmp_config" || true
+  grep -vE '^(WARP_ENABLED|WARP_PROXY_HOST|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_INBOUND_TAG|WARP_ROUTE_PORT|WARP_AI_DOMAINS|WARP_SNIPPET_FILE)=' "$SCRIPT_DIR/config.env" > "$tmp_config" || true
   cat >> "$tmp_config" <<EOF
 WARP_ENABLED="1"
 WARP_PROXY_HOST="127.0.0.1"
@@ -187,6 +178,7 @@ WARP_PROXY_PORT="${WARP_PROXY_PORT}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG}"
 WARP_INBOUND_TAG="${WARP_INBOUND_TAG}"
 WARP_ROUTE_PORT="${WARP_ROUTE_PORT}"
+WARP_AI_DOMAINS="${WARP_AI_DOMAINS}"
 WARP_SNIPPET_FILE="${snippet_file}"
 EOF
   install -m 0600 "$tmp_config" "$SCRIPT_DIR/config.env"
@@ -207,7 +199,8 @@ Local proxy:
   Address:           127.0.0.1
   Port:              ${WARP_PROXY_PORT}
   Routing inbound:   ${WARP_INBOUND_TAG}
-  Routing port:      ${WARP_ROUTE_PORT}
+  Routing scope:     AI domains only
+  AI domains:        ${WARP_AI_DOMAINS}
   Routing outbound:  ${WARP_OUTBOUND_TAG}
 
 Snippet file:

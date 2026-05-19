@@ -8,7 +8,7 @@ else
   SCRIPT_DIR="$(cd "$(dirname "$SOURCE_PATH")" && pwd)"
 fi
 
-COUNT="${COUNT:-15}"
+COUNT="${COUNT:-4}"
 PREFIX="${PREFIX:-auto}"
 XUI_DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
 NH_CONFIG="${NH_CONFIG:-/opt/panel-naive-hy2/panel/data/config.json}"
@@ -22,12 +22,13 @@ WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google}"
 XUI_WARP_EXTERNAL_PORT="${XUI_WARP_EXTERNAL_PORT:-8443}"
-XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
+XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-1}"
 XUI_WARP_NGINX_STREAM="${XUI_WARP_NGINX_STREAM:-1}"
 XUI_INBOUND_ID="${XUI_INBOUND_ID:-}"
 XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-$PREFIX}"
 XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
 XUI_CREATE_WARP="${XUI_CREATE_WARP:-1}"
+XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-0}"
 XUI_REPLACE_CLIENTS="${XUI_REPLACE_CLIENTS:-1}"
 CREATE_XUI="${CREATE_XUI:-1}"
 CREATE_NH="${CREATE_NH:-1}"
@@ -51,12 +52,12 @@ usage() {
   cat <<EOF
 Usage:
   sudo bash generate-profiles.sh --yes
-  sudo bash generate-profiles.sh --count 15 --prefix auto --yes
+  sudo bash generate-profiles.sh --count 4 --prefix auto --yes
   sudo bash generate-profiles.sh --xui-only --yes
   sudo bash generate-profiles.sh --nh-only --yes
 
 Creates:
-  x-ui:  COUNT clients on every selected preset inbound.
+  x-ui:  COUNT WARP-split clients on every selected WARP clone inbound.
          Default subscriptions: one subId per client index.
   NHM:   COUNT NaiveProxy profiles and COUNT Hysteria2 profiles.
          Subscription files are written to ${NH_SUBSCRIPTION_DIR}.
@@ -67,6 +68,7 @@ WARP variants:
   public port:  ${XUI_WARP_EXTERNAL_PORT} for path-based WARP variants
   AI domains:   ${WARP_AI_DOMAINS}
   enabled by default; set XUI_CREATE_WARP=0 to skip WARP clone inbounds.
+  generated clients use WARP clone inbounds by default; add --xui-direct-clients to also generate direct clients.
 
 x-ui selection:
   default: every preset vless/trojan inbound
@@ -98,6 +100,8 @@ while [[ $# -gt 0 ]]; do
     --xui-common-sub-id) XUI_COMMON_SUB_ID="${2:-}"; shift 2 ;;
     --xui-sub-id-mode) XUI_SUB_ID_MODE="${2:-}"; shift 2 ;;
     --xui-warp-clone) XUI_CREATE_WARP=1; shift ;;
+    --xui-direct-clients) XUI_CREATE_DIRECT=1; shift ;;
+    --no-xui-direct-clients) XUI_CREATE_DIRECT=0; shift ;;
     --xui-keep-existing) XUI_REPLACE_CLIENTS=0; shift ;;
     --xui-only) CREATE_XUI=1; CREATE_NH=0; shift ;;
     --nh-only) CREATE_XUI=0; CREATE_NH=1; shift ;;
@@ -117,6 +121,10 @@ done
 [[ -z "$XUI_INBOUND_ID" || "$XUI_INBOUND_ID" =~ ^[0-9]+$ ]] || die "--xui-inbound-id must be numeric"
 [[ "$XUI_COMMON_SUB_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--xui-common-sub-id may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
 [[ "$XUI_SUB_ID_MODE" == "per-client" || "$XUI_SUB_ID_MODE" == "common" ]] || die "--xui-sub-id-mode must be per-client or common"
+if [[ "$XUI_CREATE_WARP" != "1" && "$XUI_CREATE_DIRECT" != "1" ]]; then
+  warn "XUI_CREATE_WARP=0 with direct clients disabled would create no x-ui clients; enabling direct clients."
+  XUI_CREATE_DIRECT=1
+fi
 
 for cmd in node openssl; do
   command_exists "$cmd" || die "$cmd is required"
@@ -443,6 +451,20 @@ xui_replace_generated_clients() {
   done
 }
 
+xui_prune_generated_clients() {
+  local inbound_id="$1" protocol="$2" report_file="$3" settings new_settings
+  settings="$(sqlite3 -readonly "$XUI_DB" "SELECT settings FROM inbounds WHERE id=$inbound_id;")"
+  new_settings="$(jq -c --arg prefix "$PREFIX" '
+    def generated_email:
+      ((.email // "") | tostring) as $email
+      | ($email | startswith($prefix + "-"));
+    .clients = ((.clients // []) | map(select(generated_email | not)))
+  ' <<<"$settings" | xui_normalize_inbound_settings "$protocol")"
+  sqlite3 "$XUI_DB" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
+  sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND email GLOB $(sql_quote "${PREFIX}-[0-9]*");"
+  printf 'inbound=%s mode=direct action=pruned-generated prefix=%s\n' "$inbound_id" "$PREFIX" >> "$report_file"
+}
+
 xui_ensure_warp_inbound() {
   local base_id="$1" protocol="$2" base_tag="$3" base_remark="$4" base_port="$5" base_enable="$6"
   local existing_id existing_port warp_port lookup_tag warp_tag warp_remark warp_enable settings empty_settings stream_settings warp_stream_settings warp_listen
@@ -524,7 +546,11 @@ $(xui_preset_inbound_filter_sql)"
     [[ -n "$inbound_id" ]] || continue
 
     xui_bind_direct_reality_local_if_needed "$inbound_id" "$port"
-    xui_replace_generated_clients "$inbound_id" "$protocol" "direct" "$tag" "$report_file"
+    if [[ "$XUI_CREATE_DIRECT" == "1" ]]; then
+      xui_replace_generated_clients "$inbound_id" "$protocol" "direct" "$tag" "$report_file"
+    else
+      xui_prune_generated_clients "$inbound_id" "$protocol" "$report_file"
+    fi
     if [[ "$XUI_CREATE_WARP" == "1" ]]; then
       warp_id="$(xui_ensure_warp_inbound "$inbound_id" "$protocol" "$tag" "$remark" "$port" "$enable")"
       warp_tag="$(sqlite3 -readonly "$XUI_DB" "SELECT COALESCE(tag,'') FROM inbounds WHERE id=$warp_id;")"
@@ -779,7 +805,7 @@ const fs = require('fs');
 const cp = require('child_process');
 const path = require('path');
 
-const count = parseInt(process.env.COUNT || '15', 10);
+const count = parseInt(process.env.COUNT || '4', 10);
 const prefix = process.env.PREFIX || 'auto';
 const cfgPath = process.env.NH_CONFIG;
 const caddyfile = process.env.CADDYFILE;
@@ -1090,7 +1116,7 @@ cat <<EOF
 Profile generation complete
 ---------------------------
 x-ui:
-  direct clients: ${COUNT} clients on selected preset inbound(s)
+  direct generated clients: ${XUI_CREATE_DIRECT} (${COUNT} per selected preset inbound when enabled)
   subId mode: ${XUI_SUB_ID_MODE}
   common subId (only common mode): ${XUI_COMMON_SUB_ID}
   replace existing clients: ${XUI_REPLACE_CLIENTS}

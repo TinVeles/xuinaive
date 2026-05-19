@@ -17,7 +17,7 @@ PANEL_PUBLIC_PORT="8081"
 TLS_CERT=""
 TLS_KEY=""
 GENERATE_PROFILES=0
-PROFILE_COUNT=15
+PROFILE_COUNT=4
 PROFILE_PREFIX="auto"
 WARP_PROXY_PORT=40000
 WARP_OUTBOUND_TAG="warp-cli"
@@ -344,7 +344,7 @@ ok "Saved final configuration: $SCRIPT_DIR/config.env"
 if [[ "$GENERATE_PROFILES" == "1" ]]; then
   info "Running profile generation as part of unified install"
   bash "$SCRIPT_DIR/generate-profiles.sh" \
-    --count "${PROFILE_COUNT:-15}" \
+    --count "${PROFILE_COUNT:-4}" \
     --prefix "${PROFILE_PREFIX:-auto}" \
     --warp-port "${WARP_PROXY_PORT:-40000}" \
     --warp-outbound-tag "${WARP_OUTBOUND_TAG:-warp-cli}" \

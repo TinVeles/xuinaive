@@ -10,21 +10,25 @@ msg_inf		 ' \/ __ | |  | '	;
 msg_inf		 ' /\    |_| _|_'	; echo
 ##################################Variables#############################################################
 XUIDB="/etc/x-ui/x-ui.db";domain="";UNINSTALL="x";INSTALL="n";PNLNUM=1;CFALLOW="n";CLASH=0;CUSTOMWEBSUB=0
-XUI_PROFILE_COUNT="${XUI_PROFILE_COUNT:-15}"
+XUI_PROFILE_COUNT="${XUI_PROFILE_COUNT:-4}"
 XUI_PROFILE_PREFIX="${XUI_PROFILE_PREFIX:-auto}"
 XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-first}"
 XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
 XUI_SEED_PROFILES="${XUI_SEED_PROFILES:-0}"
 XUI_CREATE_WARP_INBOUNDS="${XUI_CREATE_WARP_INBOUNDS:-1}"
+XUI_CREATE_DIRECT_CLIENTS="${XUI_CREATE_DIRECT_CLIENTS:-0}"
 XUI_PRINT_ACCESS_INFO="${XUI_PRINT_ACCESS_INFO:-1}"
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google}"
 XUI_WARP_EXTERNAL_PORT="${XUI_WARP_EXTERNAL_PORT:-8443}"
-XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
+XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-1}"
 XUI_VERSION="${XUI_VERSION:-}"
 XUI_TARBALL_SHA256="${XUI_TARBALL_SHA256:-}"
+if [[ "$XUI_CREATE_WARP_INBOUNDS" != "1" && "$XUI_CREATE_DIRECT_CLIENTS" != "1" ]]; then
+  XUI_CREATE_DIRECT_CLIENTS=1
+fi
 Pak=$(type apt &>/dev/null && echo "apt" || echo "yum")
 
 verify_sha256_if_set() {
@@ -74,6 +78,17 @@ gen_random_string() {
     local length="$1"
     head -c 4096 /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c "$length"
     echo
+}
+
+is_valid_domain() {
+  [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ && ${#1} -le 253 ]]
+}
+
+validate_option_index() {
+  local name="$1" value="$2" max="$3"
+  if ! [[ "$value" =~ ^[0-9]+$ ]] || (( 10#$value > max )); then
+    msg_err "Invalid -${name}: expected 0..${max}" && exit 1
+  fi
 }
 
 sql_quote() {
@@ -380,6 +395,19 @@ xui_set_inbound_clients() {
     fi
     printf 'inbound=%s protocol=%s tag=%s mode=%s email=%s subId=%s\n' "$inbound_id" "$protocol" "${tag:-}" "$mode" "$email" "$sub_id" >> /etc/x-ui/generated-clients.txt
   done
+}
+
+xui_prune_generated_clients() {
+  local inbound_id="$1" protocol="$2" settings new_settings
+  settings="$(sqlite3 -readonly "$XUIDB" "SELECT settings FROM inbounds WHERE id=$inbound_id;")"
+  new_settings="$(jq -c --arg prefix "$XUI_PROFILE_PREFIX" '
+    def generated_email:
+      ((.email // "") | tostring) as $email
+      | ($email | startswith($prefix + "-"));
+    .clients = ((.clients // []) | map(select(generated_email | not)))
+  ' <<<"$settings" | xui_normalize_inbound_settings "$protocol")"
+  sqlite3 "$XUIDB" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
+  sqlite3 "$XUIDB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND email GLOB $(sql_quote "${XUI_PROFILE_PREFIX}-[0-9]*");"
 }
 
 xui_fill_empty_warp_clients() {
@@ -693,7 +721,7 @@ xui_seed_bulk_profiles() {
   local inbound_rows inbound_id protocol tag remark port enable warp_id warp_tag warp_tags_file
   [[ -f "$XUIDB" ]] || return 0
   [[ "$XUI_SEED_PROFILES" == "1" ]] || { xui_seed_default_warp_profiles; return 0; }
-  [[ "$XUI_PROFILE_COUNT" =~ ^[0-9]+$ && "$XUI_PROFILE_COUNT" -gt 0 ]] || XUI_PROFILE_COUNT=15
+  [[ "$XUI_PROFILE_COUNT" =~ ^[0-9]+$ && "$XUI_PROFILE_COUNT" -gt 0 ]] || XUI_PROFILE_COUNT=4
   : > /etc/x-ui/generated-clients.txt
   warp_tags_file="$(mktemp)"
   inbound_rows="$(sqlite3 -separator $'\t' "$XUIDB" \
@@ -707,7 +735,11 @@ $(xui_preset_inbound_filter_sql)
   while IFS=$'\t' read -r inbound_id protocol tag remark port enable; do
     [[ -n "$inbound_id" ]] || continue
     xui_bind_direct_reality_local_if_needed "$inbound_id" "$port"
-    xui_set_inbound_clients "$inbound_id" "$protocol" "direct" "$tag"
+    if [[ "$XUI_CREATE_DIRECT_CLIENTS" == "1" ]]; then
+      xui_set_inbound_clients "$inbound_id" "$protocol" "direct" "$tag"
+    else
+      xui_prune_generated_clients "$inbound_id" "$protocol"
+    fi
     if [[ "$XUI_CREATE_WARP_INBOUNDS" == "1" ]]; then
       warp_id="$(xui_ensure_warp_inbound "$inbound_id" "$protocol" "$tag" "$remark" "$port" "$enable" || true)"
       if [[ -n "$warp_id" ]]; then
@@ -719,7 +751,7 @@ $(xui_preset_inbound_filter_sql)
   done <<<"$inbound_rows"
   xui_apply_warp_template "$warp_tags_file"
   rm -f "$warp_tags_file"
-  msg_ok "x-ui seed: ${XUI_PROFILE_COUNT} clients per inbound, subId mode ${XUI_SUB_ID_MODE}"
+  msg_ok "x-ui seed: ${XUI_PROFILE_COUNT} WARP-split clients per WARP inbound, direct generated clients=${XUI_CREATE_DIRECT_CLIENTS}, subId mode ${XUI_SUB_ID_MODE}"
 }
 
 xui_cleanup_unix_sockets() {
@@ -790,6 +822,9 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+validate_option_index "websub" "$CUSTOMWEBSUB" 1
+validate_option_index "clash" "$CLASH" 3
+
 
 ##############################Uninstall#################################################################
 UNINSTALL_XUI(){
@@ -831,6 +866,7 @@ while true; do
 done
 
 domain=$(echo "$domain" 2>&1 | tr -d '[:space:]' )
+is_valid_domain "$domain" || { msg_err "Invalid domain: $domain" && exit 1; }
 SubDomain=$(echo "$domain" 2>&1 | sed 's/^[^ ]* \|\..*//g')
 MainDomain=$(echo "$domain" 2>&1 | sed 's/.*\.\([^.]*\..*\)$/\1/')
 
@@ -846,6 +882,7 @@ while true; do
 done
 
 reality_domain=$(echo "$reality_domain" 2>&1 | tr -d '[:space:]' )
+is_valid_domain "$reality_domain" || { msg_err "Invalid REALITY domain: $reality_domain" && exit 1; }
 RealitySubDomain=$(echo "$reality_domain" 2>&1 | sed 's/^[^ ]* \|\..*//g')
 RealityMainDomain=$(echo "$reality_domain" 2>&1 | sed 's/.*\.\([^.]*\..*\)$/\1/')
 
@@ -1858,7 +1895,7 @@ sed -i "s|sub.legiz.ru|$domain/$sub2singbox_path|g" "$DEST_FILE_SUB_PAGE"
 #sed -i -e "s|https://t.me/gozargah_marzban|$tg_escaped_link|g" -e "s|https://github.com/Gozargah/Marzban#donation|$tg_escaped_link|g" "$DEST_FILE_SUB_PAGE"
 
 ######################cronjob for ssl/reload service/cloudflareips######################################
-(crontab -l 2>/dev/null || true) | grep -v "certbot\|x-ui\|cloudflareips" | crontab -
+(crontab -l 2>/dev/null || true) | grep -v "certbot\|x-ui\|cloudflareips\|sub2sing-box" | crontab -
 (crontab -l 2>/dev/null; echo '@reboot /usr/bin/sub2sing-box server --bind 127.0.0.1 --port 8080 > /dev/null 2>&1') | crontab -
 (crontab -l 2>/dev/null; echo '@daily x-ui restart > /dev/null 2>&1 && nginx -s reload;') | crontab -
 (crontab -l 2>/dev/null; echo '@monthly certbot renew --nginx --non-interactive --post-hook "nginx -s reload" > /dev/null 2>&1;') | crontab -

@@ -12,7 +12,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const http = require('http');
 const WebSocket = require('ws');
-const { spawn } = require('child_process');
+const { spawn, spawnSync, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -28,6 +28,8 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || process.env.CORS_ORIGIN || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
+const LOGIN_WINDOW_MS = parseInt(process.env.LOGIN_WINDOW_MS || String(10 * 60 * 1000), 10);
+const LOGIN_MAX_FAILURES = parseInt(process.env.LOGIN_MAX_FAILURES || '8', 10);
 const SESSION_COOKIE_SECURE = process.env.SESSION_COOKIE_SECURE || 'auto';
 const CADDY_SERVICE = process.env.CADDY_SERVICE || 'caddy';
 const CADDY_BIN = process.env.CADDY_BIN || 'caddy';
@@ -277,6 +279,13 @@ const sessionMiddleware = session({
   }
 });
 app.use(sessionMiddleware);
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+app.use(rejectCrossSiteMutation);
 app.use(express.static(path.join(__dirname, '../public')));
 
 function requireAuth(req, res, next) {
@@ -304,6 +313,10 @@ function isValidUsername(s) {
 function isValidPassword(s) {
   return typeof s === 'string' && s.length >= 8 && s.length <= 128
     && /^[A-Za-z0-9!@#$%^&*_+\-=.,~]+$/.test(s);
+}
+function isValidPanelPassword(s) {
+  return typeof s === 'string' && s.length >= 8 && s.length <= 128
+    && !/[\x00-\x1F\x7F]/.test(s);
 }
 function isValidPort(n) {
   const v = parseInt(n, 10);
@@ -392,18 +405,94 @@ function remainingSeconds(user) {
   return Math.max(0, Math.floor((t - Date.now()) / 1000));
 }
 
+function getRequestHost(req) {
+  const forwarded = TRUST_PROXY ? req.headers['x-forwarded-host'] : '';
+  const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded || req.headers.host || '';
+  return String(raw).split(',')[0].trim().toLowerCase();
+}
+
+function isAllowedOrigin(origin, req) {
+  if (!origin) return true;
+  try {
+    const parsed = new URL(origin);
+    const reqHost = getRequestHost(req);
+    if (reqHost && parsed.host.toLowerCase() === reqHost) return true;
+    return CORS_ORIGINS.includes(origin);
+  } catch {
+    return false;
+  }
+}
+
+function isTrustedRequestOrigin(req) {
+  const origin = req.headers.origin;
+  if (origin) return isAllowedOrigin(origin, req);
+  const referer = req.headers.referer;
+  if (!referer) return true;
+  try {
+    const u = new URL(referer);
+    return isAllowedOrigin(u.origin, req);
+  } catch {
+    return false;
+  }
+}
+
+function rejectCrossSiteMutation(req, res, next) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  if (isTrustedRequestOrigin(req)) return next();
+  res.status(403).json({ error: 'Cross-site request denied' });
+}
+
+const loginFailures = new Map();
+function loginRateKey(req, username) {
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  return `${ip}:${String(username || '').slice(0, 64)}`;
+}
+function pruneLoginFailures(now = Date.now()) {
+  for (const [key, record] of loginFailures) {
+    if (!record || now - record.first > LOGIN_WINDOW_MS) loginFailures.delete(key);
+  }
+}
+function isLoginLimited(req, username) {
+  pruneLoginFailures();
+  const record = loginFailures.get(loginRateKey(req, username));
+  return !!record && record.count >= LOGIN_MAX_FAILURES;
+}
+function noteLoginFailure(req, username) {
+  const now = Date.now();
+  const key = loginRateKey(req, username);
+  const record = loginFailures.get(key);
+  if (!record || now - record.first > LOGIN_WINDOW_MS) {
+    loginFailures.set(key, { count: 1, first: now });
+  } else {
+    record.count += 1;
+  }
+}
+function clearLoginFailures(req, username) {
+  loginFailures.delete(loginRateKey(req, username));
+}
+
 // ═══════════════════════════════════════════════════════════
 //  AUTH
 // ═══════════════════════════════════════════════════════════
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body || {};
-  if (!username || !password) return res.json({ success: false, message: 'Заполните все поля' });
+  if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
+    return res.json({ success: false, message: 'Заполните все поля' });
+  }
+  if (isLoginLimited(req, username)) {
+    return res.status(429).json({ success: false, message: 'Слишком много попыток. Повторите позже.' });
+  }
   const users = loadUsers();
   const user = users[username];
-  if (!user) return res.json({ success: false, message: 'Неверный логин или пароль' });
-  if (!bcrypt.compareSync(password, user.password)) {
+  if (!user) {
+    noteLoginFailure(req, username);
     return res.json({ success: false, message: 'Неверный логин или пароль' });
   }
+  if (!bcrypt.compareSync(password, user.password)) {
+    noteLoginFailure(req, username);
+    return res.json({ success: false, message: 'Неверный логин или пароль' });
+  }
+  clearLoginFailures(req, username);
   req.session.authenticated = true;
   req.session.username = username;
   req.session.role = user.role;
@@ -421,7 +510,7 @@ app.get('/api/me', requireAuth, (req, res) => {
 app.post('/api/config/change-password', requireAuth, (req, res) => {
   const { currentPassword, newPassword } = req.body || {};
   if (!currentPassword || !newPassword) return res.json({ success: false, message: 'Заполните все поля' });
-  if (newPassword.length < 6) return res.json({ success: false, message: 'Новый пароль минимум 6 символов' });
+  if (!isValidPanelPassword(newPassword)) return res.json({ success: false, message: 'Новый пароль 8-128 символов, без управляющих символов' });
   const users = loadUsers();
   const user = users[req.session.username];
   if (!user) return res.json({ success: false, message: 'Пользователь не найден' });
@@ -676,8 +765,7 @@ ${cfg.panelDomain} {
     fs.writeFileSync(tmpPath, content, 'utf8');
     // 3) Валидация через caddy validate (если caddy доступен).
     try {
-      const { execSync } = require('child_process');
-      execSync(`${CADDY_BIN} validate --config ${tmpPath}`, { stdio: 'pipe', timeout: 10000 });
+      execFileSync(CADDY_BIN, ['validate', '--config', tmpPath], { stdio: 'pipe', timeout: 10000 });
     } catch (validateErr) {
       // caddy либо не установлен, либо validate упал.
       // Если ошибка — НЕ stderr пустой → это реальная невалидность.
@@ -1382,13 +1470,13 @@ app.post('/api/diag/fix-hy2-tls', requireAuth, async (req, res) => {
     fs.writeFileSync(hyCfgPath, yaml.dump(hyCfg, { lineWidth: 120, quotingType: '"' }), 'utf8');
 
     // Сбрасываем счётчик рестартов и перезапускаем Hy2
-    const { execSync } = require('child_process');
-    try { execSync('systemctl reset-failed hysteria-server 2>/dev/null'); } catch {}
-    try { execSync('systemctl restart hysteria-server'); } catch (e) {
+    spawnSync('systemctl', ['reset-failed', 'hysteria-server'], { stdio: 'ignore' });
+    const restart = spawnSync('systemctl', ['restart', 'hysteria-server'], { encoding: 'utf8' });
+    if (restart.status !== 0 || restart.error) {
       return res.status(500).json({
         ok: false,
         error: 'Конфиг обновлён, но hysteria-server не перезапустился',
-        details: e.message,
+        details: restart.error ? restart.error.message : (restart.stderr || restart.stdout || `exit ${restart.status}`),
         certPath, keyPath, ca
       });
     }
@@ -1396,7 +1484,8 @@ app.post('/api/diag/fix-hy2-tls', requireAuth, async (req, res) => {
     // Проверяем что стартовал
     await new Promise(r => setTimeout(r, 2500));
     let active = false;
-    try { active = execSync('systemctl is-active hysteria-server').toString().trim() === 'active'; } catch {}
+    const isActive = spawnSync('systemctl', ['is-active', 'hysteria-server'], { encoding: 'utf8' });
+    active = isActive.status === 0 && String(isActive.stdout || '').trim() === 'active';
 
     res.json({
       ok: active,
@@ -1457,6 +1546,11 @@ app.post('/api/tuning/apply', requireAuth, (req, res) => {
 //  INSTALL VIA WEBSOCKET
 // ═══════════════════════════════════════════════════════════
 wss.on('connection', (ws, req) => {
+  if (!isTrustedRequestOrigin(req)) {
+    ws.send(JSON.stringify({ type: 'error', message: 'cross-site websocket denied' }));
+    ws.close();
+    return;
+  }
   const wsRes = {
     getHeader() { return undefined; },
     setHeader() {},

@@ -995,7 +995,7 @@ async function changePassword() {
 
   if (!currentPwd || !newPwd || !confirmPwd) { showAlert(alertEl, 'Заполните все поля', 'error'); return; }
   if (newPwd !== confirmPwd) { showAlert(alertEl, 'Новые пароли не совпадают', 'error'); return; }
-  if (newPwd.length < 6) { showAlert(alertEl, 'Пароль минимум 6 символов', 'error'); return; }
+  if (newPwd.length < 8 || newPwd.length > 128) { showAlert(alertEl, 'Пароль 8-128 символов', 'error'); return; }
 
   try {
     const res = await fetch('/api/config/change-password', {

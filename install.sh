@@ -35,7 +35,7 @@ WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:
 WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-inbound-443}"
 WARP_ROUTE_PORT="${WARP_ROUTE_PORT:-443}"
 GENERATE_PROFILES="${GENERATE_PROFILES:-0}"
-PROFILE_COUNT="${PROFILE_COUNT:-15}"
+PROFILE_COUNT="${PROFILE_COUNT:-4}"
 PROFILE_PREFIX="${PROFILE_PREFIX:-auto}"
 PROJECT_DIR="${UPM_PROJECT_DIR:-$SCRIPT_DIR}"
 REAL_INSTALL=0
@@ -540,7 +540,7 @@ All-in-one layout:
 - Hysteria2 listens on public 443/udp.
 - NHM Panel runs as panel-naive-hy2 and is exposed by nginx on 8081 by default.
 - Optional WARP local proxy installs on 127.0.0.1:${WARP_PROXY_PORT} when --install-warp is used.
-- Optional profile generator creates ${PROFILE_COUNT} shared-email direct x-ui profiles, ${PROFILE_COUNT} shared-email WARP x-ui profiles, plus ${PROFILE_COUNT} NaiveProxy and ${PROFILE_COUNT} Hy2 profiles when --generate-profiles is used.
+- Optional profile generator creates ${PROFILE_COUNT} WARP-split x-ui profiles, plus ${PROFILE_COUNT} NaiveProxy and ${PROFILE_COUNT} Hy2 profiles when --generate-profiles is used.
 EOF
       ;;
     nh)
@@ -696,6 +696,7 @@ EOF
     --outbound-tag "$WARP_OUTBOUND_TAG" \
     --inbound-tag "$WARP_INBOUND_TAG" \
     --route-port "$WARP_ROUTE_PORT" \
+    --warp-ai-domains "$WARP_AI_DOMAINS" \
     --yes
 }
 
