@@ -8,7 +8,7 @@ else
   SCRIPT_DIR="$(cd "$(dirname "$SOURCE_PATH")" && pwd)"
 fi
 
-COUNT="${COUNT:-4}"
+COUNT="${COUNT:-15}"
 PREFIX="${PREFIX:-auto}"
 XUI_DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
 NH_CONFIG="${NH_CONFIG:-/opt/panel-naive-hy2/panel/data/config.json}"
@@ -27,8 +27,9 @@ XUI_WARP_NGINX_STREAM="${XUI_WARP_NGINX_STREAM:-1}"
 XUI_INBOUND_ID="${XUI_INBOUND_ID:-}"
 XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-$PREFIX}"
 XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
-XUI_CREATE_WARP="${XUI_CREATE_WARP:-1}"
-XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-0}"
+XUI_CREATE_WARP="${XUI_CREATE_WARP:-0}"
+XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
+XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
 XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-1}"
 XUI_REPLACE_CLIENTS="${XUI_REPLACE_CLIENTS:-1}"
 CREATE_XUI="${CREATE_XUI:-1}"
@@ -68,14 +69,14 @@ warp_local_proxy_ready() {
 }
 
 ensure_warp_local_proxy() {
-  [[ "$CREATE_XUI" == "1" && "$XUI_CREATE_WARP" == "1" ]] || return 0
+  [[ "$CREATE_XUI" == "1" && "$XUI_ENABLE_WARP_ROUTING" == "1" ]] || return 0
   if warp_local_proxy_ready; then
     ok "WARP local proxy is ready at ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
     return 0
   fi
   if [[ "$XUI_AUTO_INSTALL_WARP" != "1" ]]; then
-    warn "WARP clone inbounds are enabled, but WARP local proxy is not ready at ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
-    warn "Run install-warp.sh or set XUI_CREATE_WARP=0 before generating profiles"
+    warn "WARP routing is enabled, but WARP local proxy is not ready at ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
+    warn "Run install-warp.sh or set XUI_ENABLE_WARP_ROUTING=0 before generating profiles"
     return 0
   fi
   [[ "$WARP_PROXY_HOST" == "127.0.0.1" || "$WARP_PROXY_HOST" == "localhost" ]] || die "Auto WARP install supports only local WARP_PROXY_HOST, got: $WARP_PROXY_HOST"
@@ -94,12 +95,12 @@ usage() {
   cat <<EOF
 Usage:
   sudo bash generate-profiles.sh --yes
-  sudo bash generate-profiles.sh --count 4 --prefix auto --yes
+  sudo bash generate-profiles.sh --count 15 --prefix auto --yes
   sudo bash generate-profiles.sh --xui-only --yes
   sudo bash generate-profiles.sh --nh-only --yes
 
 Creates:
-  x-ui:  COUNT WARP-split clients on every selected WARP clone inbound.
+  x-ui:  COUNT standard clients on every selected preset inbound.
          Default subscriptions: one subId per client index.
   NHM:   COUNT NaiveProxy profiles and COUNT Hysteria2 profiles.
          Subscription files are written to ${NH_SUBSCRIPTION_DIR}.
@@ -107,12 +108,12 @@ Creates:
 WARP variants:
   outbound tag: ${WARP_OUTBOUND_TAG}
   local proxy:  ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}
-  public port:  ${XUI_WARP_EXTERNAL_PORT} for path-based WARP variants
+  public port:  ${XUI_WARP_EXTERNAL_PORT} for legacy path-based WARP clone variants
   AI domains:   ${WARP_AI_DOMAINS}
-  enabled by default; set XUI_CREATE_WARP=0 to skip WARP clone inbounds.
-  generated clients use WARP clone inbounds by default; add --xui-direct-clients to also generate direct clients.
-  auto-installs Cloudflare WARP local proxy when WARP clone inbounds are enabled.
-  when XUI_CREATE_WARP=0, old warp-cli outbound/rules are removed from the x-ui template.
+  routing enabled by default; set XUI_ENABLE_WARP_ROUTING=0 to skip WARP routing.
+  generated clients use standard preset inbounds by default; add --xui-warp-clone for legacy WARP clone inbounds.
+  auto-installs Cloudflare WARP local proxy when WARP routing is enabled.
+  when XUI_ENABLE_WARP_ROUTING=0, old warp-cli outbound/rules are removed from the x-ui template.
 
 x-ui selection:
   default: every preset vless/trojan inbound
@@ -144,6 +145,9 @@ while [[ $# -gt 0 ]]; do
     --xui-common-sub-id) XUI_COMMON_SUB_ID="${2:-}"; shift 2 ;;
     --xui-sub-id-mode) XUI_SUB_ID_MODE="${2:-}"; shift 2 ;;
     --xui-warp-clone) XUI_CREATE_WARP=1; shift ;;
+    --no-xui-warp-clone) XUI_CREATE_WARP=0; shift ;;
+    --xui-warp-routing) XUI_ENABLE_WARP_ROUTING=1; shift ;;
+    --no-xui-warp-routing) XUI_ENABLE_WARP_ROUTING=0; shift ;;
     --no-auto-install-warp) XUI_AUTO_INSTALL_WARP=0; shift ;;
     --auto-install-warp) XUI_AUTO_INSTALL_WARP=1; shift ;;
     --xui-direct-clients) XUI_CREATE_DIRECT=1; shift ;;
@@ -168,7 +172,7 @@ done
 [[ "$XUI_COMMON_SUB_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--xui-common-sub-id may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
 [[ "$XUI_SUB_ID_MODE" == "per-client" || "$XUI_SUB_ID_MODE" == "common" ]] || die "--xui-sub-id-mode must be per-client or common"
 if [[ "$XUI_CREATE_WARP" != "1" && "$XUI_CREATE_DIRECT" != "1" ]]; then
-  warn "XUI_CREATE_WARP=0 with direct clients disabled would create no x-ui clients; enabling direct clients."
+  warn "Legacy WARP clones and standard clients are both disabled; enabling standard clients."
   XUI_CREATE_DIRECT=1
 fi
 
@@ -272,9 +276,22 @@ xui_preset_inbound_filter_sql() {
 SQL
 }
 
+profile_indices() {
+  local total="$1" width i
+  width="${#total}"
+  [[ "$width" -lt 2 ]] && width=2
+  for ((i = 1; i <= total; i++)); do
+    printf "%0${width}d\n" "$i"
+  done
+}
+
 xui_client_email() {
   local index="$1" mode="$2" label="$3"
-  printf '%s-%s-%s-%s\n' "$PREFIX" "$index" "$mode" "$label"
+  if [[ "$mode" == "direct" || "$mode" == "standard" ]]; then
+    printf '%s-%s-%s\n' "$PREFIX" "$index" "$label"
+  else
+    printf '%s-%s-%s-%s\n' "$PREFIX" "$index" "$mode" "$label"
+  fi
 }
 
 xui_client_json() {
@@ -451,7 +468,7 @@ xui_replace_generated_clients() {
   label="$(xui_profile_label "$inbound_id" "$protocol")"
   settings="$(sqlite3 -readonly "$XUI_DB" "SELECT settings FROM inbounds WHERE id=$inbound_id;")"
 
-  for index in $(seq -w 1 "$COUNT"); do
+  for index in $(profile_indices "$COUNT"); do
     sub_id="${PREFIX}-${index}"
     email="$(xui_client_email "$index" "$mode" "$label")"
     if [[ "$XUI_SUB_ID_MODE" == "common" ]]; then
@@ -484,7 +501,7 @@ xui_replace_generated_clients() {
   else
     sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND email GLOB $(sql_quote "${PREFIX}-[0-9]*");"
   fi
-  for index in $(seq -w 1 "$COUNT"); do
+  for index in $(profile_indices "$COUNT"); do
     if [[ "$XUI_SUB_ID_MODE" == "common" ]]; then
       sub_id="$XUI_COMMON_SUB_ID"
     else
@@ -511,6 +528,30 @@ xui_prune_generated_clients() {
   sqlite3 "$XUI_DB" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
   sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND email GLOB $(sql_quote "${PREFIX}-[0-9]*");"
   printf 'inbound=%s mode=direct action=pruned-generated prefix=%s\n' "$inbound_id" "$PREFIX" >> "$report_file"
+}
+
+xui_delete_warp_clone_inbounds() {
+  local deleted
+  deleted="$(sqlite3 "$XUI_DB" "
+    DELETE FROM client_traffics
+    WHERE inbound_id IN (
+      SELECT id FROM inbounds
+      WHERE (
+        COALESCE(tag,'') LIKE '%-warp'
+        OR lower(COALESCE(remark,'')) LIKE '%warp%'
+      )
+    );
+    DELETE FROM inbounds
+    WHERE (
+      COALESCE(tag,'') LIKE '%-warp'
+      OR lower(COALESCE(remark,'')) LIKE '%warp%'
+    );
+    SELECT changes();
+  " 2>/dev/null || true)"
+  deleted="${deleted##*$'\n'}"
+  if [[ -n "$deleted" && "$deleted" != "0" ]]; then
+    ok "Deleted legacy WARP clone inbounds: $deleted"
+  fi
 }
 
 xui_ensure_warp_inbound() {
@@ -596,6 +637,7 @@ $(xui_preset_inbound_filter_sql)"
     xui_bind_direct_reality_local_if_needed "$inbound_id" "$port"
     if [[ "$XUI_CREATE_DIRECT" == "1" ]]; then
       xui_replace_generated_clients "$inbound_id" "$protocol" "direct" "$tag" "$report_file"
+      [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && -n "$tag" ]] && printf '%s\n' "$tag" >> "$warp_tags_file"
     else
       xui_prune_generated_clients "$inbound_id" "$protocol" "$report_file"
     fi
@@ -610,12 +652,16 @@ $(xui_preset_inbound_filter_sql)"
     fi
   done <<<"$inbound_rows"
 
-  if [[ "$XUI_CREATE_WARP" == "1" ]]; then
+  if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" ]]; then
     xui_apply_warp_template "$warp_tags_file"
+  else
+    xui_remove_warp_template
+  fi
+  if [[ "$XUI_CREATE_WARP" == "1" ]]; then
     xui_apply_warp_nginx_stream
     xui_allow_warp_reality_ports
   else
-    xui_remove_warp_template
+    xui_delete_warp_clone_inbounds
   fi
   rm -f "$warp_tags_file"
 }
@@ -736,6 +782,10 @@ EOF
 xui_apply_warp_template() {
   local warp_tags_file="$1"
   local tags_json domains_json current key snippet_dir snippet_file updated
+  if [[ ! -s "$warp_tags_file" ]]; then
+    xui_remove_warp_template
+    return 0
+  fi
   tags_json="$(jq -Rsc 'split("\n") | map(select(length > 0)) | unique' "$warp_tags_file")"
   domains_json="$(printf '%s\n' "$WARP_AI_DOMAINS" \
     | tr ',' '\n' \
@@ -1420,11 +1470,12 @@ cat <<EOF
 Profile generation complete
 ---------------------------
 x-ui:
-  direct generated clients: ${XUI_CREATE_DIRECT} (${COUNT} per selected preset inbound when enabled)
+  standard generated clients: ${XUI_CREATE_DIRECT} (${COUNT} per selected preset inbound when enabled)
   subId mode: ${XUI_SUB_ID_MODE}
   common subId (only common mode): ${XUI_COMMON_SUB_ID}
   replace existing clients: ${XUI_REPLACE_CLIENTS}
-  WARP clone inbounds: ${XUI_CREATE_WARP}
+  WARP routing: ${XUI_ENABLE_WARP_ROUTING}
+  legacy WARP clone inbounds: ${XUI_CREATE_WARP}
   WARP outbound: ${WARP_OUTBOUND_TAG}
   WARP proxy: ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}
   WARP public port: ${XUI_WARP_EXTERNAL_PORT} (WS/XHTTP/gRPC subscription port)

@@ -10,13 +10,14 @@ msg_inf		 ' \/ __ | |  | '	;
 msg_inf		 ' /\    |_| _|_'	; echo
 ##################################Variables#############################################################
 XUIDB="/etc/x-ui/x-ui.db";domain="";UNINSTALL="x";INSTALL="n";PNLNUM=1;CFALLOW="n";CLASH=0;CUSTOMWEBSUB=0
-XUI_PROFILE_COUNT="${XUI_PROFILE_COUNT:-4}"
+XUI_PROFILE_COUNT="${XUI_PROFILE_COUNT:-15}"
 XUI_PROFILE_PREFIX="${XUI_PROFILE_PREFIX:-auto}"
 XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-first}"
 XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
 XUI_SEED_PROFILES="${XUI_SEED_PROFILES:-0}"
-XUI_CREATE_WARP_INBOUNDS="${XUI_CREATE_WARP_INBOUNDS:-1}"
-XUI_CREATE_DIRECT_CLIENTS="${XUI_CREATE_DIRECT_CLIENTS:-0}"
+XUI_CREATE_WARP_INBOUNDS="${XUI_CREATE_WARP_INBOUNDS:-0}"
+XUI_CREATE_DIRECT_CLIENTS="${XUI_CREATE_DIRECT_CLIENTS:-1}"
+XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
 XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-1}"
 XUI_PRINT_ACCESS_INFO="${XUI_PRINT_ACCESS_INFO:-1}"
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
@@ -53,7 +54,7 @@ xui_warp_local_proxy_ready() {
 }
 
 xui_ensure_warp_local_proxy() {
-  [[ "$XUI_CREATE_WARP_INBOUNDS" == "1" && "$XUI_AUTO_INSTALL_WARP" == "1" ]] || return 0
+  [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && "$XUI_AUTO_INSTALL_WARP" == "1" ]] || return 0
   if xui_warp_local_proxy_ready; then
     msg_ok "WARP local proxy is ready at ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
     return 0
@@ -220,7 +221,20 @@ xui_profile_label() {
 
 xui_client_email() {
   local index="$1" mode="$2" label="$3"
-  printf '%s-%s-%s-%s\n' "$XUI_PROFILE_PREFIX" "$index" "$mode" "$label"
+  if [[ "$mode" == "direct" || "$mode" == "standard" ]]; then
+    printf '%s-%s-%s\n' "$XUI_PROFILE_PREFIX" "$index" "$label"
+  else
+    printf '%s-%s-%s-%s\n' "$XUI_PROFILE_PREFIX" "$index" "$mode" "$label"
+  fi
+}
+
+xui_profile_indices() {
+  local total="$1" width i
+  width="${#total}"
+  [[ "$width" -lt 2 ]] && width=2
+  for ((i = 1; i <= total; i++)); do
+    printf "%0${width}d\n" "$i"
+  done
 }
 
 xui_bulk_client_json() {
@@ -405,7 +419,7 @@ xui_set_inbound_clients() {
   clients_json="[]"
   label="$(xui_profile_label "$inbound_id" "$protocol")"
   settings="$(sqlite3 -readonly "$XUIDB" "SELECT settings FROM inbounds WHERE id=$inbound_id;")"
-  for index in $(seq -w 1 "$XUI_PROFILE_COUNT"); do
+  for index in $(xui_profile_indices "$XUI_PROFILE_COUNT"); do
     sub_id="${XUI_PROFILE_PREFIX}-${index}"
     email="$(xui_client_email "$index" "$mode" "$label")"
     if [[ "$XUI_SUB_ID_MODE" == "common" ]]; then
@@ -422,7 +436,7 @@ xui_set_inbound_clients() {
   new_settings="$(jq -c --argjson clients "$clients_json" '.clients = $clients' <<<"$settings" | xui_normalize_inbound_settings "$protocol")"
   sqlite3 "$XUIDB" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
   sqlite3 "$XUIDB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id;"
-  for index in $(seq -w 1 "$XUI_PROFILE_COUNT"); do
+  for index in $(xui_profile_indices "$XUI_PROFILE_COUNT"); do
     if [[ "$XUI_SUB_ID_MODE" == "common" ]]; then
       sub_id="$XUI_COMMON_SUB_ID"
     else
@@ -450,9 +464,35 @@ xui_prune_generated_clients() {
   sqlite3 "$XUIDB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND email GLOB $(sql_quote "${XUI_PROFILE_PREFIX}-[0-9]*");"
 }
 
+xui_delete_warp_clone_inbounds() {
+  local deleted
+  [[ -f "$XUIDB" ]] || return 0
+  deleted="$(sqlite3 "$XUIDB" "
+    DELETE FROM client_traffics
+    WHERE inbound_id IN (
+      SELECT id FROM inbounds
+      WHERE (
+        COALESCE(tag,'') LIKE '%-warp'
+        OR lower(COALESCE(remark,'')) LIKE '%warp%'
+      )
+    );
+    DELETE FROM inbounds
+    WHERE (
+      COALESCE(tag,'') LIKE '%-warp'
+      OR lower(COALESCE(remark,'')) LIKE '%warp%'
+    );
+    SELECT changes();
+  " 2>/dev/null || true)"
+  deleted="${deleted##*$'\n'}"
+  if [[ -n "$deleted" && "$deleted" != "0" ]]; then
+    msg_ok "Deleted legacy WARP clone inbounds: $deleted"
+  fi
+}
+
 xui_fill_empty_warp_clients() {
   local inbound_rows inbound_id protocol tag old_count old_prefix old_sub_mode old_common_sub_id
   [[ -f "$XUIDB" ]] || return 0
+  [[ "$XUI_CREATE_WARP_INBOUNDS" == "1" ]] || return 0
   inbound_rows="$(sqlite3 -separator $'\t' "$XUIDB" "
     SELECT id, protocol, COALESCE(tag,'')
     FROM inbounds
@@ -640,7 +680,7 @@ EOF
 
 xui_apply_warp_template() {
   local warp_tags_file="$1" tags_json domains_json snippet_file current updated key
-  [[ -s "$warp_tags_file" ]] || return 0
+  [[ -s "$warp_tags_file" ]] || { xui_remove_warp_template; return 0; }
   tags_json="$(jq -Rsc 'split("\n") | map(select(length > 0)) | unique' "$warp_tags_file")"
   domains_json="$(printf '%s\n' "$WARP_AI_DOMAINS" | tr ',' '\n' | jq -Rsc 'split("\n") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(length > 0)) | unique')"
   snippet_file="/etc/x-ui/warp-generated-routing.json"
@@ -736,11 +776,6 @@ xui_seed_default_warp_profiles() {
   local inbound_rows inbound_id protocol tag remark port enable warp_id warp_tag warp_tags_file
   local old_count old_prefix old_sub_mode old_common_sub_id
   [[ -f "$XUIDB" ]] || return 0
-  if [[ "$XUI_CREATE_WARP_INBOUNDS" != "1" ]]; then
-    xui_remove_warp_template
-    msg_ok "x-ui seed skipped: default inbounds keep one default client each; WARP clone inbounds disabled"
-    return 0
-  fi
 
   : > /etc/x-ui/generated-clients.txt
   warp_tags_file="$(mktemp)"
@@ -765,11 +800,17 @@ $(xui_preset_inbound_filter_sql)
   while IFS=$'\t' read -r inbound_id protocol tag remark port enable; do
     [[ -n "$inbound_id" ]] || continue
     xui_bind_direct_reality_local_if_needed "$inbound_id" "$port"
-    warp_id="$(xui_ensure_warp_inbound "$inbound_id" "$protocol" "$tag" "$remark" "$port" "$enable" || true)"
-    if [[ -n "$warp_id" ]]; then
-      warp_tag="$(sqlite3 -readonly "$XUIDB" "SELECT COALESCE(tag,'') FROM inbounds WHERE id=$warp_id;")"
-      xui_set_inbound_clients "$warp_id" "$protocol" "warp" "$warp_tag"
-      [[ -n "$warp_tag" ]] && printf '%s\n' "$warp_tag" >> "$warp_tags_file"
+    if [[ "$XUI_CREATE_DIRECT_CLIENTS" == "1" ]]; then
+      xui_set_inbound_clients "$inbound_id" "$protocol" "direct" "$tag"
+      [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && -n "$tag" ]] && printf '%s\n' "$tag" >> "$warp_tags_file"
+    fi
+    if [[ "$XUI_CREATE_WARP_INBOUNDS" == "1" ]]; then
+      warp_id="$(xui_ensure_warp_inbound "$inbound_id" "$protocol" "$tag" "$remark" "$port" "$enable" || true)"
+      if [[ -n "$warp_id" ]]; then
+        warp_tag="$(sqlite3 -readonly "$XUIDB" "SELECT COALESCE(tag,'') FROM inbounds WHERE id=$warp_id;")"
+        xui_set_inbound_clients "$warp_id" "$protocol" "warp" "$warp_tag"
+        [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && -n "$warp_tag" ]] && printf '%s\n' "$warp_tag" >> "$warp_tags_file"
+      fi
     fi
   done <<<"$inbound_rows"
 
@@ -778,20 +819,21 @@ $(xui_preset_inbound_filter_sql)
   XUI_SUB_ID_MODE="$old_sub_mode"
   XUI_COMMON_SUB_ID="$old_common_sub_id"
 
-  if [[ "$XUI_CREATE_WARP_INBOUNDS" == "1" ]]; then
+  if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" ]]; then
     xui_apply_warp_template "$warp_tags_file"
   else
     xui_remove_warp_template
   fi
+  [[ "$XUI_CREATE_WARP_INBOUNDS" == "1" ]] || xui_delete_warp_clone_inbounds
   rm -f "$warp_tags_file"
-  msg_ok "x-ui seed: default inbounds keep one default client each; WARP clone inbounds have 1 client each"
+  msg_ok "x-ui seed: standard clients=${XUI_CREATE_DIRECT_CLIENTS}, WARP routing=${XUI_ENABLE_WARP_ROUTING}, legacy WARP clones=${XUI_CREATE_WARP_INBOUNDS}"
 }
 
 xui_seed_bulk_profiles() {
   local inbound_rows inbound_id protocol tag remark port enable warp_id warp_tag warp_tags_file
   [[ -f "$XUIDB" ]] || return 0
   [[ "$XUI_SEED_PROFILES" == "1" ]] || { xui_seed_default_warp_profiles; return 0; }
-  [[ "$XUI_PROFILE_COUNT" =~ ^[0-9]+$ && "$XUI_PROFILE_COUNT" -gt 0 ]] || XUI_PROFILE_COUNT=4
+  [[ "$XUI_PROFILE_COUNT" =~ ^[0-9]+$ && "$XUI_PROFILE_COUNT" -gt 0 ]] || XUI_PROFILE_COUNT=15
   : > /etc/x-ui/generated-clients.txt
   warp_tags_file="$(mktemp)"
   inbound_rows="$(sqlite3 -separator $'\t' "$XUIDB" \
@@ -807,6 +849,7 @@ $(xui_preset_inbound_filter_sql)
     xui_bind_direct_reality_local_if_needed "$inbound_id" "$port"
     if [[ "$XUI_CREATE_DIRECT_CLIENTS" == "1" ]]; then
       xui_set_inbound_clients "$inbound_id" "$protocol" "direct" "$tag"
+      [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && -n "$tag" ]] && printf '%s\n' "$tag" >> "$warp_tags_file"
     else
       xui_prune_generated_clients "$inbound_id" "$protocol"
     fi
@@ -815,13 +858,18 @@ $(xui_preset_inbound_filter_sql)
       if [[ -n "$warp_id" ]]; then
         warp_tag="$(sqlite3 -readonly "$XUIDB" "SELECT COALESCE(tag,'') FROM inbounds WHERE id=$warp_id;")"
         xui_set_inbound_clients "$warp_id" "$protocol" "warp" "$warp_tag"
-        [[ -n "$warp_tag" ]] && printf '%s\n' "$warp_tag" >> "$warp_tags_file"
+        [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && -n "$warp_tag" ]] && printf '%s\n' "$warp_tag" >> "$warp_tags_file"
       fi
     fi
   done <<<"$inbound_rows"
-  xui_apply_warp_template "$warp_tags_file"
+  if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" ]]; then
+    xui_apply_warp_template "$warp_tags_file"
+  else
+    xui_remove_warp_template
+  fi
+  [[ "$XUI_CREATE_WARP_INBOUNDS" == "1" ]] || xui_delete_warp_clone_inbounds
   rm -f "$warp_tags_file"
-  msg_ok "x-ui seed: ${XUI_PROFILE_COUNT} WARP-split clients per WARP inbound, direct generated clients=${XUI_CREATE_DIRECT_CLIENTS}, subId mode ${XUI_SUB_ID_MODE}"
+  msg_ok "x-ui seed: ${XUI_PROFILE_COUNT} standard clients per inbound, WARP routing=${XUI_ENABLE_WARP_ROUTING}, legacy WARP clones=${XUI_CREATE_WARP_INBOUNDS}, subId mode ${XUI_SUB_ID_MODE}"
 }
 
 xui_cleanup_unix_sockets() {

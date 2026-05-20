@@ -17,12 +17,15 @@ PANEL_PUBLIC_PORT="8081"
 TLS_CERT=""
 TLS_KEY=""
 GENERATE_PROFILES=0
-PROFILE_COUNT=4
+PROFILE_COUNT=15
 PROFILE_PREFIX="auto"
 WARP_PROXY_PORT=40000
 WARP_OUTBOUND_TAG="warp-cli"
 WARP_AI_DOMAINS="domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google"
-AUTO_INSTALL_WARP=1
+AUTO_INSTALL_WARP="${AUTO_INSTALL_WARP:-1}"
+XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
+XUI_CREATE_WARP="${XUI_CREATE_WARP:-0}"
+XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
 PRINT_ACCESS_INFO=1
 NH_ENABLE_MIERU=0
 
@@ -106,7 +109,7 @@ warp_local_proxy_ready() {
 }
 
 ensure_warp_local_proxy() {
-  [[ "$AUTO_INSTALL_WARP" == "1" ]] || return 0
+  [[ "$AUTO_INSTALL_WARP" == "1" && "$XUI_ENABLE_WARP_ROUTING" == "1" ]] || return 0
   if warp_local_proxy_ready; then
     ok "WARP local proxy is ready at 127.0.0.1:${WARP_PROXY_PORT}"
     return 0
@@ -228,6 +231,10 @@ while [[ $# -gt 0 ]]; do
     --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
     --no-auto-install-warp) AUTO_INSTALL_WARP=0; shift ;;
     --auto-install-warp) AUTO_INSTALL_WARP=1; shift ;;
+    --no-xui-warp-routing) XUI_ENABLE_WARP_ROUTING=0; shift ;;
+    --xui-warp-routing) XUI_ENABLE_WARP_ROUTING=1; shift ;;
+    --xui-warp-clone) XUI_CREATE_WARP=1; shift ;;
+    --no-xui-warp-clone) XUI_CREATE_WARP=0; shift ;;
     --with-mieru|--enable-mieru) NH_ENABLE_MIERU=1; shift ;;
     --no-access-info) PRINT_ACCESS_INFO=0; shift ;;
     --yes) ASSUME_YES=1; shift ;;
@@ -384,12 +391,18 @@ config_set WARP_PROXY_HOST "127.0.0.1"
 config_set WARP_PROXY_PORT "$WARP_PROXY_PORT"
 config_set WARP_OUTBOUND_TAG "$WARP_OUTBOUND_TAG"
 config_set WARP_AI_DOMAINS "$WARP_AI_DOMAINS"
+config_set XUI_ENABLE_WARP_ROUTING "$XUI_ENABLE_WARP_ROUTING"
+config_set XUI_CREATE_WARP "$XUI_CREATE_WARP"
+config_set XUI_CREATE_DIRECT "$XUI_CREATE_DIRECT"
 ok "Saved final configuration: $SCRIPT_DIR/config.env"
 
 if [[ "$GENERATE_PROFILES" == "1" ]]; then
   info "Running profile generation as part of unified install"
+  XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
+  XUI_CREATE_WARP="$XUI_CREATE_WARP" \
+  XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
   bash "$SCRIPT_DIR/generate-profiles.sh" \
-    --count "${PROFILE_COUNT:-4}" \
+    --count "${PROFILE_COUNT:-15}" \
     --prefix "${PROFILE_PREFIX:-auto}" \
     --warp-port "${WARP_PROXY_PORT:-40000}" \
     --warp-outbound-tag "${WARP_OUTBOUND_TAG:-warp-cli}" \

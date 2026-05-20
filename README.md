@@ -20,6 +20,7 @@ Repository root:
 ├── install-unified.sh
 ├── install-warp.sh
 ├── generate-profiles.sh
+├── uninstall-stack.sh
 ├── show-access-info.sh
 ├── status.sh
 ├── doctor.sh
@@ -86,13 +87,13 @@ sudo bash install.sh --mode all \
 
 In `--mode all`, the installer does not let Caddy issue its own certificate on `127.0.0.1:9445`. If `--tls-cert` and `--tls-key` are omitted, it first issues the NHM/NaiveProxy certificate through nginx HTTP-01 on port `80`; if that fails, it automatically tries a standalone certbot fallback after stopping nginx/caddy and checking that `80/tcp` is free. It then configures both Caddy and Hysteria2 to use the same cert/key, installs a renewal deploy hook, and stops the install if backend TLS or public nginx stream TLS does not pass `openssl s_client` checks. The NHM Panel is checked on `127.0.0.1:3000`, through local nginx on `127.0.0.1:8081`, and through the server public IP on `8081`; if the last check fails, open `8081/tcp` in the VPS provider firewall/security group.
 
-`--install-warp` installs Cloudflare WARP in local proxy mode after the main stack is installed. It creates a local SOCKS/HTTP proxy on `127.0.0.1:40000` and saves ready 3x-ui/Xray snippets to `/etc/x-ui/warp-xray-snippets.json`. The default routing is split: ChatGPT/OpenAI, Claude/Anthropic, Gemini/Google AI, and NotebookLM domains go through WARP; everything else uses direct routing. When x-ui WARP clone inbounds or generated WARP profiles are enabled, the bash scripts now auto-install and validate this local proxy by default. Use `--no-auto-install-warp` or `XUI_AUTO_INSTALL_WARP=0` only if you intentionally manage WARP yourself.
+`--install-warp` installs Cloudflare WARP in local proxy mode after the main stack is installed. It creates a local SOCKS/HTTP proxy on `127.0.0.1:40000` and saves ready 3x-ui/Xray snippets to `/etc/x-ui/warp-xray-snippets.json`. The default routing is split: ChatGPT/OpenAI, Claude/Anthropic, Gemini/Google AI, and NotebookLM domains go through WARP; everything else uses direct routing. When x-ui WARP routing or generated profiles are enabled, the bash scripts now auto-install and validate this local proxy by default. Use `--no-auto-install-warp` or `XUI_AUTO_INSTALL_WARP=0` only if you intentionally manage WARP yourself.
 
 `--with-mieru` exposes the optional Mieru module inside NHM Panel. The default install does not install `mita`, does not show Mieru controls, and keeps the base stack as x-ui + NHM Panel + NaiveProxy + Hysteria2.
 
-By default the x-ui installer creates the preset direct inbounds with one default client on each inbound, plus matching WARP clone inbounds for the same protocols with one WARP client each. This keeps the 3x-ui manual inbound/client editor clean while preserving WARP variants.
+By default the x-ui installer creates standard clients on the preset inbounds and applies WARP as routing, not as separate `*-warp` profiles. Generated clients stay on the normal Reality, WS, XHTTP, and Trojan-gRPC inbounds; only the configured AI domains go through the local `warp-cli` outbound. Legacy WARP clone inbounds are deleted by default.
 
-`--generate-profiles` additionally creates 4 x-ui WARP-split clients on WARP clone inbounds, 4 NaiveProxy profiles, and 4 Hysteria2 profiles. By default each x-ui client index gets its own `subId`, so `auto-01` contains the WARP variants for client 01, `auto-02` contains the same WARP variant set for client 02, and so on. WARP routing is written into the x-ui template by default: only the configured AI domains use the `warp-cli` outbound, while all unmatched traffic falls back to direct. Before writing that routing, the generator checks `warp-cli`, WARP connected state, and `curl --socks5-hostname 127.0.0.1:40000`; if missing, it runs `install-warp.sh` automatically. Client emails stay unique and stable per variant, for example `auto-01-warp-reality` and `auto-01-warp-ws`, so rerunning the generator keeps the same email/UUID/password instead of rotating links. Existing generated direct clients are pruned by default; add `--xui-direct-clients` if you also want direct generated variants. WARP WS/XHTTP/gRPC variants are exported through a separate public port, `8443` by default, while their internal ports remain unique for path routing. Add `--xui-keep-existing` to preserve manual clients, `--xui-inbound-id ID` to target one inbound only, or set `XUI_CREATE_WARP=0` to skip WARP clone inbounds. Use `--profile-count N`, `--profile-prefix NAME`, `--warp-ai-domains "domain:example.com,domain:other.example"`, and `--xui-warp-external-port PORT` to change the defaults.
+`--generate-profiles` additionally creates 15 standard x-ui clients on each preset inbound, 15 NaiveProxy profiles, and 15 Hysteria2 profiles. By default each x-ui client index gets its own `subId`, so `auto-01` contains the matching standard x-ui variants for client 01, `auto-02` contains the matching set for client 02, and so on. WARP routing is written into the x-ui template by default: only the configured AI domains use the `warp-cli` outbound, while all unmatched traffic falls back to direct. Before writing that routing, the generator checks `warp-cli`, WARP connected state, and `curl --socks5-hostname 127.0.0.1:40000`; if missing, it runs `install-warp.sh` automatically. Client emails stay unique and stable per variant, for example `auto-01-reality` and `auto-01-ws`, so rerunning the generator keeps the same email/UUID/password instead of rotating links. Add `--xui-keep-existing` to preserve manual clients, `--xui-inbound-id ID` to target one inbound only, set `XUI_ENABLE_WARP_ROUTING=0` to skip WARP routing, or add `--xui-warp-clone` only if you intentionally want legacy WARP clone inbounds. Use `--profile-count N`, `--profile-prefix NAME`, `--warp-ai-domains "domain:example.com,domain:other.example"`, and `--xui-warp-external-port PORT` to change the defaults.
 
 Dry-run only:
 
@@ -299,16 +300,16 @@ This creates:
 
 ```text
 x-ui:
-  4 WARP-split clients on WARP clone inbounds
-  4 x-ui subscription subIds, one per client index
+  15 standard clients on each preset inbound
+  15 x-ui subscription subIds, one per client index
   AI-only WARP routing and direct fallback
 
 NHM:
-  4 NaiveProxy profiles
-  4 Hysteria2 profiles
+  15 NaiveProxy profiles
+  15 Hysteria2 profiles
 ```
 
-The script backs up `/etc/x-ui/x-ui.db`, NHM config, Caddyfile, and Hysteria config before writing. x-ui profiles use grouped `subId` values like `auto-01` and stable emails like `auto-01-warp-reality`; the same `subId` is reused across all WARP clone inbounds for that client index. WARP clone inbounds get unique internal paths/ports and a routing rule by Xray `inboundTag` plus AI domain list to outbound `warp-cli`; unmatched domains use the first `direct` outbound. WARP WS/XHTTP/gRPC subscription links use the common public WARP port `8443` by default, and nginx routes those path-based requests to the matching internal inbound. Reality WARP clone still uses its own public port, usually base port + 10000, because Reality cannot share a single public port by path. The VPS firewall/security group must allow the WARP public port and any Reality WARP port you import. NHM generated subscriptions contain exactly `COUNT` NaiveProxy links and `COUNT` Hysteria2 links for the selected prefix.
+The script backs up `/etc/x-ui/x-ui.db`, NHM config, Caddyfile, and Hysteria config before writing. x-ui profiles use grouped `subId` values like `auto-01` and stable emails like `auto-01-reality`; the same `subId` is reused across all standard x-ui protocol variants for that client index. WARP routing is bound to the normal preset inbound tags plus the AI domain list and outbound `warp-cli`; unmatched domains use the first `direct` outbound. Existing legacy WARP clone inbounds are deleted by default so the 3x-ui editor stays focused on the normal inbounds. NHM generated subscriptions contain exactly `COUNT` NaiveProxy links and `COUNT` Hysteria2 links for the selected prefix.
 
 Generated reports:
 
@@ -333,7 +334,7 @@ NHM subscription files:
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/sing-box.json
 ```
 
-The `auto-01.txt` ... `auto-04.txt` files are combined per-user subscriptions. Each contains the matching x-ui links for that `subId` plus the matching NaiveProxy and Hysteria2 links. `combined.txt` is an admin aggregate with all generated x-ui + NHM links.
+The `auto-01.txt` ... `auto-15.txt` files are combined per-user subscriptions. Each contains the matching x-ui links for that `subId` plus the matching NaiveProxy and Hysteria2 links. `combined.txt` is an admin aggregate with all generated x-ui + NHM links.
 
 The token is generated once and stored root-only:
 
@@ -357,7 +358,7 @@ Custom count/prefix:
 
 ```bash
 sudo bash generate-profiles.sh \
-  --count 4 \
+  --count 15 \
   --prefix auto \
   --yes
 ```
@@ -412,6 +413,26 @@ This installer uses one public `443` owner:
 - NHM Panel is available through nginx on `8081` by default.
 
 Warning: `install-unified.sh` runs the vendored x-ui-pro installer, which is destructive like upstream. Use it only on a fresh VPS or after backups.
+
+## Safe Uninstall
+
+`uninstall-stack.sh` removes the installed x-ui + NHM stack while preserving reusable certificate stores. Default mode is dry-run:
+
+```bash
+sudo bash uninstall-stack.sh
+```
+
+Real removal requires both flags:
+
+```bash
+sudo bash uninstall-stack.sh --apply --yes
+```
+
+It stops/disables stack services, backs up removed files to `/opt/unified-proxy-manager/backups/uninstall-*`, removes x-ui/NHM/Caddy-NH/Hysteria stack files, removes stack nginx snippets/sites, cleans stack cron entries, and keeps certificate material under `/etc/letsencrypt`, `/root/cert`, `/var/lib/caddy`, and `/root/.local/share/caddy`. Add `--remove-warp` only when you also want to remove the Cloudflare WARP package/config:
+
+```bash
+sudo bash uninstall-stack.sh --apply --yes --remove-warp
+```
 
 ## Legacy / Standalone Modes
 

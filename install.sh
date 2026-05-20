@@ -35,8 +35,11 @@ WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google}"
 WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-inbound-443}"
 WARP_ROUTE_PORT="${WARP_ROUTE_PORT:-443}"
+XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
+XUI_CREATE_WARP="${XUI_CREATE_WARP:-0}"
+XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
 GENERATE_PROFILES="${GENERATE_PROFILES:-0}"
-PROFILE_COUNT="${PROFILE_COUNT:-4}"
+PROFILE_COUNT="${PROFILE_COUNT:-15}"
 PROFILE_PREFIX="${PROFILE_PREFIX:-auto}"
 PROJECT_DIR="${UPM_PROJECT_DIR:-$SCRIPT_DIR}"
 REAL_INSTALL=0
@@ -209,7 +212,7 @@ load_config() {
         value="${value//\\\\/\\}"
       fi
       case "$key" in
-        MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NAIVE_EMAIL|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PROXY_EMAIL|PROXY_EMAIL|NH_STACK|NH_ACCESS|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_EMAIL|PANEL_EMAIL|NH_SSH_ONLY|NH_MASQUERADE|NH_MASQUERADE_URL|NH_ALLOW_PORT_CONFLICT|NH_ENABLE_MIERU|TLS_CERT|TLS_KEY|INSTALL_WARP|AUTO_INSTALL_WARP|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_AI_DOMAINS|WARP_INBOUND_TAG|WARP_ROUTE_PORT|GENERATE_PROFILES|PROFILE_COUNT|PROFILE_PREFIX|UPM_PROJECT_DIR)
+        MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NAIVE_EMAIL|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PROXY_EMAIL|PROXY_EMAIL|NH_STACK|NH_ACCESS|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_EMAIL|PANEL_EMAIL|NH_SSH_ONLY|NH_MASQUERADE|NH_MASQUERADE_URL|NH_ALLOW_PORT_CONFLICT|NH_ENABLE_MIERU|TLS_CERT|TLS_KEY|INSTALL_WARP|AUTO_INSTALL_WARP|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_AI_DOMAINS|WARP_INBOUND_TAG|WARP_ROUTE_PORT|XUI_ENABLE_WARP_ROUTING|XUI_CREATE_WARP|XUI_CREATE_DIRECT|GENERATE_PROFILES|PROFILE_COUNT|PROFILE_PREFIX|UPM_PROJECT_DIR)
           printf -v "$key" '%s' "$value"
           ;;
       esac
@@ -365,6 +368,7 @@ check_vendored_components() {
     "$PROJECT_DIR/install-unified.sh" \
     "$PROJECT_DIR/install-warp.sh" \
     "$PROJECT_DIR/generate-profiles.sh" \
+    "$PROJECT_DIR/uninstall-stack.sh" \
     "$PROJECT_DIR/show-access-info.sh" \
     "$PROJECT_DIR/components/x-ui-pro/x-ui-pro.sh" \
     "$PROJECT_DIR/components/x-ui-pro/apply-naive-sni-route.sh" \
@@ -566,7 +570,7 @@ All-in-one layout:
 - Hysteria2 listens on public 443/udp.
 - NHM Panel runs as panel-naive-hy2 and is exposed by nginx on 8081 by default.
 - Optional WARP local proxy installs on 127.0.0.1:${WARP_PROXY_PORT} when --install-warp is used.
-- Optional profile generator creates ${PROFILE_COUNT} WARP-split x-ui profiles, plus ${PROFILE_COUNT} NaiveProxy and ${PROFILE_COUNT} Hy2 profiles when --generate-profiles is used.
+- Optional profile generator creates ${PROFILE_COUNT} standard x-ui profiles with AI-only WARP routing, plus ${PROFILE_COUNT} NaiveProxy and ${PROFILE_COUNT} Hy2 profiles when --generate-profiles is used.
 EOF
       ;;
     nh)
@@ -621,6 +625,9 @@ EOF
     [[ -n "$TLS_CERT" ]] && all_args+=(--tls-cert "$TLS_CERT")
     [[ -n "$TLS_KEY" ]] && all_args+=(--tls-key "$TLS_KEY")
     [[ "$NH_ENABLE_MIERU" == "1" ]] && all_args+=(--with-mieru)
+    XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
+    XUI_CREATE_WARP="$XUI_CREATE_WARP" \
+    XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
     bash "$installer" "${all_args[@]}"
     run_warp_install_if_requested
     run_profile_generation_if_requested
@@ -695,6 +702,9 @@ EOF
     --yes
   )
   [[ "$NH_ENABLE_MIERU" == "1" ]] && legacy_args+=(--with-mieru)
+  XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
+  XUI_CREATE_WARP="$XUI_CREATE_WARP" \
+  XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
   bash "$installer" "${legacy_args[@]}"
   run_warp_install_if_requested
   run_profile_generation_if_requested
@@ -705,7 +715,7 @@ run_warp_install_if_requested() {
   local should_install=0
   if [[ "$INSTALL_WARP" == "1" ]]; then
     should_install=1
-  elif [[ "$AUTO_INSTALL_WARP" == "1" ]] && { [[ "$GENERATE_PROFILES" == "1" ]] || mode_uses_xui; }; then
+  elif [[ "$AUTO_INSTALL_WARP" == "1" && "$XUI_ENABLE_WARP_ROUTING" == "1" ]] && { [[ "$GENERATE_PROFILES" == "1" ]] || mode_uses_xui; }; then
     should_install=1
   fi
   [[ "$should_install" == "1" ]] || return 0
@@ -754,6 +764,9 @@ WARP proxy:      127.0.0.1:${WARP_PROXY_PORT}
 WARP AI domains: $WARP_AI_DOMAINS
 EOF
 
+  XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
+  XUI_CREATE_WARP="$XUI_CREATE_WARP" \
+  XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
   bash "$profile_generator" \
     --count "$PROFILE_COUNT" \
     --prefix "$PROFILE_PREFIX" \
