@@ -316,7 +316,14 @@ done
 ok "Backup directory: $backup_dir"
 
 info "Running x-ui-pro installer"
-XUI_PRINT_ACCESS_INFO=0 XUI_SEED_PROFILES=0 bash "$XUI_SCRIPT" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
+XUI_PRINT_ACCESS_INFO=0 \
+XUI_SEED_PROFILES=1 \
+XUI_PROFILE_COUNT="$PROFILE_COUNT" \
+XUI_PROFILE_PREFIX="$PROFILE_PREFIX" \
+XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
+XUI_CREATE_WARP_INBOUNDS="$XUI_CREATE_WARP" \
+XUI_CREATE_DIRECT_CLIENTS="$XUI_CREATE_DIRECT" \
+bash "$XUI_SCRIPT" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
 require_active x-ui
 require_active nginx
 ensure_warp_local_proxy
