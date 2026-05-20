@@ -323,11 +323,17 @@ NHM subscription files:
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/naive.txt
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/hy2.txt
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/all.txt
+/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/auto-01.txt
+/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/auto-01.b64
+/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/combined.txt
+/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/combined.b64
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/naive.b64
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/hy2.b64
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/all.b64
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/sing-box.json
 ```
+
+The `auto-01.txt` ... `auto-04.txt` files are combined per-user subscriptions. Each contains the matching x-ui links for that `subId` plus the matching NaiveProxy and Hysteria2 links. `combined.txt` is an admin aggregate with all generated x-ui + NHM links.
 
 The token is generated once and stored root-only:
 
@@ -341,6 +347,9 @@ When the NHM Panel is exposed by nginx on `8081`, the generator also adds token-
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/naive.txt
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/hy2.txt
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/all.txt
+http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/auto-01.txt
+http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/auto-01.b64
+http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/combined.txt
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/sing-box.json
 ```
 

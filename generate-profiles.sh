@@ -1034,6 +1034,229 @@ NODE
   configure_nginx_subscription
 }
 
+combined_generate() {
+  [[ -f "$XUI_DB" ]] || { warn "x-ui database not found; combined subscription skipped"; return 0; }
+  [[ -f "$NH_CONFIG" ]] || { warn "NHM config not found; combined subscription skipped"; return 0; }
+
+  if [[ -z "${NH_SUBSCRIPTION_TOKEN:-}" ]]; then
+    if [[ -s "$NH_SUBSCRIPTION_TOKEN_FILE" ]]; then
+      NH_SUBSCRIPTION_TOKEN="$(tr -dc 'A-Za-z0-9._-' < "$NH_SUBSCRIPTION_TOKEN_FILE" | head -c 128)"
+    else
+      warn "NHM subscription token missing; combined subscription skipped"
+      return 0
+    fi
+  fi
+
+  COUNT="$COUNT" PREFIX="$PREFIX" XUI_DB="$XUI_DB" NH_CONFIG="$NH_CONFIG" NH_SUBSCRIPTION_DIR="$NH_SUBSCRIPTION_DIR" NH_SUBSCRIPTION_TOKEN="$NH_SUBSCRIPTION_TOKEN" node <<'NODE'
+const fs = require('fs');
+const cp = require('child_process');
+const path = require('path');
+
+const count = parseInt(process.env.COUNT || '4', 10);
+const prefix = process.env.PREFIX || 'auto';
+const xuiDb = process.env.XUI_DB;
+const nhConfig = process.env.NH_CONFIG;
+const subRoot = process.env.NH_SUBSCRIPTION_DIR || '/opt/panel-naive-hy2/subscriptions';
+const subToken = process.env.NH_SUBSCRIPTION_TOKEN || '';
+const subDir = path.join(subRoot, subToken);
+
+function b64(s) {
+  return Buffer.from(s, 'utf8').toString('base64');
+}
+
+function encode(v) {
+  return encodeURIComponent(String(v ?? ''));
+}
+
+function cleanHost(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    if (/^https?:\/\//i.test(raw)) return new URL(raw).hostname;
+  } catch (_) {}
+  return raw.replace(/^\[|\]$/g, '').split('/')[0].split(':')[0];
+}
+
+function firstEnabledClient(settings, wantedSubId) {
+  const clients = Array.isArray(settings.clients) ? settings.clients : [];
+  return clients.filter(c => c && c.enable !== false && String(c.subId || '') === wantedSubId);
+}
+
+function endpoint(stream, inboundPort) {
+  const external = Array.isArray(stream.externalProxy) ? stream.externalProxy[0] : null;
+  const server = cleanHost(external && external.dest);
+  const port = Number((external && external.port) || inboundPort || 443);
+  return {
+    server,
+    port,
+    tls: external ? String(external.forceTls || '').toLowerCase() : ''
+  };
+}
+
+function addParam(params, key, value) {
+  if (value !== undefined && value !== null && String(value) !== '') params.set(key, String(value));
+}
+
+function vlessLink(row, client) {
+  const stream = JSON.parse(row.stream_settings || '{}');
+  const ep = endpoint(stream, row.port);
+  if (!ep.server || !client.id) return null;
+
+  const network = String(stream.network || 'tcp');
+  const security = String(stream.security || 'none');
+  const params = new URLSearchParams();
+  params.set('type', network);
+  params.set('encryption', 'none');
+
+  if (security === 'reality') {
+    const reality = stream.realitySettings || {};
+    const settings = reality.settings || {};
+    const serverNames = Array.isArray(reality.serverNames) ? reality.serverNames : [];
+    params.set('security', 'reality');
+    addParam(params, 'pbk', settings.publicKey);
+    addParam(params, 'fp', settings.fingerprint || 'chrome');
+    addParam(params, 'sni', serverNames[0] || settings.serverName);
+    addParam(params, 'sid', Array.isArray(reality.shortIds) ? reality.shortIds[0] : '');
+    addParam(params, 'spx', settings.spiderX || '/');
+    addParam(params, 'flow', client.flow);
+  } else {
+    params.set('security', ep.tls === 'tls' || ep.tls === 'same' || [443, 8443].includes(ep.port) ? 'tls' : security);
+  }
+
+  if (network === 'ws') {
+    const ws = stream.wsSettings || {};
+    addParam(params, 'path', ws.path);
+    addParam(params, 'host', ws.host);
+  } else if (network === 'grpc') {
+    const grpc = stream.grpcSettings || {};
+    addParam(params, 'serviceName', grpc.serviceName);
+    addParam(params, 'authority', grpc.authority);
+  } else if (network === 'xhttp') {
+    const xhttp = stream.xhttpSettings || {};
+    addParam(params, 'path', xhttp.path);
+    addParam(params, 'host', xhttp.host);
+    addParam(params, 'mode', xhttp.mode);
+  }
+
+  return `vless://${encode(client.id)}@${ep.server}:${ep.port}?${params.toString()}#${encode(client.email || row.remark || 'x-ui')}`;
+}
+
+function trojanLink(row, client) {
+  const stream = JSON.parse(row.stream_settings || '{}');
+  const ep = endpoint(stream, row.port);
+  const password = client.password || client.id;
+  if (!ep.server || !password) return null;
+
+  const network = String(stream.network || 'tcp');
+  const params = new URLSearchParams();
+  params.set('type', network);
+  params.set('security', ep.tls === 'tls' || ep.tls === 'same' || [443, 8443].includes(ep.port) ? 'tls' : String(stream.security || 'none'));
+
+  if (network === 'grpc') {
+    const grpc = stream.grpcSettings || {};
+    addParam(params, 'serviceName', grpc.serviceName);
+    addParam(params, 'authority', grpc.authority);
+  } else if (network === 'ws') {
+    const ws = stream.wsSettings || {};
+    addParam(params, 'path', ws.path);
+    addParam(params, 'host', ws.host);
+  }
+
+  return `trojan://${encode(password)}@${ep.server}:${ep.port}?${params.toString()}#${encode(client.email || row.remark || 'x-ui')}`;
+}
+
+function xuiRows() {
+  const sql = `
+    SELECT COALESCE(json_group_array(json_object(
+      'id', id,
+      'remark', COALESCE(remark, ''),
+      'port', port,
+      'protocol', protocol,
+      'settings', settings,
+      'stream_settings', stream_settings,
+      'tag', COALESCE(tag, '')
+    )), '[]')
+    FROM (
+      SELECT id, remark, port, protocol, settings, stream_settings, tag
+      FROM inbounds
+      WHERE enable=1
+        AND protocol IN ('vless','trojan')
+        AND json_valid(settings)=1
+        AND json_valid(stream_settings)=1
+      ORDER BY id
+    );
+  `;
+  const out = cp.execFileSync('sqlite3', ['-readonly', xuiDb, sql], { encoding: 'utf8' });
+  return JSON.parse(out || '[]');
+}
+
+function nhLinksBySubId() {
+  const cfg = JSON.parse(fs.readFileSync(nhConfig, 'utf8'));
+  const domain = cfg.domain || 'DOMAIN_NOT_SET';
+  const bySubId = new Map();
+  const naive = Array.isArray(cfg.naiveUsers) ? cfg.naiveUsers : [];
+  const hy2 = Array.isArray(cfg.hy2Users) ? cfg.hy2Users : [];
+
+  for (let i = 1; i <= count; i += 1) {
+    const n = String(i).padStart(2, '0');
+    const subId = `${prefix}-${n}`;
+    const links = [];
+    const nUser = naive.find(u => String(u.username || '') === `${prefix}-naive-${n}`);
+    const hUser = hy2.find(u => String(u.username || '') === `${prefix}-hy2-${n}`);
+    if (nUser) links.push(`naive+https://${encode(nUser.username)}:${encode(nUser.password)}@${domain}:443#${encode(nUser.username)}`);
+    if (hUser) links.push(`hysteria2://${encode(hUser.username)}:${encode(hUser.password)}@${domain}:443?sni=${domain}&insecure=0#${encode(hUser.username)}`);
+    bySubId.set(subId, links);
+  }
+  return bySubId;
+}
+
+const bySubId = new Map();
+for (let i = 1; i <= count; i += 1) {
+  bySubId.set(`${prefix}-${String(i).padStart(2, '0')}`, []);
+}
+
+for (const row of xuiRows()) {
+  let settings;
+  try { settings = JSON.parse(row.settings || '{}'); } catch (_) { continue; }
+  for (const subId of bySubId.keys()) {
+    for (const client of firstEnabledClient(settings, subId)) {
+      const link = row.protocol === 'trojan' ? trojanLink(row, client) : vlessLink(row, client);
+      if (link) bySubId.get(subId).push(link);
+    }
+  }
+}
+
+const nhBySubId = nhLinksBySubId();
+const combinedAll = [];
+fs.mkdirSync(subDir, { recursive: true, mode: 0o755 });
+
+for (const [subId, links] of bySubId) {
+  const combined = [...links, ...(nhBySubId.get(subId) || [])];
+  const text = combined.join('\n');
+  fs.writeFileSync(path.join(subDir, `${subId}.txt`), text + (text ? '\n' : ''), { mode: 0o644 });
+  fs.writeFileSync(path.join(subDir, `${subId}.b64`), b64(text), { mode: 0o644 });
+  combinedAll.push(...combined);
+}
+
+const allText = combinedAll.join('\n');
+fs.writeFileSync(path.join(subDir, 'combined.txt'), allText + (allText ? '\n' : ''), { mode: 0o644 });
+fs.writeFileSync(path.join(subDir, 'combined.b64'), b64(allText), { mode: 0o644 });
+NODE
+
+  local sub_dir="${NH_SUBSCRIPTION_DIR%/}/$NH_SUBSCRIPTION_TOKEN"
+  if [[ -d "$sub_dir" ]]; then
+    if getent group www-data >/dev/null 2>&1; then
+      chgrp -R www-data "${NH_SUBSCRIPTION_DIR%/}" "$sub_dir" 2>/dev/null || true
+      chmod 0750 "${NH_SUBSCRIPTION_DIR%/}" "$sub_dir" 2>/dev/null || true
+      find "$sub_dir" -type f -exec chmod 0640 {} + 2>/dev/null || true
+    else
+      chmod 0755 "${NH_SUBSCRIPTION_DIR%/}" "$sub_dir" 2>/dev/null || true
+      find "$sub_dir" -type f -exec chmod 0644 {} + 2>/dev/null || true
+    fi
+  fi
+  ok "Combined x-ui + NHM subscriptions saved: ${NH_SUBSCRIPTION_DIR%/}/$NH_SUBSCRIPTION_TOKEN/${PREFIX}-01.txt ... ${PREFIX}-${COUNT}.txt"
+}
+
 configure_nginx_subscription() {
   [[ "$NH_SUBSCRIPTION_NGINX" == "1" ]] || return 0
   command_exists nginx || { warn "nginx is not installed; subscription files were created locally only"; return 0; }
@@ -1087,6 +1310,9 @@ fi
 if [[ "$CREATE_NH" == "1" ]]; then
   nh_generate
 fi
+if [[ "$CREATE_XUI" == "1" || "$CREATE_NH" == "1" ]]; then
+  combined_generate
+fi
 
 if [[ "$RELOAD_SERVICES" == "1" ]]; then
   info "Reloading services"
@@ -1133,6 +1359,8 @@ NHM:
   Hysteria2 profiles: ${COUNT}
   links: /opt/panel-naive-hy2/generated-profiles.txt
   subscriptions: ${NH_SUBSCRIPTION_DIR%/}/${NH_SUBSCRIPTION_TOKEN:-TOKEN_NOT_SET}
+  combined x-ui+NHM: ${NH_SUBSCRIPTION_DIR%/}/${NH_SUBSCRIPTION_TOKEN:-TOKEN_NOT_SET}/${PREFIX}-01.txt ... ${PREFIX}-${COUNT}.txt
+  combined all: ${NH_SUBSCRIPTION_DIR%/}/${NH_SUBSCRIPTION_TOKEN:-TOKEN_NOT_SET}/combined.txt
 
 Backup:
   ${backup_dir}
