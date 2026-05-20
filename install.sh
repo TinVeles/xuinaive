@@ -29,6 +29,7 @@ NH_ENABLE_MIERU="${NH_ENABLE_MIERU:-0}"
 TLS_CERT="${TLS_CERT:-}"
 TLS_KEY="${TLS_KEY:-}"
 INSTALL_WARP="${INSTALL_WARP:-0}"
+AUTO_INSTALL_WARP="${AUTO_INSTALL_WARP:-1}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google}"
@@ -208,7 +209,7 @@ load_config() {
         value="${value//\\\\/\\}"
       fi
       case "$key" in
-        MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NAIVE_EMAIL|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PROXY_EMAIL|PROXY_EMAIL|NH_STACK|NH_ACCESS|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_EMAIL|PANEL_EMAIL|NH_SSH_ONLY|NH_MASQUERADE|NH_MASQUERADE_URL|NH_ALLOW_PORT_CONFLICT|NH_ENABLE_MIERU|TLS_CERT|TLS_KEY|INSTALL_WARP|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_AI_DOMAINS|WARP_INBOUND_TAG|WARP_ROUTE_PORT|GENERATE_PROFILES|PROFILE_COUNT|PROFILE_PREFIX|UPM_PROJECT_DIR)
+        MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NAIVE_EMAIL|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PROXY_EMAIL|PROXY_EMAIL|NH_STACK|NH_ACCESS|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_EMAIL|PANEL_EMAIL|NH_SSH_ONLY|NH_MASQUERADE|NH_MASQUERADE_URL|NH_ALLOW_PORT_CONFLICT|NH_ENABLE_MIERU|TLS_CERT|TLS_KEY|INSTALL_WARP|AUTO_INSTALL_WARP|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_AI_DOMAINS|WARP_INBOUND_TAG|WARP_ROUTE_PORT|GENERATE_PROFILES|PROFILE_COUNT|PROFILE_PREFIX|UPM_PROJECT_DIR)
           printf -v "$key" '%s' "$value"
           ;;
       esac
@@ -275,7 +276,7 @@ show_port_report() {
       ok "Port $port is free or listener was not detected"
     fi
   done
-  if [[ "$INSTALL_WARP" == "1" ]]; then
+  if [[ "$INSTALL_WARP" == "1" || "$GENERATE_PROFILES" == "1" ]]; then
     details="$(port_details "$WARP_PROXY_PORT")"
     if [[ -n "$details" ]]; then
       warn "Port $WARP_PROXY_PORT is busy:"
@@ -296,6 +297,31 @@ service_line() {
   active="$(systemctl is-active "$svc" 2>/dev/null || true)"
   enabled="$(systemctl is-enabled "$svc" 2>/dev/null || true)"
   printf '%-8s active=%-10s enabled=%s\n' "$svc" "${active:-unknown}" "${enabled:-unknown}"
+}
+
+mode_uses_xui() {
+  case "$MODE" in
+    xui|all|both) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+warp_local_proxy_ready() {
+  local status_text trace_output
+  command_exists warp-cli || return 1
+  status_text="$(warp-cli --accept-tos status 2>/dev/null || warp-cli status 2>/dev/null || true)"
+  grep -qi "disconnected" <<<"$status_text" && return 1
+  grep -qi "connected" <<<"$status_text" || return 1
+  if command_exists curl; then
+    trace_output="$(curl -fsS --max-time 20 --socks5-hostname "127.0.0.1:${WARP_PROXY_PORT}" https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
+    grep -Eqi '^warp=(on|plus)' <<<"$trace_output"
+    return
+  fi
+  if command_exists ss; then
+    ss -H -ltn "sport = :$WARP_PROXY_PORT" 2>/dev/null | grep -q .
+    return
+  fi
+  return 0
 }
 
 show_service_report() {
@@ -676,19 +702,30 @@ EOF
 }
 
 run_warp_install_if_requested() {
-  [[ "$INSTALL_WARP" == "1" ]] || return 0
+  local should_install=0
+  if [[ "$INSTALL_WARP" == "1" ]]; then
+    should_install=1
+  elif [[ "$AUTO_INSTALL_WARP" == "1" ]] && { [[ "$GENERATE_PROFILES" == "1" ]] || mode_uses_xui; }; then
+    should_install=1
+  fi
+  [[ "$should_install" == "1" ]] || return 0
+  if warp_local_proxy_ready; then
+    ok "WARP local proxy is already ready at 127.0.0.1:${WARP_PROXY_PORT}"
+    return 0
+  fi
   local warp_installer="$PROJECT_DIR/install-warp.sh"
   [[ -f "$warp_installer" ]] || die "WARP installer not found: $warp_installer"
 
   cat <<EOF
 
-Installing optional WARP local proxy
+Installing WARP local proxy
 ------------------------------------
 Installer:       $warp_installer
 Proxy:           127.0.0.1:${WARP_PROXY_PORT}
 Outbound tag:    ${WARP_OUTBOUND_TAG}
 Inbound tag:     ${WARP_INBOUND_TAG}
 Route port:      ${WARP_ROUTE_PORT}
+Reason:          $([[ "$INSTALL_WARP" == "1" ]] && printf 'requested' || printf 'auto, x-ui WARP routing needs local proxy')
 EOF
 
   bash "$warp_installer" \
@@ -756,6 +793,8 @@ while [[ $# -gt 0 ]]; do
     --tls-cert) TLS_CERT="${2:-}"; shift 2 ;;
     --tls-key) TLS_KEY="${2:-}"; shift 2 ;;
     --install-warp) INSTALL_WARP=1; shift ;;
+    --no-auto-install-warp) AUTO_INSTALL_WARP=0; shift ;;
+    --auto-install-warp) AUTO_INSTALL_WARP=1; shift ;;
     --warp-proxy-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;

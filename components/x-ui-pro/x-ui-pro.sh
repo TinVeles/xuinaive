@@ -17,6 +17,7 @@ XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
 XUI_SEED_PROFILES="${XUI_SEED_PROFILES:-0}"
 XUI_CREATE_WARP_INBOUNDS="${XUI_CREATE_WARP_INBOUNDS:-1}"
 XUI_CREATE_DIRECT_CLIENTS="${XUI_CREATE_DIRECT_CLIENTS:-0}"
+XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-1}"
 XUI_PRINT_ACCESS_INFO="${XUI_PRINT_ACCESS_INFO:-1}"
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
@@ -26,10 +27,49 @@ XUI_WARP_EXTERNAL_PORT="${XUI_WARP_EXTERNAL_PORT:-8443}"
 XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-1}"
 XUI_VERSION="${XUI_VERSION:-}"
 XUI_TARBALL_SHA256="${XUI_TARBALL_SHA256:-}"
+XUI_PRO_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+UPM_ROOT_DIR="$(cd "${XUI_PRO_SCRIPT_DIR}/../.." 2>/dev/null && pwd || echo "")"
 if [[ "$XUI_CREATE_WARP_INBOUNDS" != "1" && "$XUI_CREATE_DIRECT_CLIENTS" != "1" ]]; then
   XUI_CREATE_DIRECT_CLIENTS=1
 fi
 Pak=$(type apt &>/dev/null && echo "apt" || echo "yum")
+
+xui_warp_local_proxy_ready() {
+  local status_text trace_output
+  command -v warp-cli >/dev/null 2>&1 || return 1
+  status_text="$(warp-cli --accept-tos status 2>/dev/null || warp-cli status 2>/dev/null || true)"
+  grep -qi "disconnected" <<<"$status_text" && return 1
+  grep -qi "connected" <<<"$status_text" || return 1
+  if command -v curl >/dev/null 2>&1; then
+    trace_output="$(curl -fsS --max-time 20 --socks5-hostname "${WARP_PROXY_HOST}:${WARP_PROXY_PORT}" https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
+    grep -Eqi '^warp=(on|plus)' <<<"$trace_output"
+    return
+  fi
+  if command -v ss >/dev/null 2>&1; then
+    ss -H -ltn "sport = :$WARP_PROXY_PORT" 2>/dev/null | grep -q .
+    return
+  fi
+  return 0
+}
+
+xui_ensure_warp_local_proxy() {
+  [[ "$XUI_CREATE_WARP_INBOUNDS" == "1" && "$XUI_AUTO_INSTALL_WARP" == "1" ]] || return 0
+  if xui_warp_local_proxy_ready; then
+    msg_ok "WARP local proxy is ready at ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
+    return 0
+  fi
+  [[ "$WARP_PROXY_HOST" == "127.0.0.1" || "$WARP_PROXY_HOST" == "localhost" ]] || { msg_err "Auto WARP install supports only local WARP_PROXY_HOST, got: $WARP_PROXY_HOST"; exit 1; }
+  local warp_installer="${UPM_ROOT_DIR}/install-warp.sh"
+  [[ -f "$warp_installer" ]] || { msg_err "WARP installer not found: $warp_installer"; exit 1; }
+  msg_inf "WARP local proxy is missing; installing Cloudflare WARP automatically"
+  bash "$warp_installer" \
+    --proxy-port "$WARP_PROXY_PORT" \
+    --outbound-tag "$WARP_OUTBOUND_TAG" \
+    --warp-ai-domains "$WARP_AI_DOMAINS" \
+    --yes
+  xui_warp_local_proxy_ready || { msg_err "WARP install finished, but local proxy is not ready at ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"; exit 1; }
+  msg_ok "WARP local proxy is ready at ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
+}
 
 verify_sha256_if_set() {
   local file="$1" expected="$2"
@@ -667,11 +707,37 @@ xui_apply_warp_template() {
   fi
 }
 
+xui_remove_warp_template() {
+  local key current updated snippet_file
+  snippet_file="/etc/x-ui/warp-generated-routing.json"
+  key="$(sqlite3 -readonly "$XUIDB" "SELECT key FROM settings WHERE key IN ('xrayTemplateConfig','xrayConfig','xraySetting') LIMIT 1;" || true)"
+  [[ -n "$key" ]] || return 0
+  current="$(sqlite3 -readonly "$XUIDB" "SELECT value FROM settings WHERE key=$(sql_quote "$key") LIMIT 1;" || true)"
+  [[ -n "$current" ]] || return 0
+  if ! jq -e . >/dev/null 2>&1 <<<"$current"; then
+    msg_inf "x-ui setting $key is not valid JSON; WARP template cleanup skipped"
+    return 0
+  fi
+  updated="$(jq -c --arg tag "$WARP_OUTBOUND_TAG" '
+    .outbounds = ((.outbounds // []) | map(select(.tag != $tag)))
+    | .routing = (.routing // {})
+    | .routing.rules = ((.routing.rules // []) | map(select(.outboundTag != $tag)))
+    | if (.outbounds | length) == 0 then del(.outbounds) else . end
+    | if ((.routing.rules? // []) | length) == 0 then del(.routing.rules) else . end
+    | if ((.routing? // {}) | length) == 0 then del(.routing) else . end
+  ' <<<"$current")"
+  sqlite3 "$XUIDB" "DELETE FROM settings WHERE key=$(sql_quote "$key");"
+  sqlite3 "$XUIDB" "INSERT INTO settings (key, value) VALUES ($(sql_quote "$key"), $(sql_quote "$updated"));"
+  rm -f "$snippet_file" 2>/dev/null || true
+  msg_ok "x-ui WARP outbound/routing removed from settings.$key"
+}
+
 xui_seed_default_warp_profiles() {
   local inbound_rows inbound_id protocol tag remark port enable warp_id warp_tag warp_tags_file
   local old_count old_prefix old_sub_mode old_common_sub_id
   [[ -f "$XUIDB" ]] || return 0
   if [[ "$XUI_CREATE_WARP_INBOUNDS" != "1" ]]; then
+    xui_remove_warp_template
     msg_ok "x-ui seed skipped: default inbounds keep one default client each; WARP clone inbounds disabled"
     return 0
   fi
@@ -712,7 +778,11 @@ $(xui_preset_inbound_filter_sql)
   XUI_SUB_ID_MODE="$old_sub_mode"
   XUI_COMMON_SUB_ID="$old_common_sub_id"
 
-  xui_apply_warp_template "$warp_tags_file"
+  if [[ "$XUI_CREATE_WARP_INBOUNDS" == "1" ]]; then
+    xui_apply_warp_template "$warp_tags_file"
+  else
+    xui_remove_warp_template
+  fi
   rm -f "$warp_tags_file"
   msg_ok "x-ui seed: default inbounds keep one default client each; WARP clone inbounds have 1 client each"
 }
@@ -1626,6 +1696,7 @@ if [[ -f $XUIDB ]]; then
 EOF
 xui_repair_invalid_inbound_json
 xui_sanitize_inbound_tags
+xui_ensure_warp_local_proxy
 xui_seed_bulk_profiles
 xui_apply_warp_nginx_stream
 xui_cleanup_unix_sockets

@@ -220,7 +220,7 @@ warp_check() {
   if command_exists curl; then
     local trace=""
     trace="$(curl -fsS --max-time 20 --socks5-hostname "${WARP_PROXY_HOST}:${WARP_PROXY_PORT}" https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
-    if grep -qi '^warp=on' <<<"$trace"; then
+    if grep -Eqi '^warp=(on|plus)' <<<"$trace"; then
       ok "WARP local proxy works at ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
     elif [[ -n "$trace" ]]; then
       warn "WARP local proxy responded, but trace did not report warp=on"

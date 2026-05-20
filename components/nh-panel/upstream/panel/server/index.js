@@ -519,6 +519,10 @@ app.post('/api/config/change-password', requireAuth, (req, res) => {
   }
   user.password = bcrypt.hashSync(newPassword, 10);
   saveUsers(users);
+  const cfg = loadConfig();
+  cfg.panelLogin = req.session.username;
+  cfg.panelPassword = newPassword;
+  saveConfig(cfg);
   res.json({ success: true, message: 'Пароль успешно изменён' });
 });
 

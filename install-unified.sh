@@ -22,6 +22,7 @@ PROFILE_PREFIX="auto"
 WARP_PROXY_PORT=40000
 WARP_OUTBOUND_TAG="warp-cli"
 WARP_AI_DOMAINS="domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google"
+AUTO_INSTALL_WARP=1
 PRINT_ACCESS_INFO=1
 NH_ENABLE_MIERU=0
 
@@ -84,6 +85,42 @@ require_active() {
     exit 1
   fi
   ok "$svc is active"
+}
+
+warp_local_proxy_ready() {
+  local status_text trace_output
+  command -v warp-cli >/dev/null 2>&1 || return 1
+  status_text="$(warp-cli --accept-tos status 2>/dev/null || warp-cli status 2>/dev/null || true)"
+  grep -qi "disconnected" <<<"$status_text" && return 1
+  grep -qi "connected" <<<"$status_text" || return 1
+  if command -v curl >/dev/null 2>&1; then
+    trace_output="$(curl -fsS --max-time 20 --socks5-hostname "127.0.0.1:${WARP_PROXY_PORT}" https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
+    grep -Eqi '^warp=(on|plus)' <<<"$trace_output"
+    return
+  fi
+  if command -v ss >/dev/null 2>&1; then
+    ss -H -ltn "sport = :$WARP_PROXY_PORT" 2>/dev/null | grep -q .
+    return
+  fi
+  return 0
+}
+
+ensure_warp_local_proxy() {
+  [[ "$AUTO_INSTALL_WARP" == "1" ]] || return 0
+  if warp_local_proxy_ready; then
+    ok "WARP local proxy is ready at 127.0.0.1:${WARP_PROXY_PORT}"
+    return 0
+  fi
+  local warp_installer="$SCRIPT_DIR/install-warp.sh"
+  [[ -f "$warp_installer" ]] || die "WARP installer not found: $warp_installer"
+  info "WARP local proxy is missing; installing Cloudflare WARP automatically"
+  bash "$warp_installer" \
+    --proxy-port "$WARP_PROXY_PORT" \
+    --outbound-tag "$WARP_OUTBOUND_TAG" \
+    --warp-ai-domains "$WARP_AI_DOMAINS" \
+    --yes
+  warp_local_proxy_ready || die "WARP install finished, but local proxy is not ready at 127.0.0.1:${WARP_PROXY_PORT}"
+  ok "WARP local proxy is ready at 127.0.0.1:${WARP_PROXY_PORT}"
 }
 
 config_value() {
@@ -189,6 +226,8 @@ while [[ $# -gt 0 ]]; do
     --warp-proxy-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
+    --no-auto-install-warp) AUTO_INSTALL_WARP=0; shift ;;
+    --auto-install-warp) AUTO_INSTALL_WARP=1; shift ;;
     --with-mieru|--enable-mieru) NH_ENABLE_MIERU=1; shift ;;
     --no-access-info) PRINT_ACCESS_INFO=0; shift ;;
     --yes) ASSUME_YES=1; shift ;;
@@ -273,6 +312,7 @@ info "Running x-ui-pro installer"
 XUI_PRINT_ACCESS_INFO=0 XUI_SEED_PROFILES=0 bash "$XUI_SCRIPT" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
 require_active x-ui
 require_active nginx
+ensure_warp_local_proxy
 
 info "Adding nginx stream route for NHM NaiveProxy"
 bash "$SNI_PATCH" --domain "$NH_DOMAIN" --backend "$NH_BACKEND" --name nh_naive
@@ -339,6 +379,11 @@ config_set NH_HY2_LINK "$NH_HY2_LINK_FINAL"
 config_set PROFILE_COUNT "$PROFILE_COUNT"
 config_set PROFILE_PREFIX "$PROFILE_PREFIX"
 config_set XUI_PROFILES_GENERATED "$GENERATE_PROFILES"
+config_set WARP_ENABLED "$AUTO_INSTALL_WARP"
+config_set WARP_PROXY_HOST "127.0.0.1"
+config_set WARP_PROXY_PORT "$WARP_PROXY_PORT"
+config_set WARP_OUTBOUND_TAG "$WARP_OUTBOUND_TAG"
+config_set WARP_AI_DOMAINS "$WARP_AI_DOMAINS"
 ok "Saved final configuration: $SCRIPT_DIR/config.env"
 
 if [[ "$GENERATE_PROFILES" == "1" ]]; then
