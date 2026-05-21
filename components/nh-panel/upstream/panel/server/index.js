@@ -52,6 +52,8 @@ const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const SECRET_FILE = path.join(DATA_DIR, '.session_secret');
 const SESSION_DIR = path.join(DATA_DIR, 'sessions');
+const SUBSCRIPTION_TOKEN_FILE = process.env.NH_SUBSCRIPTION_TOKEN_FILE || '/etc/nh-panel/subscription-token';
+const SUBSCRIPTION_DIR = process.env.NH_SUBSCRIPTION_DIR || '/opt/panel-naive-hy2/subscriptions';
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true, mode: 0o700 });
@@ -601,6 +603,54 @@ app.get('/api/status', requireAuth, async (req, res) => {
       port: cfg.mieruPort || 0,
       protocol: normalizeMieruProtocol(cfg.mieruProtocol)
     } : null,
+  });
+});
+
+app.get('/api/subscriptions', requireAuth, (req, res) => {
+  let token = '';
+  try {
+    token = fs.readFileSync(SUBSCRIPTION_TOKEN_FILE, 'utf8').trim().replace(/[^A-Za-z0-9._-]/g, '').slice(0, 128);
+  } catch (_) {
+    return res.json({ available: false, reason: 'subscription token not found' });
+  }
+  if (!token) return res.json({ available: false, reason: 'subscription token is empty' });
+
+  const subDir = path.join(SUBSCRIPTION_DIR, token);
+  let files = [];
+  try {
+    files = fs.readdirSync(subDir).filter(name => /^[A-Za-z0-9_.-]+\.(txt|b64|json)$/.test(name)).sort();
+  } catch (_) {
+    return res.json({ available: false, reason: 'subscription files not found', token });
+  }
+
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim() || 'http';
+  const host = getRequestHost(req);
+  const baseUrl = `${proto}://${host}/sub/${token}`;
+  const has = name => files.includes(name);
+  const url = name => `${baseUrl}/${name}`;
+  const users = [];
+
+  for (const file of files) {
+    const m = file.match(/^(auto-\d+)\.txt$/);
+    if (!m) continue;
+    const name = m[1];
+    users.push({
+      name,
+      txt: url(`${name}.txt`),
+      b64: has(`${name}.b64`) ? url(`${name}.b64`) : ''
+    });
+  }
+
+  res.json({
+    available: true,
+    token,
+    baseUrl,
+    combined: {
+      txt: has('combined.txt') ? url('combined.txt') : '',
+      b64: has('combined.b64') ? url('combined.b64') : ''
+    },
+    singBox: has('sing-box.json') ? url('sing-box.json') : '',
+    users
   });
 });
 

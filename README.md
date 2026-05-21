@@ -71,6 +71,45 @@ sudo bash install.sh --mode all \
   --yes
 ```
 
+## x-ui + NHM Without WARP
+
+Use this profile when you want the full x-ui + NHM Panel + NaiveProxy + Hysteria2 stack, but no Cloudflare WARP routing and no WARP service:
+
+```bash
+cd /root
+rm -rf unified-proxy-manager
+git clone https://github.com/TinVeles/xuinaive.git unified-proxy-manager
+cd unified-proxy-manager
+
+sudo XUI_ENABLE_WARP_ROUTING=0 \
+  XUI_CREATE_WARP=0 \
+  AUTO_INSTALL_WARP=0 \
+  bash install.sh --mode all \
+    --xui-domain xui.example.com \
+    --nh-domain naive.example.com \
+    --reality-dest reality.example.com \
+    --nh-email admin@example.com \
+    --generate-profiles \
+    --profile-count 15 \
+    --profile-prefix auto \
+    --install \
+    --yes
+```
+
+With this mode:
+
+- no `--install-warp` flag is used;
+- WARP routing is not written into the x-ui/Xray template;
+- legacy `*-warp` inbounds are not created;
+- generated x-ui clients, NaiveProxy users, Hysteria2 users, and combined subscriptions are still created.
+
+If you already have the NHM/NaiveProxy certificate, add the certificate paths to the same command:
+
+```bash
+    --tls-cert /etc/letsencrypt/live/naive.example.com/fullchain.pem \
+    --tls-key /etc/letsencrypt/live/naive.example.com/privkey.pem \
+```
+
 If you already have a certificate for the NHM/NaiveProxy domain, pass it explicitly:
 
 ```bash
@@ -437,3 +476,175 @@ sudo bash uninstall-stack.sh --apply --yes --remove-warp
 ## Legacy / Standalone Modes
 
 `--mode nh` still exists for a standalone NHM Panel install without 3x-ui. For one-command 3x-ui + NHM, use `--mode all`.
+
+## Manual WARP Setup
+
+Use this only if the main stack was installed without WARP and you later decide to add WARP manually.
+
+Install and connect the local WARP proxy:
+
+```bash
+cd /root/unified-proxy-manager
+
+sudo bash install-warp.sh \
+  --proxy-port 40000 \
+  --outbound-tag warp-cli \
+  --yes
+```
+
+Check that WARP is really running:
+
+```bash
+systemctl status warp-svc --no-pager
+warp-cli --accept-tos status || warp-cli status
+ss -lntp | grep 40000
+curl -I --max-time 20 --socks5-hostname 127.0.0.1:40000 https://www.google.com/generate_204
+curl --max-time 20 --socks5-hostname 127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace
+```
+
+Enable x-ui routing through WARP for the AI domain list only:
+
+```bash
+sudo XUI_ENABLE_WARP_ROUTING=1 \
+  XUI_CREATE_WARP=0 \
+  XUI_CREATE_DIRECT=1 \
+  XUI_AUTO_INSTALL_WARP=0 \
+  bash generate-profiles.sh \
+    --count 15 \
+    --prefix auto \
+    --warp-port 40000 \
+    --warp-outbound-tag warp-cli \
+    --yes
+
+sudo systemctl restart x-ui
+```
+
+This does not create legacy `*-warp` inbounds. It only adds the `warp-cli` outbound and routing rules for the configured AI domains; all other traffic remains direct.
+
+### Manual AI Routing In x-ui Xray Configs
+
+If you do not want the script to write the x-ui template automatically, you can paste the routing manually in the x-ui panel.
+
+Prerequisites:
+
+```bash
+systemctl status warp-svc --no-pager
+ss -lntp | grep 40000
+curl -I --max-time 20 --socks5-hostname 127.0.0.1:40000 https://www.google.com/generate_204
+```
+
+Open:
+
+```text
+x-ui panel -> Xray Configs
+```
+
+Use these settings. The important part is that the outbound tag is exactly `warp-cli`, and the SOCKS server points to `127.0.0.1:40000`.
+
+```json
+{
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    {
+      "tag": "warp-cli",
+      "protocol": "socks",
+      "settings": {
+        "servers": [
+          {
+            "address": "127.0.0.1",
+            "port": 40000
+          }
+        ]
+      }
+    },
+    {
+      "tag": "blocked",
+      "protocol": "blackhole"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "domain": [
+          "domain:openai.com",
+          "domain:chatgpt.com",
+          "domain:oaistatic.com",
+          "domain:oaiusercontent.com",
+          "domain:anthropic.com",
+          "domain:claude.ai",
+          "domain:gemini.google.com",
+          "domain:generativelanguage.googleapis.com",
+          "domain:ai.google.dev",
+          "domain:notebooklm.google.com",
+          "domain:notebooklm.google"
+        ],
+        "outboundTag": "warp-cli"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "blocked"
+      },
+      {
+        "type": "field",
+        "protocol": [
+          "bittorrent"
+        ],
+        "outboundTag": "blocked"
+      }
+    ]
+  }
+}
+```
+
+Correct rule order:
+
+- AI domains -> `warp-cli`;
+- private IP and BitTorrent blocks after that;
+- everything else has no matching rule and goes through `direct`.
+
+If your x-ui template already has `outbounds` or `routing.rules`, do not duplicate tags. Keep only one outbound with `tag: "warp-cli"` and only one AI routing rule pointing to `warp-cli`.
+
+The script can generate the same data without applying it:
+
+```bash
+sudo XUI_ENABLE_WARP_ROUTING=1 \
+  XUI_APPLY_WARP_TEMPLATE=0 \
+  XUI_AUTO_INSTALL_WARP=0 \
+  bash generate-profiles.sh \
+    --count 15 \
+    --prefix auto \
+    --warp-port 40000 \
+    --warp-outbound-tag warp-cli \
+    --yes
+
+sudo jq . /etc/x-ui/warp-generated-routing.json
+```
+
+After manual changes in `Xray Configs`, restart x-ui:
+
+```bash
+sudo systemctl restart x-ui
+sudo journalctl -u x-ui -n 80 --no-pager -l
+```
+
+To disable WARP routing again:
+
+```bash
+sudo XUI_ENABLE_WARP_ROUTING=0 \
+  XUI_CREATE_WARP=0 \
+  XUI_CREATE_DIRECT=1 \
+  bash generate-profiles.sh \
+    --count 15 \
+    --prefix auto \
+    --yes
+
+sudo systemctl restart x-ui
+```
