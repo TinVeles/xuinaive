@@ -454,6 +454,10 @@ validate_real_install_args() {
     [[ -r "$TLS_KEY" ]] || die "--tls-key is not readable: $TLS_KEY"
   fi
   case "$MODE" in
+    xui)
+      [[ -n "$XUI_DOMAIN" ]] || die "--xui-domain is required for real x-ui install"
+      [[ -n "$REALITY_DEST" ]] || die "--reality-dest is required for real x-ui install"
+      ;;
     both)
       [[ -n "$XUI_DOMAIN" ]] || die "--xui-domain is required for real install"
       [[ -n "$NAIVE_DOMAIN" ]] || die "--naive-domain is required for real install"
@@ -470,7 +474,7 @@ validate_real_install_args() {
       [[ -n "$NH_PROXY_DOMAIN" ]] || die "--domain is required for real NHM install"
       [[ -n "$NH_PROXY_EMAIL" ]] || die "--proxy-email is required for real NHM install"
       ;;
-    *) die "Real install currently supports --mode all, --mode both, or --mode nh" ;;
+    *) die "Real install currently supports --mode xui, --mode all, --mode both, or --mode nh" ;;
   esac
   [[ "$ASSUME_YES" == "1" ]] || die "Real install requires --yes"
 }
@@ -533,7 +537,7 @@ EOF
     xui)
       cat <<'EOF'
 
-Planned x-ui-pro actions for a future real installer:
+Real x-ui-pro actions:
 - verify DNS and free public ports 80/443;
 - warn that upstream x-ui-pro.sh is destructive to existing x-ui/nginx configs;
 - backup /etc/nginx, /etc/x-ui, /usr/local/x-ui before any real run;
@@ -592,6 +596,48 @@ EOF
 
 run_real_install() {
   [[ "$REAL_INSTALL" == "1" ]] || return 0
+
+  if [[ "$MODE" == "xui" ]]; then
+    local xui_installer="$PROJECT_DIR/components/x-ui-pro/x-ui-pro.sh"
+    [[ -f "$xui_installer" ]] || die "x-ui installer not found: $xui_installer. Pull latest project version."
+
+    cat <<EOF
+
+Real x-ui-only install requested
+--------------------------------
+Installer:      $xui_installer
+x-ui domain:    $XUI_DOMAIN
+REALITY dest:   $REALITY_DEST
+WARP routing:   $XUI_ENABLE_WARP_ROUTING
+WARP clones:    $XUI_CREATE_WARP
+Profiles:       ${GENERATE_PROFILES} (${PROFILE_COUNT}, prefix ${PROFILE_PREFIX})
+
+This will install only x-ui-pro / 3x-ui / Xray / nginx.
+NHM Panel, NaiveProxy, and Hysteria2 will not be installed.
+EOF
+
+    local backup_dir="/opt/unified-proxy-manager/backups/xui-only-$(date '+%Y-%m-%d-%H-%M-%S')"
+    mkdir -p "$backup_dir"
+    for path in /etc/nginx /etc/x-ui /usr/local/x-ui /etc/systemd/system/x-ui.service; do
+      if [[ -e "$path" || -L "$path" ]]; then
+        mkdir -p "$backup_dir$(dirname "$path")"
+        cp -aT "$path" "$backup_dir$path"
+      fi
+    done
+    ok "Backup directory: $backup_dir"
+
+    XUI_PRINT_ACCESS_INFO=0 \
+    XUI_SEED_PROFILES=0 \
+    XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
+    XUI_CREATE_WARP_INBOUNDS="$XUI_CREATE_WARP" \
+    XUI_CREATE_DIRECT_CLIENTS="$XUI_CREATE_DIRECT" \
+    bash "$xui_installer" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
+
+    run_warp_install_if_requested
+    run_profile_generation_if_requested
+    show_final_access_info
+    return 0
+  fi
 
   if [[ "$MODE" == "all" ]]; then
     local installer="$PROJECT_DIR/install-unified.sh"
@@ -750,6 +796,8 @@ EOF
 run_profile_generation_if_requested() {
   [[ "$GENERATE_PROFILES" == "1" ]] || return 0
   local profile_generator="$PROJECT_DIR/generate-profiles.sh"
+  local create_nh=1
+  [[ "$MODE" == "xui" ]] && create_nh=0
   [[ -f "$profile_generator" ]] || die "Profile generator not found: $profile_generator"
 
   cat <<EOF
@@ -767,6 +815,8 @@ EOF
   XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
   XUI_CREATE_WARP="$XUI_CREATE_WARP" \
   XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
+  CREATE_XUI=1 \
+  CREATE_NH="$create_nh" \
   bash "$profile_generator" \
     --count "$PROFILE_COUNT" \
     --prefix "$PROFILE_PREFIX" \

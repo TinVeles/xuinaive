@@ -367,6 +367,17 @@ xui_sanitize_inbound_tags() {
   "
 }
 
+xui_enable_preset_xhttp() {
+  [[ -f "$XUIDB" ]] || return 0
+  sqlite3 "$XUIDB" "
+    UPDATE inbounds
+    SET enable=1
+    WHERE protocol='vless'
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='xhttp';
+  "
+}
+
 xui_fix_all_vless_decryption() {
   [[ -f "$XUIDB" ]] || return 0
   sqlite3 "$XUIDB" "
@@ -408,6 +419,7 @@ xui_validate_inbound_json() {
 xui_post_update_db() {
   xui_repair_invalid_inbound_json
   xui_sanitize_inbound_tags
+  xui_enable_preset_xhttp
   xui_fix_all_vless_decryption
   xui_fill_empty_warp_clients
   xui_validate_inbound_json
@@ -1602,9 +1614,9 @@ if [[ -f $XUIDB ]]; then
              '1',
 	     '0',
              '0',
-	     '0',
+             '0',
              '${emoji_flag} xhttp',
-	     '0',
+	     '1',
              '0',
 	     '/dev/shm/uds2023.sock,0666',
              '0',

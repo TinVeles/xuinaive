@@ -421,6 +421,16 @@ xui_sanitize_inbound_tags() {
   "
 }
 
+xui_enable_preset_xhttp() {
+  sqlite3 "$XUI_DB" "
+    UPDATE inbounds
+    SET enable=1
+    WHERE protocol='vless'
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='xhttp';
+  "
+}
+
 xui_warp_stream_settings() {
   local stream_settings="$1" warp_port="$2" external_port="$3"
   jq -c --argjson port "$warp_port" --argjson externalPort "$external_port" '
@@ -617,6 +627,7 @@ xui_add_clients() {
   : > "$report_file"
   xui_repair_invalid_inbound_json
   xui_sanitize_inbound_tags
+  xui_enable_preset_xhttp
 
   query="SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
      FROM inbounds
