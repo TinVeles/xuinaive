@@ -10,9 +10,9 @@ fi
 
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
-WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-inbound-443}"
+WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-all}"
 WARP_ROUTE_PORT="${WARP_ROUTE_PORT:-443}"
-WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google}"
+WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:aistudio.google.com,domain:ai.google.dev,domain:generativelanguage.googleapis.com,domain:aiplatform.googleapis.com,domain:googleapis.com,domain:gstatic.com,domain:googleusercontent.com,domain:ggpht.com,domain:clients6.google.com,domain:accounts.google.com,domain:apis.google.com,domain:ogs.google.com,domain:www.google.com,domain:play.google.com,domain:withgoogle.com,domain:youtube.com,domain:ytimg.com,domain:notebooklm.google.com,domain:notebooklm.google}"
 WARP_SNIPPET_DIR="${WARP_SNIPPET_DIR:-/etc/x-ui}"
 ASSUME_YES=0
 
@@ -33,12 +33,12 @@ usage() {
   cat <<EOF
 Usage:
   sudo bash install-warp.sh --yes
-  sudo bash install-warp.sh --proxy-port 40000 --outbound-tag warp-cli --inbound-tag inbound-443 --route-port 443 --yes
+  sudo bash install-warp.sh --proxy-port 40000 --outbound-tag warp-cli --inbound-tag all --route-port 443 --yes
 
 Installs Cloudflare WARP in local proxy mode and prepares 3x-ui/Xray snippets:
   SOCKS/HTTP proxy: 127.0.0.1:${WARP_PROXY_PORT}
   Xray outbound tag: ${WARP_OUTBOUND_TAG}
-  Routing rule: inboundTag=${WARP_INBOUND_TAG}, AI domains only, outboundTag=${WARP_OUTBOUND_TAG}
+  Routing rule: inboundTag=${WARP_INBOUND_TAG} (all = no inbound filter), AI domains only, outboundTag=${WARP_OUTBOUND_TAG}
   AI domains: ${WARP_AI_DOMAINS}
 EOF
 }
@@ -156,14 +156,21 @@ snippet_file="$WARP_SNIPPET_DIR/warp-xray-snippets.json"
 domains_json="$(printf '%s\n' "$WARP_AI_DOMAINS" \
   | tr ',' '\n' \
   | jq -Rsc 'split("\n") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(length > 0)) | unique')"
+if [[ -z "$WARP_INBOUND_TAG" || "$WARP_INBOUND_TAG" == "all" || "$WARP_INBOUND_TAG" == "*" ]]; then
+  inbound_tags_json='null'
+else
+  inbound_tags_json="$(printf '%s\n' "$WARP_INBOUND_TAG" \
+    | tr ',' '\n' \
+    | jq -Rsc 'split("\n") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(length > 0)) | unique')"
+fi
 jq -cn \
   --arg tag "$WARP_OUTBOUND_TAG" \
   --argjson port "$WARP_PROXY_PORT" \
-  --arg inboundTag "$WARP_INBOUND_TAG" \
+  --argjson inboundTags "$inbound_tags_json" \
   --argjson domains "$domains_json" \
   '{
     outbound: {tag:$tag, protocol:"socks", settings:{servers:[{address:"127.0.0.1", port:$port}]}},
-    routingRule: {type:"field", inboundTag:[$inboundTag], domain:$domains, outboundTag:$tag}
+    routingRule: ({type:"field", domain:$domains, outboundTag:$tag} + (if $inboundTags == null then {} else {inboundTag:$inboundTags} end))
   }' > "$snippet_file"
 chmod 0644 "$snippet_file"
 ok "Saved Xray/3x-ui snippets: $snippet_file"

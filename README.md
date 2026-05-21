@@ -294,7 +294,7 @@ Custom tags/ports for 3x-ui routing:
 sudo bash install-warp.sh \
   --proxy-port 40000 \
   --outbound-tag warp-cli \
-  --inbound-tag inbound-443 \
+  --inbound-tag all \
   --route-port 443 \
   --yes
 ```
@@ -315,8 +315,8 @@ Outbound:
   Port:     40000
 
 Routing:
-  Inbound tags: inbound-443
-  Domains:      openai.com/chatgpt.com/anthropic.com/claude.ai/gemini.google.com/notebooklm.google
+  Inbound tags: all, or generated preset inbound tags when the x-ui template is applied automatically
+  Domains:      OpenAI/ChatGPT, Claude/Anthropic, Gemini/Google AI, Google API/static/auth hosts, NotebookLM
   Outbound:     warp-cli
 ```
 
@@ -540,6 +540,7 @@ x-ui panel -> Xray Configs
 ```
 
 Use these settings. The important part is that the outbound tag is exactly `warp-cli`, and the SOCKS server points to `127.0.0.1:40000`.
+For every x-ui inbound that should use this routing, enable sniffing with `http`, `tls`, `quic`, and `fakedns`; otherwise Xray may not see the destination domain and the AI rule can be skipped.
 
 ```json
 {
@@ -578,8 +579,23 @@ Use these settings. The important part is that the outbound tag is exactly `warp
           "domain:anthropic.com",
           "domain:claude.ai",
           "domain:gemini.google.com",
-          "domain:generativelanguage.googleapis.com",
+          "domain:aistudio.google.com",
           "domain:ai.google.dev",
+          "domain:generativelanguage.googleapis.com",
+          "domain:aiplatform.googleapis.com",
+          "domain:googleapis.com",
+          "domain:gstatic.com",
+          "domain:googleusercontent.com",
+          "domain:ggpht.com",
+          "domain:clients6.google.com",
+          "domain:accounts.google.com",
+          "domain:apis.google.com",
+          "domain:ogs.google.com",
+          "domain:www.google.com",
+          "domain:play.google.com",
+          "domain:withgoogle.com",
+          "domain:youtube.com",
+          "domain:ytimg.com",
           "domain:notebooklm.google.com",
           "domain:notebooklm.google"
         ],

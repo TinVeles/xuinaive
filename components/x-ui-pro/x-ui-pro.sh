@@ -23,7 +23,7 @@ XUI_PRINT_ACCESS_INFO="${XUI_PRINT_ACCESS_INFO:-1}"
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
-WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:generativelanguage.googleapis.com,domain:ai.google.dev,domain:notebooklm.google.com,domain:notebooklm.google}"
+WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:aistudio.google.com,domain:ai.google.dev,domain:generativelanguage.googleapis.com,domain:aiplatform.googleapis.com,domain:googleapis.com,domain:gstatic.com,domain:googleusercontent.com,domain:ggpht.com,domain:clients6.google.com,domain:accounts.google.com,domain:apis.google.com,domain:ogs.google.com,domain:www.google.com,domain:play.google.com,domain:withgoogle.com,domain:youtube.com,domain:ytimg.com,domain:notebooklm.google.com,domain:notebooklm.google}"
 XUI_WARP_EXTERNAL_PORT="${XUI_WARP_EXTERNAL_PORT:-8443}"
 XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-1}"
 XUI_VERSION="${XUI_VERSION:-}"
@@ -378,6 +378,19 @@ xui_enable_preset_xhttp() {
   "
 }
 
+xui_enable_warp_domain_sniffing() {
+  [[ -f "$XUIDB" ]] || return 0
+  [[ "$XUI_ENABLE_WARP_ROUTING" == "1" ]] || return 0
+  sqlite3 "$XUIDB" "
+    UPDATE inbounds
+    SET sniffing='{\"enabled\":true,\"destOverride\":[\"http\",\"tls\",\"quic\",\"fakedns\"],\"metadataOnly\":false,\"routeOnly\":false}'
+    WHERE protocol IN ('vless','trojan')
+$(xui_preset_inbound_filter_sql)
+      AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
+  "
+}
+
 xui_fix_all_vless_decryption() {
   [[ -f "$XUIDB" ]] || return 0
   sqlite3 "$XUIDB" "
@@ -420,6 +433,7 @@ xui_post_update_db() {
   xui_repair_invalid_inbound_json
   xui_sanitize_inbound_tags
   xui_enable_preset_xhttp
+  xui_enable_warp_domain_sniffing
   xui_fix_all_vless_decryption
   xui_fill_empty_warp_clients
   xui_validate_inbound_json
@@ -1756,6 +1770,7 @@ if [[ -f $XUIDB ]]; then
 EOF
 xui_repair_invalid_inbound_json
 xui_sanitize_inbound_tags
+xui_enable_warp_domain_sniffing
 xui_ensure_warp_local_proxy
 xui_seed_bulk_profiles
 xui_apply_warp_nginx_stream
