@@ -7,27 +7,19 @@ if [[ "$SOURCE_PATH" == /dev/fd/* || "$SOURCE_PATH" == /proc/* || ! -f "$SOURCE_
 else
   SCRIPT_DIR="$(cd "$(dirname "$SOURCE_PATH")" && pwd)"
 fi
+LIB_DIR="$SCRIPT_DIR/lib"
+# shellcheck disable=SC1091
+source "$LIB_DIR/common.sh"
+# shellcheck disable=SC1091
+source "$LIB_DIR/warp.sh"
 
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-all}"
 WARP_ROUTE_PORT="${WARP_ROUTE_PORT:-443}"
-WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:aistudio.google.com,domain:ai.google.dev,domain:generativelanguage.googleapis.com,domain:aiplatform.googleapis.com,domain:googleapis.com,domain:gstatic.com,domain:googleusercontent.com,domain:ggpht.com,domain:clients6.google.com,domain:accounts.google.com,domain:apis.google.com,domain:ogs.google.com,domain:www.google.com,domain:play.google.com,domain:withgoogle.com,domain:youtube.com,domain:ytimg.com,domain:notebooklm.google.com,domain:notebooklm.google}"
+WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
 WARP_SNIPPET_DIR="${WARP_SNIPPET_DIR:-/etc/x-ui}"
 ASSUME_YES=0
-
-RED=$'\033[0;31m'
-GREEN=$'\033[0;32m'
-YELLOW=$'\033[1;33m'
-BLUE=$'\033[0;34m'
-NC=$'\033[0m'
-
-info() { printf '%s\n' "${BLUE}INFO:${NC} $*"; }
-ok() { printf '%s\n' "${GREEN}OK:${NC} $*"; }
-warn() { printf '%s\n' "${YELLOW}WARN:${NC} $*"; }
-err() { printf '%s\n' "${RED}ERROR:${NC} $*" >&2; }
-die() { err "$*"; exit 1; }
-command_exists() { command -v "$1" >/dev/null 2>&1; }
 
 usage() {
   cat <<EOF
@@ -153,43 +145,20 @@ fi
 
 mkdir -p "$WARP_SNIPPET_DIR"
 snippet_file="$WARP_SNIPPET_DIR/warp-xray-snippets.json"
-domains_json="$(printf '%s\n' "$WARP_AI_DOMAINS" \
-  | tr ',' '\n' \
-  | jq -Rsc 'split("\n") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(length > 0)) | unique')"
-if [[ -z "$WARP_INBOUND_TAG" || "$WARP_INBOUND_TAG" == "all" || "$WARP_INBOUND_TAG" == "*" ]]; then
-  inbound_tags_json='null'
-else
-  inbound_tags_json="$(printf '%s\n' "$WARP_INBOUND_TAG" \
-    | tr ',' '\n' \
-    | jq -Rsc 'split("\n") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(length > 0)) | unique')"
-fi
-jq -cn \
-  --arg tag "$WARP_OUTBOUND_TAG" \
-  --argjson port "$WARP_PROXY_PORT" \
-  --argjson inboundTags "$inbound_tags_json" \
-  --argjson domains "$domains_json" \
-  '{
-    outbound: {tag:$tag, protocol:"socks", settings:{servers:[{address:"127.0.0.1", port:$port}]}},
-    routingRule: ({type:"field", domain:$domains, outboundTag:$tag} + (if $inboundTags == null then {} else {inboundTag:$inboundTags} end))
-  }' > "$snippet_file"
+warp_write_xray_snippet "$snippet_file" "$WARP_OUTBOUND_TAG" "127.0.0.1" "$WARP_PROXY_PORT" "$WARP_AI_DOMAINS" "$WARP_INBOUND_TAG"
 chmod 0644 "$snippet_file"
 ok "Saved Xray/3x-ui snippets: $snippet_file"
 
 if [[ -f "$SCRIPT_DIR/config.env" ]]; then
-  tmp_config="$(mktemp)"
-  grep -vE '^(WARP_ENABLED|WARP_PROXY_HOST|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_INBOUND_TAG|WARP_ROUTE_PORT|WARP_AI_DOMAINS|WARP_SNIPPET_FILE)=' "$SCRIPT_DIR/config.env" > "$tmp_config" || true
-  cat >> "$tmp_config" <<EOF
-WARP_ENABLED="1"
-WARP_PROXY_HOST="127.0.0.1"
-WARP_PROXY_PORT="${WARP_PROXY_PORT}"
-WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG}"
-WARP_INBOUND_TAG="${WARP_INBOUND_TAG}"
-WARP_ROUTE_PORT="${WARP_ROUTE_PORT}"
-WARP_AI_DOMAINS="${WARP_AI_DOMAINS}"
-WARP_SNIPPET_FILE="${snippet_file}"
-EOF
-  install -m 0600 "$tmp_config" "$SCRIPT_DIR/config.env"
-  rm -f "$tmp_config"
+  upm_config_set_many "$SCRIPT_DIR/config.env" \
+    WARP_ENABLED "1" \
+    WARP_PROXY_HOST "127.0.0.1" \
+    WARP_PROXY_PORT "$WARP_PROXY_PORT" \
+    WARP_OUTBOUND_TAG "$WARP_OUTBOUND_TAG" \
+    WARP_INBOUND_TAG "$WARP_INBOUND_TAG" \
+    WARP_ROUTE_PORT "$WARP_ROUTE_PORT" \
+    WARP_AI_DOMAINS "$WARP_AI_DOMAINS" \
+    WARP_SNIPPET_FILE "$snippet_file"
   ok "Updated project config.env with WARP values"
 fi
 

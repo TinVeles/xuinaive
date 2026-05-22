@@ -9,6 +9,27 @@ if [[ "$SOURCE_PATH" == /dev/fd/* || "$SOURCE_PATH" == /proc/* || ! -f "$SOURCE_
 else
   SCRIPT_DIR="$(cd "$(dirname "$SOURCE_PATH")" && pwd)"
 fi
+PROJECT_DIR="${UPM_PROJECT_DIR:-$SCRIPT_DIR}"
+early_args=("$@")
+early_i=0
+while (( early_i < ${#early_args[@]} )); do
+  case "${early_args[$early_i]}" in
+    --project-dir)
+      (( early_i + 1 < ${#early_args[@]} )) && PROJECT_DIR="${early_args[$((early_i + 1))]}"
+      ;;
+  esac
+  early_i=$((early_i + 1))
+done
+PROJECT_DIR="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || printf '%s' "$PROJECT_DIR")"
+LIB_DIR="$PROJECT_DIR/lib"
+if [[ ! -f "$LIB_DIR/common.sh" || ! -f "$LIB_DIR/warp.sh" ]]; then
+  printf 'ERROR: shared libraries not found in %s. Run from repository root or pass --project-dir.\n' "$LIB_DIR" >&2
+  exit 1
+fi
+# shellcheck disable=SC1091
+source "$LIB_DIR/common.sh"
+# shellcheck disable=SC1091
+source "$LIB_DIR/warp.sh"
 
 MODE=""
 XUI_DOMAIN="${XUI_DOMAIN:-}"
@@ -32,7 +53,7 @@ INSTALL_WARP="${INSTALL_WARP:-0}"
 AUTO_INSTALL_WARP="${AUTO_INSTALL_WARP:-1}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
-WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:aistudio.google.com,domain:ai.google.dev,domain:generativelanguage.googleapis.com,domain:aiplatform.googleapis.com,domain:googleapis.com,domain:gstatic.com,domain:googleusercontent.com,domain:ggpht.com,domain:clients6.google.com,domain:accounts.google.com,domain:apis.google.com,domain:ogs.google.com,domain:www.google.com,domain:play.google.com,domain:withgoogle.com,domain:youtube.com,domain:ytimg.com,domain:notebooklm.google.com,domain:notebooklm.google}"
+WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
 WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-all}"
 WARP_ROUTE_PORT="${WARP_ROUTE_PORT:-443}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
@@ -41,7 +62,7 @@ XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
 GENERATE_PROFILES="${GENERATE_PROFILES:-0}"
 PROFILE_COUNT="${PROFILE_COUNT:-15}"
 PROFILE_PREFIX="${PROFILE_PREFIX:-auto}"
-PROJECT_DIR="${UPM_PROJECT_DIR:-$SCRIPT_DIR}"
+PROJECT_DIR="${PROJECT_DIR:-${UPM_PROJECT_DIR:-$SCRIPT_DIR}}"
 REAL_INSTALL=0
 ASSUME_YES=0
 DRY_RUN=1
@@ -309,24 +330,6 @@ mode_uses_xui() {
   esac
 }
 
-warp_local_proxy_ready() {
-  local status_text trace_output
-  command_exists warp-cli || return 1
-  status_text="$(warp-cli --accept-tos status 2>/dev/null || warp-cli status 2>/dev/null || true)"
-  grep -qi "disconnected" <<<"$status_text" && return 1
-  grep -qi "connected" <<<"$status_text" || return 1
-  if command_exists curl; then
-    trace_output="$(curl -fsS --max-time 20 --socks5-hostname "127.0.0.1:${WARP_PROXY_PORT}" https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
-    grep -Eqi '^warp=(on|plus)' <<<"$trace_output"
-    return
-  fi
-  if command_exists ss; then
-    ss -H -ltn "sport = :$WARP_PROXY_PORT" 2>/dev/null | grep -q .
-    return
-  fi
-  return 0
-}
-
 show_service_report() {
   service_line x-ui
   service_line nginx
@@ -370,6 +373,9 @@ check_vendored_components() {
     "$PROJECT_DIR/generate-profiles.sh" \
     "$PROJECT_DIR/uninstall-stack.sh" \
     "$PROJECT_DIR/show-access-info.sh" \
+    "$PROJECT_DIR/lib/common.sh" \
+    "$PROJECT_DIR/lib/warp.sh" \
+    "$PROJECT_DIR/lib/xui-routing.sh" \
     "$PROJECT_DIR/components/x-ui-pro/x-ui-pro.sh" \
     "$PROJECT_DIR/components/x-ui-pro/apply-naive-sni-route.sh" \
     "$PROJECT_DIR/components/nh-panel/install.sh" \

@@ -19,6 +19,16 @@ The manager reads system state, validates the vendored component files, and eith
 - `status.sh` reports configured domains, service states, listening ports, and recent service logs when available.
 - `doctor.sh` performs diagnostic checks and prints recommendations.
 
+## Shared Libraries
+
+Common Bash behavior lives under `lib/` and is sourced by the public scripts instead of being copied across entrypoints:
+
+- `lib/common.sh`: logging adapters, command checks, SQL quoting, nginx stream include helper, and guarded `config.env` updates.
+- `lib/warp.sh`: default AI domain list, WARP readiness checks, auto-install wrapper, and Xray snippet generation.
+- `lib/xui-routing.sh`: x-ui preset inbound filtering, sniffing enablement, WARP template apply/remove, and legacy WARP clone cleanup.
+
+The supported WARP model is AI-only server-side routing through the normal x-ui inbounds. Legacy `*-warp` clone inbounds remain available only as deprecated compatibility.
+
 ## Resulting Panels
 
 The current implementation installs the full stack in one command, while keeping the management dashboards separate.

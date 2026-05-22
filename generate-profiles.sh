@@ -7,6 +7,13 @@ if [[ "$SOURCE_PATH" == /dev/fd/* || "$SOURCE_PATH" == /proc/* || ! -f "$SOURCE_
 else
   SCRIPT_DIR="$(cd "$(dirname "$SOURCE_PATH")" && pwd)"
 fi
+LIB_DIR="$SCRIPT_DIR/lib"
+# shellcheck disable=SC1091
+source "$LIB_DIR/common.sh"
+# shellcheck disable=SC1091
+source "$LIB_DIR/warp.sh"
+# shellcheck disable=SC1091
+source "$LIB_DIR/xui-routing.sh"
 
 COUNT="${COUNT:-15}"
 PREFIX="${PREFIX:-auto}"
@@ -20,7 +27,7 @@ NH_SUBSCRIPTION_NGINX="${NH_SUBSCRIPTION_NGINX:-1}"
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
-WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-domain:openai.com,domain:chatgpt.com,domain:oaistatic.com,domain:oaiusercontent.com,domain:anthropic.com,domain:claude.ai,domain:gemini.google.com,domain:aistudio.google.com,domain:ai.google.dev,domain:generativelanguage.googleapis.com,domain:aiplatform.googleapis.com,domain:googleapis.com,domain:gstatic.com,domain:googleusercontent.com,domain:ggpht.com,domain:clients6.google.com,domain:accounts.google.com,domain:apis.google.com,domain:ogs.google.com,domain:www.google.com,domain:play.google.com,domain:withgoogle.com,domain:youtube.com,domain:ytimg.com,domain:notebooklm.google.com,domain:notebooklm.google}"
+WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
 XUI_WARP_EXTERNAL_PORT="${XUI_WARP_EXTERNAL_PORT:-8443}"
 XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-1}"
 XUI_WARP_NGINX_STREAM="${XUI_WARP_NGINX_STREAM:-1}"
@@ -50,47 +57,6 @@ err() { printf '%s\n' "${RED}ERROR:${NC} $*" >&2; }
 die() { err "$*"; exit 1; }
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
-warp_local_proxy_ready() {
-  local status_text trace_output
-  command_exists warp-cli || return 1
-  status_text="$(warp-cli --accept-tos status 2>/dev/null || warp-cli status 2>/dev/null || true)"
-  grep -qi "disconnected" <<<"$status_text" && return 1
-  grep -qi "connected" <<<"$status_text" || return 1
-  if command_exists curl; then
-    trace_output="$(curl -fsS --max-time 20 --socks5-hostname "${WARP_PROXY_HOST}:${WARP_PROXY_PORT}" https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
-    grep -Eqi '^warp=(on|plus)' <<<"$trace_output"
-    return
-  fi
-  if command_exists ss; then
-    ss -H -ltn "sport = :$WARP_PROXY_PORT" 2>/dev/null | grep -q .
-    return
-  fi
-  return 0
-}
-
-ensure_warp_local_proxy() {
-  [[ "$CREATE_XUI" == "1" && "$XUI_ENABLE_WARP_ROUTING" == "1" ]] || return 0
-  if warp_local_proxy_ready; then
-    ok "WARP local proxy is ready at ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
-    return 0
-  fi
-  if [[ "$XUI_AUTO_INSTALL_WARP" != "1" ]]; then
-    warn "WARP routing is enabled, but WARP local proxy is not ready at ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
-    warn "Run install-warp.sh or set XUI_ENABLE_WARP_ROUTING=0 before generating profiles"
-    return 0
-  fi
-  [[ "$WARP_PROXY_HOST" == "127.0.0.1" || "$WARP_PROXY_HOST" == "localhost" ]] || die "Auto WARP install supports only local WARP_PROXY_HOST, got: $WARP_PROXY_HOST"
-  [[ -f "$SCRIPT_DIR/install-warp.sh" ]] || die "WARP installer not found: $SCRIPT_DIR/install-warp.sh"
-  info "WARP local proxy is missing; installing Cloudflare WARP automatically"
-  bash "$SCRIPT_DIR/install-warp.sh" \
-    --proxy-port "$WARP_PROXY_PORT" \
-    --outbound-tag "$WARP_OUTBOUND_TAG" \
-    --warp-ai-domains "$WARP_AI_DOMAINS" \
-    --yes
-  warp_local_proxy_ready || die "WARP install finished, but local proxy is not ready at ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
-  ok "WARP local proxy is ready at ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
-}
-
 usage() {
   cat <<EOF
 Usage:
@@ -105,13 +71,12 @@ Creates:
   NHM:   COUNT NaiveProxy profiles and COUNT Hysteria2 profiles.
          Subscription files are written to ${NH_SUBSCRIPTION_DIR}.
 
-WARP variants:
+WARP routing:
   outbound tag: ${WARP_OUTBOUND_TAG}
   local proxy:  ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}
-  public port:  ${XUI_WARP_EXTERNAL_PORT} for legacy path-based WARP clone variants
   AI domains:   ${WARP_AI_DOMAINS}
   routing enabled by default; set XUI_ENABLE_WARP_ROUTING=0 to skip WARP routing.
-  generated clients use standard preset inbounds by default; add --xui-warp-clone for legacy WARP clone inbounds.
+  generated clients use standard preset inbounds by default; AI domains route through WARP server-side.
   auto-installs Cloudflare WARP local proxy when WARP routing is enabled.
   when XUI_ENABLE_WARP_ROUTING=0, old warp-cli outbound/rules are removed from the x-ui template.
 
@@ -185,7 +150,9 @@ if [[ "$CREATE_XUI" == "1" ]]; then
   [[ -f "$XUI_DB" ]] || die "x-ui database not found: $XUI_DB"
 fi
 
-ensure_warp_local_proxy
+if [[ "$CREATE_XUI" == "1" && "$XUI_ENABLE_WARP_ROUTING" == "1" ]]; then
+  ensure_warp_local_proxy "$SCRIPT_DIR"
+fi
 
 backup_dir="/opt/unified-proxy-manager/backups/profiles-$(date '+%Y-%m-%d-%H-%M-%S')"
 mkdir -p "$backup_dir"
@@ -207,31 +174,6 @@ uuid_value() {
   else
     cat /proc/sys/kernel/random/uuid
   fi
-}
-
-sql_quote() {
-  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"
-}
-
-nginx_config_contains() {
-  local needle="$1"
-  nginx -T 2>/dev/null | grep -Fq "$needle"
-}
-
-nginx_enable_stream_include() {
-  local main_conf="/etc/nginx/nginx.conf" backup
-  [[ -f "$main_conf" ]] || { warn "$main_conf not found; stream include was not configured"; return 1; }
-  nginx_config_contains "/etc/nginx/stream-enabled/*.conf" && return 0
-  backup="$(mktemp)"
-  cp -a "$main_conf" "$backup"
-  printf '\nstream { include /etc/nginx/stream-enabled/*.conf; }\n' >> "$main_conf"
-  if ! nginx -t >/dev/null 2>&1; then
-    cp -a "$backup" "$main_conf"
-    rm -f "$backup"
-    warn "Could not add nginx stream include; restored $main_conf"
-    return 1
-  fi
-  rm -f "$backup"
 }
 
 xui_next_free_port() {
@@ -257,23 +199,6 @@ xui_profile_label() {
   else
     printf 'inbound-%s\n' "$inbound_id"
   fi
-}
-
-xui_preset_inbound_filter_sql() {
-  cat <<'SQL'
-       AND (
-         (protocol='vless'
-          AND json_valid(stream_settings)=1
-          AND json_extract(stream_settings,'$.network')='tcp'
-          AND json_extract(stream_settings,'$.security')='reality')
-         OR (protocol='vless'
-             AND json_valid(stream_settings)=1
-             AND json_extract(stream_settings,'$.network') IN ('ws','xhttp'))
-         OR (protocol='trojan'
-             AND json_valid(stream_settings)=1
-             AND json_extract(stream_settings,'$.network')='grpc')
-       )
-SQL
 }
 
 profile_indices() {
@@ -431,18 +356,6 @@ xui_enable_preset_xhttp() {
   "
 }
 
-xui_enable_warp_domain_sniffing() {
-  [[ "$XUI_ENABLE_WARP_ROUTING" == "1" ]] || return 0
-  sqlite3 "$XUI_DB" "
-    UPDATE inbounds
-    SET sniffing='{\"enabled\":true,\"destOverride\":[\"http\",\"tls\",\"quic\",\"fakedns\"],\"metadataOnly\":false,\"routeOnly\":false}'
-    WHERE protocol IN ('vless','trojan')
-$(xui_preset_inbound_filter_sql)
-      AND COALESCE(tag,'') NOT LIKE '%-warp'
-      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
-  "
-}
-
 xui_warp_stream_settings() {
   local stream_settings="$1" warp_port="$2" external_port="$3"
   jq -c --argjson port "$warp_port" --argjson externalPort "$external_port" '
@@ -550,30 +463,6 @@ xui_prune_generated_clients() {
   sqlite3 "$XUI_DB" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
   sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND email GLOB $(sql_quote "${PREFIX}-[0-9]*");"
   printf 'inbound=%s mode=direct action=pruned-generated prefix=%s\n' "$inbound_id" "$PREFIX" >> "$report_file"
-}
-
-xui_delete_warp_clone_inbounds() {
-  local deleted
-  deleted="$(sqlite3 "$XUI_DB" "
-    DELETE FROM client_traffics
-    WHERE inbound_id IN (
-      SELECT id FROM inbounds
-      WHERE (
-        COALESCE(tag,'') LIKE '%-warp'
-        OR lower(COALESCE(remark,'')) LIKE '%warp%'
-      )
-    );
-    DELETE FROM inbounds
-    WHERE (
-      COALESCE(tag,'') LIKE '%-warp'
-      OR lower(COALESCE(remark,'')) LIKE '%warp%'
-    );
-    SELECT changes();
-  " 2>/dev/null || true)"
-  deleted="${deleted##*$'\n'}"
-  if [[ -n "$deleted" && "$deleted" != "0" ]]; then
-    ok "Deleted legacy WARP clone inbounds: $deleted"
-  fi
 }
 
 xui_ensure_warp_inbound() {
@@ -801,129 +690,6 @@ EOF
   nginx_enable_stream_include || return 0
   ufw allow "${XUI_WARP_EXTERNAL_PORT}/tcp" >/dev/null 2>&1 || true
   ok "x-ui WARP public nginx stream saved: $conf (${public_ip}:${XUI_WARP_EXTERNAL_PORT} -> 127.0.0.1:7443)"
-}
-
-xui_apply_warp_template() {
-  local warp_tags_file="$1"
-  local tags_json domains_json current key snippet_dir snippet_file updated
-  if [[ ! -s "$warp_tags_file" ]]; then
-    xui_remove_warp_template
-    return 0
-  fi
-  tags_json="$(jq -Rsc 'split("\n") | map(select(length > 0)) | unique' "$warp_tags_file")"
-  domains_json="$(printf '%s\n' "$WARP_AI_DOMAINS" \
-    | tr ',' '\n' \
-    | jq -Rsc 'split("\n") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(length > 0)) | unique')"
-  snippet_dir="/etc/x-ui"
-  snippet_file="$snippet_dir/warp-generated-routing.json"
-  mkdir -p "$snippet_dir"
-
-  jq -cn \
-    --arg tag "$WARP_OUTBOUND_TAG" \
-    --arg host "$WARP_PROXY_HOST" \
-    --argjson port "$WARP_PROXY_PORT" \
-    --argjson inboundTags "$tags_json" \
-    --argjson domains "$domains_json" \
-    '{
-      outbound: {tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port}]}},
-      routingRule: {type:"field", inboundTag:$inboundTags, domain:$domains, outboundTag:$tag}
-    }' > "$snippet_file"
-
-  if [[ "$XUI_APPLY_WARP_TEMPLATE" != "1" ]]; then
-    ok "WARP routing snippet saved: $snippet_file"
-    ok "WARP routing not written to x-ui template; set XUI_APPLY_WARP_TEMPLATE=1 to opt in"
-    return 0
-  fi
-
-  key="$(sqlite3 -readonly "$XUI_DB" "SELECT key FROM settings WHERE key IN ('xrayTemplateConfig','xrayConfig','xraySetting') LIMIT 1;" || true)"
-  if [[ -z "$key" ]]; then
-    key="xrayTemplateConfig"
-    current='{}'
-  else
-    current="$(sqlite3 -readonly "$XUI_DB" "SELECT value FROM settings WHERE key=$(sql_quote "$key") LIMIT 1;" || true)"
-    [[ -n "$current" ]] || current='{}'
-  fi
-
-  if ! jq -e . >/dev/null 2>&1 <<<"$current"; then
-    warn "x-ui setting $key is not valid JSON. Saved WARP routing snippet only: $snippet_file"
-    return 0
-  fi
-
-  updated="$(jq -c \
-    --arg tag "$WARP_OUTBOUND_TAG" \
-    --arg host "$WARP_PROXY_HOST" \
-    --argjson port "$WARP_PROXY_PORT" \
-    --argjson inboundTags "$tags_json" \
-    --argjson domains "$domains_json" '
-    def outbound_or($tag; $default):
-      ((.outbounds // []) | map(select(.tag == $tag)) | .[0]) // $default;
-    def rule_marker($rule):
-      ($rule.outboundTag // "") + "|" +
-      (($rule.inboundTag // []) | tostring) + "|" +
-      (($rule.domain // []) | tostring) + "|" +
-      (($rule.ip // []) | tostring) + "|" +
-      (($rule.protocol // []) | tostring);
-    def merge_rules($base; $add):
-      ($base + $add)
-      | reduce .[] as $r ([]; if any(.[]; rule_marker(.) == rule_marker($r)) then . else . + [$r] end);
-
-    . as $root
-    | .outbounds = (
-        [
-          ($root | outbound_or("direct"; {tag:"direct", protocol:"freedom"})),
-          {tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port}]}},
-          ($root | outbound_or("blocked"; {tag:"blocked", protocol:"blackhole"}))
-        ]
-        + (($root.outbounds // []) | map(select(.tag != "direct" and .tag != "blocked" and .tag != $tag)))
-      )
-    | .routing = (.routing // {})
-    | .routing.rules = merge_rules(
-        ((.routing.rules // []) | map(select(.outboundTag != $tag)));
-        [
-          {type:"field", inboundTag:$inboundTags, domain:$domains, outboundTag:$tag},
-          {type:"field", inboundTag:["api"], outboundTag:"api"},
-          {type:"field", ip:["geoip:private"], outboundTag:"blocked"},
-          {type:"field", protocol:["bittorrent"], outboundTag:"blocked"},
-          {type:"field", domain:["geosite:category-ru"], outboundTag:"direct"},
-          {type:"field", ip:["geoip:ru"], outboundTag:"direct"}
-        ]
-      )
-  ' <<<"$current")"
-
-  sqlite3 "$XUI_DB" "DELETE FROM settings WHERE key=$(sql_quote "$key");"
-  sqlite3 "$XUI_DB" "INSERT INTO settings (key, value) VALUES ($(sql_quote "$key"), $(sql_quote "$updated"));"
-  ok "x-ui WARP outbound/routing saved in settings.$key"
-  ok "WARP routing snippet saved: $snippet_file"
-  ok "WARP routing scope: WARP inbounds only + AI domains only"
-  ok "x-ui generated client report saved: /etc/x-ui/generated-clients.txt"
-}
-
-xui_remove_warp_template() {
-  local key current updated snippet_file
-  snippet_file="/etc/x-ui/warp-generated-routing.json"
-  key="$(sqlite3 -readonly "$XUI_DB" "SELECT key FROM settings WHERE key IN ('xrayTemplateConfig','xrayConfig','xraySetting') LIMIT 1;" || true)"
-  [[ -n "$key" ]] || return 0
-  current="$(sqlite3 -readonly "$XUI_DB" "SELECT value FROM settings WHERE key=$(sql_quote "$key") LIMIT 1;" || true)"
-  [[ -n "$current" ]] || return 0
-
-  if ! jq -e . >/dev/null 2>&1 <<<"$current"; then
-    warn "x-ui setting $key is not valid JSON; WARP template cleanup skipped"
-    return 0
-  fi
-
-  updated="$(jq -c --arg tag "$WARP_OUTBOUND_TAG" '
-    .outbounds = ((.outbounds // []) | map(select(.tag != $tag)))
-    | .routing = (.routing // {})
-    | .routing.rules = ((.routing.rules // []) | map(select(.outboundTag != $tag)))
-    | if (.outbounds | length) == 0 then del(.outbounds) else . end
-    | if ((.routing.rules? // []) | length) == 0 then del(.routing.rules) else . end
-    | if ((.routing? // {}) | length) == 0 then del(.routing) else . end
-  ' <<<"$current")"
-
-  sqlite3 "$XUI_DB" "DELETE FROM settings WHERE key=$(sql_quote "$key");"
-  sqlite3 "$XUI_DB" "INSERT INTO settings (key, value) VALUES ($(sql_quote "$key"), $(sql_quote "$updated"));"
-  rm -f "$snippet_file" 2>/dev/null || true
-  ok "x-ui WARP outbound/routing removed from settings.$key"
 }
 
 xui_cleanup_unix_sockets() {
