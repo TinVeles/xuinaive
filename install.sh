@@ -718,6 +718,10 @@ EOF
     [[ "$NH_ALLOW_PORT_CONFLICT" == "1" ]] && nh_args+=(--allow-port-conflict)
     [[ "$NH_ENABLE_MIERU" == "1" ]] && nh_args+=(--with-mieru)
 
+    WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}" \
+    WARP_PROXY_PORT="$WARP_PROXY_PORT" \
+    WARP_OUTBOUND_TAG="$WARP_OUTBOUND_TAG" \
+    WARP_AI_DOMAINS="$WARP_AI_DOMAINS" \
     bash "$nh_installer" "${nh_args[@]}"
     run_warp_install_if_requested
     run_profile_generation_if_requested

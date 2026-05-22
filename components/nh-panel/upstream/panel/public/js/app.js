@@ -117,7 +117,10 @@ function goToPage(page) {
   if (page === 'users') loadUsers();
   if (page === 'tuning') loadTuning();
   if (page === 'diag') loadDiagPorts();
-  if (page === 'bypass') loadBypass();
+  if (page === 'bypass') {
+    loadBypass();
+    loadWarpRouting();
+  }
   if (page === 'settings') loadSettingsInfo();
 }
 
@@ -1024,6 +1027,90 @@ async function clearBypass() {
     const r = await fetch('/api/bypass', { method: 'DELETE' });
     const d = await r.json();
     if (d.success) { showToast('Список очищен', 'success'); loadBypass(); }
+  } catch { showToast('Ошибка', 'error'); }
+}
+
+let _warpRoutingState = { enabled: false, domains: [] };
+async function loadWarpRouting() {
+  try {
+    const r = await fetch('/api/warp-routing');
+    const d = await r.json();
+    _warpRoutingState = d;
+
+    const badge = document.getElementById('warpRoutingBadge');
+    if (d.enabled && d.proxyReady) {
+      badge.innerHTML = '<span class="dot dot-green"></span> Активен';
+    } else if (d.enabled) {
+      badge.innerHTML = '<span class="dot dot-yellow"></span> Включён, WARP не готов';
+    } else {
+      badge.innerHTML = '<span class="dot dot-gray"></span> Выключен';
+    }
+
+    document.getElementById('warpRoutingSource').textContent = d.source || 'AI domains';
+    document.getElementById('warpProxyStatus').textContent = `${d.proxyHost}:${d.proxyPort} ${d.proxyReady ? 'ready' : 'not ready'}`;
+    document.getElementById('warpOutboundName').textContent = d.outboundName || 'warp-cli';
+    document.getElementById('warpDomainCount').textContent = d.count || 0;
+    document.getElementById('warpAclPath').textContent = d.aclPath || '/etc/hysteria/bypass-ru.acl';
+    document.getElementById('warpRoutingPreview').textContent = (d.preview || []).map(x => `${d.outboundName || 'warp-cli'}(${x})`).join('\n') || '— список пуст —';
+    document.getElementById('warpRoutingToggleBtn').textContent = d.enabled ? 'Выключить' : 'Включить';
+    if (!document.getElementById('warpDomainsInput').value.trim()) {
+      document.getElementById('warpDomainsInput').value = (d.domains || []).join('\n');
+    }
+  } catch {
+    showToast('Ошибка загрузки WARP routing', 'error');
+  }
+}
+
+async function saveWarpRouting(enable) {
+  const raw = document.getElementById('warpDomainsInput').value.trim();
+  const resEl = document.getElementById('warpRoutingResult');
+  if (!raw) { showAlert(resEl, 'Вставьте список AI-доменов', 'error'); return; }
+  let domains;
+  try {
+    const parsed = JSON.parse(raw);
+    domains = Array.isArray(parsed) ? parsed : Object.values(parsed).flat();
+  } catch {
+    domains = raw.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+  }
+
+  try {
+    const r = await fetch('/api/warp-routing', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: enable, domains, source: 'NHM Panel AI defaults/custom' })
+    });
+    const d = await r.json();
+    if (d.success) {
+      showAlert(resEl, `Сохранено: ${d.count} доменов, ${d.enabled ? 'ВКЛ' : 'выкл'}. WARP: ${d.proxyReady ? 'готов' : 'не готов'}.`, d.proxyReady || !d.enabled ? 'success' : 'warning');
+      loadWarpRouting();
+    } else {
+      showAlert(resEl, 'Ошибка: ' + (d.message || 'unknown'), 'error');
+    }
+  } catch {
+    showAlert(resEl, 'Ошибка соединения', 'error');
+  }
+}
+
+async function toggleWarpRouting() {
+  try {
+    const r = await fetch('/api/warp-routing', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: !_warpRoutingState.enabled })
+    });
+    const d = await r.json();
+    if (d.success) {
+      showToast(d.enabled ? 'AI WARP routing включён' : 'AI WARP routing выключен', d.proxyReady || !d.enabled ? 'success' : 'warning');
+      loadWarpRouting();
+    }
+  } catch { showToast('Ошибка', 'error'); }
+}
+
+async function disableWarpRouting() {
+  try {
+    const r = await fetch('/api/warp-routing', { method: 'DELETE' });
+    const d = await r.json();
+    if (d.success) { showToast('AI WARP routing выключен', 'success'); loadWarpRouting(); }
   } catch { showToast('Ошибка', 'error'); }
 }
 

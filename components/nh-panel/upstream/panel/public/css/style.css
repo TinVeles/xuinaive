@@ -962,6 +962,7 @@ body {
 .alert-error   { background: var(--danger-bg);  border: 1px solid rgba(239,68,68,0.3);  color: #fca5a5; }
 .alert-success { background: var(--success-bg); border: 1px solid rgba(16,185,129,0.3); color: #6ee7b7; }
 .alert-info    { background: var(--info-bg);    border: 1px solid rgba(59,130,246,0.3); color: #93c5fd; }
+.alert-warning { background: var(--warning-bg); border: 1px solid rgba(251,113,133,0.3); color: #fda4af; }
 
 /* ════════════════ MODAL ════════════════ */
 .modal-overlay {
@@ -1032,6 +1033,7 @@ body {
 .toast.toast-success { border-color: rgba(16,185,129,0.4); color: #6ee7b7; }
 .toast.toast-error   { border-color: rgba(239,68,68,0.4);  color: #fca5a5; }
 .toast.toast-info    { border-color: rgba(59,130,246,0.4); color: #93c5fd; }
+.toast.toast-warning { border-color: rgba(251,113,133,0.4); color: #fda4af; }
 
 /* ════════════════ RESPONSIVE ════════════════ */
 @media (max-width: 1200px) {

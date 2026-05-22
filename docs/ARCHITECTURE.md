@@ -29,6 +29,8 @@ Common Bash behavior lives under `lib/` and is sourced by the public scripts ins
 
 The supported WARP model is AI-only server-side routing through the normal x-ui inbounds. Legacy `*-warp` clone inbounds remain available only as deprecated compatibility.
 
+NHM Panel also exposes a Hysteria2-only WARP routing control on the Bypass page. It reuses the same local WARP SOCKS proxy and writes Hysteria2 `outbounds` plus ACL rules, so AI domains can leave through WARP while unmatched Hy2 traffic remains direct. NaiveProxy stays client-side only for this kind of split routing because Caddy `forward_proxy` has no server-side per-domain outbound ACL.
+
 ## Resulting Panels
 
 The current implementation installs the full stack in one command, while keeping the management dashboards separate.

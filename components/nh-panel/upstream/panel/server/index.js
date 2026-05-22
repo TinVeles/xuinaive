@@ -950,10 +950,42 @@ app.patch('/api/naive/users/:username', requireAuth, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-//  IP BYPASS (RU direct) — общий список для ACL Hy2
+//  HY2 ACL ROUTING: RU direct bypass + AI via WARP
 // ═══════════════════════════════════════════════════════════
-const BYPASS_FILE    = path.join(DATA_DIR, 'bypass.json');
-const HY2_ACL_PATH   = '/etc/hysteria/bypass-ru.acl';
+const BYPASS_FILE = path.join(DATA_DIR, 'bypass.json');
+const WARP_ROUTING_FILE = path.join(DATA_DIR, 'warp-routing.json');
+const HY2_ACL_PATH = process.env.HY2_ACL_PATH || '/etc/hysteria/bypass-ru.acl';
+const WARP_PROXY_HOST = process.env.WARP_PROXY_HOST || '127.0.0.1';
+const WARP_PROXY_PORT = parseInt(process.env.WARP_PROXY_PORT || '40000', 10);
+const WARP_OUTBOUND_NAME = process.env.WARP_OUTBOUND_NAME || process.env.WARP_OUTBOUND_TAG || 'warp-cli';
+const DEFAULT_AI_DOMAINS = (process.env.WARP_AI_DOMAINS || [
+  'domain:openai.com',
+  'domain:chatgpt.com',
+  'domain:oaistatic.com',
+  'domain:oaiusercontent.com',
+  'domain:anthropic.com',
+  'domain:claude.ai',
+  'domain:gemini.google.com',
+  'domain:aistudio.google.com',
+  'domain:ai.google.dev',
+  'domain:generativelanguage.googleapis.com',
+  'domain:aiplatform.googleapis.com',
+  'domain:googleapis.com',
+  'domain:gstatic.com',
+  'domain:googleusercontent.com',
+  'domain:ggpht.com',
+  'domain:clients6.google.com',
+  'domain:accounts.google.com',
+  'domain:apis.google.com',
+  'domain:ogs.google.com',
+  'domain:www.google.com',
+  'domain:play.google.com',
+  'domain:withgoogle.com',
+  'domain:youtube.com',
+  'domain:ytimg.com',
+  'domain:notebooklm.google.com',
+  'domain:notebooklm.google'
+].join(','));
 
 // Список сервисов, которые блокируют иностранные IP — их лучше пускать напрямую.
 // Обновляется пользователем через API /api/bypass.
@@ -976,28 +1008,169 @@ function saveBypass(b) {
   writeJsonFile(BYPASS_FILE, b);
 }
 
-// Применяет ACL bypass к переданному Hysteria-конфигу (in-place).
-// Hysteria2 ACL синтаксис: "<action>(<arg>) <target>". Используем direct(0) для IP-сетей.
-// Файл: по одной строке; записываем только при наличии активного bypass.
-function applyBypassAcl(base, cfg) {
+function parseDomainList(value) {
+  const items = Array.isArray(value)
+    ? value
+    : String(value || '').split(/[\s,]+/);
+  const seen = new Set();
+  const result = [];
+  items.forEach(item => {
+    const raw = String(item || '').trim().replace(/^["']|["']$/g, '');
+    if (!raw || raw.startsWith('#')) return;
+    const acl = domainRuleToAclTarget(raw);
+    if (!acl || seen.has(acl)) return;
+    seen.add(acl);
+    result.push(raw);
+  });
+  return result;
+}
+
+function domainRuleToAclTarget(rule) {
+  let s = String(rule || '').trim().toLowerCase();
+  if (!s) return null;
+  if (s.startsWith('regexp:')) return null;
+  if (s.startsWith('full:')) s = s.slice(5);
+  if (s.startsWith('domain:')) s = `suffix:${s.slice(7)}`;
+  if (!s.includes(':') && !s.includes('*')) s = `suffix:${s}`;
+  if (s.startsWith('suffix:')) {
+    const host = s.slice(7);
+    if (!/^[a-z0-9.*_-]+(\.[a-z0-9.*_-]+)+$/.test(host)) return null;
+  } else if (!/^(\*\.)?[a-z0-9*_-]+(\.[a-z0-9*_-]+)+$/.test(s) && !/^geosite:[a-z0-9_@.-]+$/.test(s)) {
+    return null;
+  }
+  return s;
+}
+
+function loadWarpRouting() {
+  try {
+    if (!fs.existsSync(WARP_ROUTING_FILE)) {
+      const d = {
+        enabled: false,
+        domains: parseDomainList(DEFAULT_AI_DOMAINS),
+        source: 'default AI domains',
+        updatedAt: null
+      };
+      fs.writeFileSync(WARP_ROUTING_FILE, JSON.stringify(d, null, 2));
+      return d;
+    }
+    const raw = JSON.parse(fs.readFileSync(WARP_ROUTING_FILE, 'utf8'));
+    raw.domains = parseDomainList(raw.domains && raw.domains.length ? raw.domains : DEFAULT_AI_DOMAINS);
+    raw.enabled = !!raw.enabled;
+    return raw;
+  } catch {
+    return {
+      enabled: false,
+      domains: parseDomainList(DEFAULT_AI_DOMAINS),
+      source: 'default AI domains',
+      updatedAt: null
+    };
+  }
+}
+
+function saveWarpRouting(w) {
+  writeJsonFile(WARP_ROUTING_FILE, w);
+}
+
+function warpLocalProxyReady() {
+  const status = {
+    ready: false,
+    host: WARP_PROXY_HOST,
+    port: WARP_PROXY_PORT,
+    service: 'unknown',
+    status: ''
+  };
+  try {
+    const svc = spawnSync('systemctl', ['is-active', 'warp-svc'], { encoding: 'utf8', timeout: 3000 });
+    status.service = (svc.stdout || svc.stderr || '').trim() || 'unknown';
+  } catch {}
+  try {
+    const cli = spawnSync('warp-cli', ['--accept-tos', 'status'], { encoding: 'utf8', timeout: 5000 });
+    status.status = (cli.stdout || cli.stderr || '').trim();
+  } catch {}
+  try {
+    const curl = spawnSync('curl', [
+      '-fsS',
+      '--max-time', '8',
+      '--socks5-hostname', `${WARP_PROXY_HOST}:${WARP_PROXY_PORT}`,
+      'https://www.cloudflare.com/cdn-cgi/trace'
+    ], { encoding: 'utf8', timeout: 10000 });
+    status.ready = curl.status === 0 && /^warp=(on|plus)$/mi.test(curl.stdout || '');
+  } catch {}
+  return status;
+}
+
+function ensureWarpOutbound(base) {
+  const warpOutbound = {
+    name: WARP_OUTBOUND_NAME,
+    type: 'socks5',
+    socks5: { addr: `${WARP_PROXY_HOST}:${WARP_PROXY_PORT}` }
+  };
+  const existing = Array.isArray(base.outbounds) ? base.outbounds : [];
+  const withoutManaged = existing.filter(o => o && o.name !== WARP_OUTBOUND_NAME);
+  const direct = withoutManaged.find(o => o && o.name === 'direct') || { name: 'direct', type: 'direct' };
+  const rest = withoutManaged.filter(o => o && o.name !== 'direct');
+  base.outbounds = [direct, ...rest, warpOutbound];
+}
+
+function removeWarpOutbound(base) {
+  if (!Array.isArray(base.outbounds)) return;
+  base.outbounds = base.outbounds.filter(o => o && o.name !== WARP_OUTBOUND_NAME);
+  if (base.outbounds.length === 0) delete base.outbounds;
+}
+
+function buildPanelAclLines() {
   const b = loadBypass();
-  if (!b.enabled || !Array.isArray(b.cidrs) || b.cidrs.length === 0) {
-    // выключено — удаляем из конфига acl, если там был наш файл
+  const w = loadWarpRouting();
+  const lines = ['# Managed by NHM Panel. Do not edit manually.'];
+
+  if (w.enabled && Array.isArray(w.domains) && w.domains.length > 0) {
+    lines.push('', '# AI domains through local Cloudflare WARP');
+    parseDomainList(w.domains)
+      .map(domainRuleToAclTarget)
+      .filter(Boolean)
+      .forEach(target => lines.push(`${WARP_OUTBOUND_NAME}(${target})`));
+  }
+
+  if (b.enabled && Array.isArray(b.cidrs) && b.cidrs.length > 0) {
+    lines.push('', '# Direct bypass CIDRs');
+    b.cidrs
+      .filter(c => /^[0-9a-fA-F:.\/]+$/.test(c))
+      .forEach(c => lines.push(`direct(${c})`));
+  }
+
+  return lines.length > 1 ? lines : [];
+}
+
+// Применяет ACL routing к переданному Hysteria-конфигу (in-place).
+// Hysteria2 ACL v2: outbound(address), например direct(1.2.3.0/24) или warp-cli(suffix:openai.com).
+function applyPanelAclRouting(base, cfg) {
+  const warp = loadWarpRouting();
+  const lines = buildPanelAclLines();
+  if (lines.length === 0) {
     if (base.acl && base.acl.file === HY2_ACL_PATH) delete base.acl;
+    removeWarpOutbound(base);
     try { if (fs.existsSync(HY2_ACL_PATH)) fs.unlinkSync(HY2_ACL_PATH); } catch {}
     return;
   }
-  // Пишем ACL-файл
+
   try {
     fs.mkdirSync(path.dirname(HY2_ACL_PATH), { recursive: true });
-    const lines = b.cidrs
-      .filter(c => /^[0-9a-fA-F:.\/]+$/.test(c))
-      .map(c => `direct(${c})`)
-      .join('\n');
-    fs.writeFileSync(HY2_ACL_PATH, lines + '\n', 'utf8');
+    fs.writeFileSync(HY2_ACL_PATH, lines.join('\n') + '\n', 'utf8');
     base.acl = { file: HY2_ACL_PATH };
+    if (warp.enabled) {
+      ensureWarpOutbound(base);
+      base.sniff = Object.assign({}, base.sniff || {}, {
+        enable: true,
+        timeout: (base.sniff && base.sniff.timeout) || '2s',
+        rewriteDomain: false,
+        tcpPorts: (base.sniff && base.sniff.tcpPorts) || '80,443',
+        udpPorts: (base.sniff && base.sniff.udpPorts) || '443'
+      });
+    } else {
+      removeWarpOutbound(base);
+    }
   } catch (e) {
-    console.error('[bypass] write acl failed:', e.message);
+    console.error('[acl-routing] write acl failed:', e.message);
   }
 }
 
@@ -1060,6 +1233,65 @@ app.delete('/api/bypass', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
+app.get('/api/warp-routing', requireAuth, (req, res) => {
+  const w = loadWarpRouting();
+  const proxy = warpLocalProxyReady();
+  const preview = parseDomainList(w.domains).map(domainRuleToAclTarget).filter(Boolean).slice(0, 50);
+  res.json({
+    enabled: !!w.enabled,
+    count: preview.length,
+    domains: w.domains,
+    source: w.source || '',
+    updatedAt: w.updatedAt || null,
+    outboundName: WARP_OUTBOUND_NAME,
+    proxyHost: WARP_PROXY_HOST,
+    proxyPort: WARP_PROXY_PORT,
+    proxyReady: proxy.ready,
+    proxy,
+    aclPath: HY2_ACL_PATH,
+    preview
+  });
+});
+
+app.post('/api/warp-routing', requireAuth, async (req, res) => {
+  const { domains, enabled, source } = req.body || {};
+  const w = loadWarpRouting();
+  if (domains !== undefined) {
+    const parsed = parseDomainList(domains);
+    if (parsed.length === 0) {
+      return res.json({ success: false, message: 'Список доменов пуст или не поддерживается' });
+    }
+    w.domains = parsed;
+    w.source = typeof source === 'string' ? source.slice(0, 128) : w.source;
+    w.updatedAt = new Date().toISOString();
+  }
+  if (typeof enabled === 'boolean') w.enabled = enabled;
+  saveWarpRouting(w);
+
+  const cfg = loadConfig();
+  if (cfg.installed && cfg.stack.hy2) {
+    if (!writeHysteriaConfig(cfg)) {
+      return res.json({ success: false, message: 'config.yaml не обновлён' });
+    }
+    await reloadHysteria();
+  }
+  const proxy = warpLocalProxyReady();
+  res.json({ success: true, enabled: !!w.enabled, count: parseDomainList(w.domains).length, proxyReady: proxy.ready });
+});
+
+app.delete('/api/warp-routing', requireAuth, async (req, res) => {
+  const w = loadWarpRouting();
+  w.enabled = false;
+  w.updatedAt = new Date().toISOString();
+  saveWarpRouting(w);
+  const cfg = loadConfig();
+  if (cfg.installed && cfg.stack.hy2) {
+    writeHysteriaConfig(cfg);
+    await reloadHysteria();
+  }
+  res.json({ success: true });
+});
+
 // ═══════════════════════════════════════════════════════════
 //  HY2 USERS
 // ═══════════════════════════════════════════════════════════
@@ -1107,8 +1339,8 @@ function writeHysteriaConfig(cfg) {
         file: { dir: '/var/www/html' }
       };
     }
-    // ACL bypass (русские сервисы идут direct, минуя VPN): подставляем, если настроен
-    applyBypassAcl(base, cfg);
+    // ACL routing: RU direct bypass and AI-only WARP route for Hy2.
+    applyPanelAclRouting(base, cfg);
   } else {
     // Файла нет или повреждён — создаём минимальный.
     // Пытаемся найти сертификат Caddy через find (любой CA, новый или старый путь).
@@ -1153,7 +1385,7 @@ function writeHysteriaConfig(cfg) {
     } else {
       console.warn('[writeHysteriaConfig] No Caddy cert found. Hysteria2 will NOT start until TLS is configured manually.');
     }
-    applyBypassAcl(base, cfg);
+    applyPanelAclRouting(base, cfg);
   }
 
   // ── Атомарная запись с валидацией и rollback (PR #4) ──

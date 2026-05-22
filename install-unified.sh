@@ -307,6 +307,10 @@ nh_args=(
 [[ -n "$TLS_CERT" ]] && nh_args+=(--tls-cert "$TLS_CERT")
 [[ -n "$TLS_KEY" ]] && nh_args+=(--tls-key "$TLS_KEY")
 [[ "$NH_ENABLE_MIERU" == "1" ]] && nh_args+=(--with-mieru)
+WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}" \
+WARP_PROXY_PORT="$WARP_PROXY_PORT" \
+WARP_OUTBOUND_TAG="$WARP_OUTBOUND_TAG" \
+WARP_AI_DOMAINS="$WARP_AI_DOMAINS" \
 bash "$NH_BACKEND_INSTALL" "${nh_args[@]}"
 
 require_active caddy-nh
