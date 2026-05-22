@@ -529,7 +529,7 @@ xui_add_clients() {
   xui_repair_invalid_inbound_json
   xui_sanitize_inbound_tags
   xui_enable_preset_xhttp
-  xui_enable_warp_domain_sniffing
+  xui_enable_preset_domain_sniffing
 
   query="SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
      FROM inbounds

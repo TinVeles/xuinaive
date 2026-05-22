@@ -182,7 +182,7 @@ For NHM Panel, open `Bypass` and enable `AI through WARP for Hy2`. The panel wri
 
 ### Sniffing
 
-When x-ui WARP routing is enabled, generated preset inbounds get Xray sniffing enabled for `http`, `tls`, `quic`, and `fakedns`. This lets Xray see the destination domain from HTTP Host, TLS SNI, or QUIC SNI before applying domain routing. Without sniffing, some AI-domain rules can be skipped because Xray only sees an IP.
+Generated preset inbounds get Xray sniffing enabled by default for `http`, `tls`, `quic`, and `fakedns`. This applies to Reality, WS, XHTTP, and Trojan-gRPC. Sniffing lets Xray see the destination domain from HTTP Host, TLS SNI, or QUIC SNI before applying domain routing. Without sniffing, some AI-domain rules can be skipped because Xray only sees an IP.
 
 ## Profile Generation
 

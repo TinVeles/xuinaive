@@ -346,7 +346,7 @@ xui_post_update_db() {
   xui_repair_invalid_inbound_json
   xui_sanitize_inbound_tags
   xui_enable_preset_xhttp
-  xui_enable_warp_domain_sniffing
+  xui_enable_preset_domain_sniffing
   xui_fix_all_vless_decryption
   xui_fill_empty_warp_clients
   xui_validate_inbound_json
@@ -1345,7 +1345,7 @@ if [[ -f $XUIDB ]]; then
 }',
              'inbound-8443',
 	     '{
-  "enabled": false,
+  "enabled": true,
   "destOverride": [
     "http",
     "tls",
@@ -1407,7 +1407,7 @@ if [[ -f $XUIDB ]]; then
 }',
              'inbound-${ws_port}',
 	     '{
-  "enabled": false,
+  "enabled": true,
   "destOverride": [
     "http",
     "tls",
@@ -1550,7 +1550,7 @@ if [[ -f $XUIDB ]]; then
 }',
 'inbound-${trojan_port}',
 '{
-  "enabled": false,
+  "enabled": true,
   "destOverride": [
     "http",
     "tls",
@@ -1564,7 +1564,7 @@ if [[ -f $XUIDB ]]; then
 EOF
 xui_repair_invalid_inbound_json
 xui_sanitize_inbound_tags
-xui_enable_warp_domain_sniffing
+xui_enable_preset_domain_sniffing
 if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && "$XUI_AUTO_INSTALL_WARP" == "1" ]]; then
   ensure_warp_local_proxy "$UPM_ROOT_DIR"
 fi

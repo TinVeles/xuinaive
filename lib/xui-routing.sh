@@ -21,11 +21,10 @@ xui_preset_inbound_filter_sql() {
 SQL
 }
 
-xui_enable_warp_domain_sniffing() {
+xui_enable_preset_domain_sniffing() {
   local db
   db="$(xui_db_path)"
   [[ -f "$db" ]] || return 0
-  [[ "${XUI_ENABLE_WARP_ROUTING:-1}" == "1" ]] || return 0
   sqlite3 "$db" "
     UPDATE inbounds
     SET sniffing='{\"enabled\":true,\"destOverride\":[\"http\",\"tls\",\"quic\",\"fakedns\"],\"metadataOnly\":false,\"routeOnly\":false}'
@@ -34,6 +33,10 @@ $(xui_preset_inbound_filter_sql)
       AND COALESCE(tag,'') NOT LIKE '%-warp'
       AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
   "
+}
+
+xui_enable_warp_domain_sniffing() {
+  xui_enable_preset_domain_sniffing
 }
 
 xui_delete_warp_clone_inbounds() {
