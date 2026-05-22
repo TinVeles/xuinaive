@@ -1,66 +1,34 @@
 # xuinaive
 
-Unified installer for all components on one VPS:
+Unified installer for running 3x-ui, NaiveProxy, Hysteria2, and the NHM Panel on one VPS.
 
-- x-ui-pro / 3x-ui / Xray / nginx;
-- NHM Panel / NaiveProxy / Caddy backend;
-- Hysteria2.
+The default command is a dry run. Real installation always requires `--install --yes`.
 
-Default `install.sh` mode is safe dry-run. Real install requires explicit `--install --yes`.
+## What It Installs
 
-## Files
+- 3x-ui / x-ui-pro with Xray and nginx.
+- NHM Panel for NaiveProxy and Hysteria2 management.
+- NaiveProxy behind a dedicated Caddy backend.
+- Hysteria2 on public UDP `443`.
+- Optional Cloudflare WARP local proxy on `127.0.0.1:40000`.
+- Optional generated profiles and token-protected subscription files.
+- Optional Mieru module in NHM Panel.
 
-```text
-Repository root:
-├── .gitignore
-├── AUDIT.md
-├── components/
-├── config.example.env
-├── install.sh
-├── install-unified.sh
-├── install-warp.sh
-├── generate-profiles.sh
-├── lib/
-├── uninstall-stack.sh
-├── show-access-info.sh
-├── status.sh
-├── doctor.sh
-├── security-hardening.sh
-├── README.md
-├── docs/
-│   ├── ARCHITECTURE.md
-│   └── PORTS.md
-```
+The full stack still uses two panels:
 
-The repository also contains vendored component copies under `components/`:
+- 3x-ui manages Xray inbounds and Xray routing.
+- NHM Panel manages NaiveProxy, Hysteria2, Mieru, subscriptions, tuning, diagnostics, and Hy2 bypass/WARP ACL controls.
 
-```text
-components/
-├── x-ui-pro/
-└── nh-panel/
-```
+## Recommended Install
 
-## What You Get
-
-- `--mode all`: installs 3x-ui / x-ui-pro plus NHM Panel, NaiveProxy, and Hysteria2 on one VPS.
-- nginx from x-ui-pro owns public `443/tcp`.
-- NHM Caddy/NaiveProxy runs behind nginx on `127.0.0.1:9445`.
-- Hysteria2 uses public `443/udp`.
-- NHM Caddy uses a ready certificate/key and accepts nginx stream PROXY protocol on the backend listener.
-- Optional Cloudflare WARP local proxy can be installed on `127.0.0.1:40000`.
-- Optional Mieru support is disabled by default; add `--with-mieru` only when you want the NHM Panel to expose the Mieru module.
-- Optional bulk profile generator can create x-ui, NaiveProxy, and Hysteria2 clients.
-- You still get two web panels: 3x-ui for Xray/3x-ui and NHM Panel for NaiveProxy + Hysteria2.
-
-## Quick Start From VPS
-
-One command for real unified install on a fresh VPS:
+Use this on a fresh VPS:
 
 ```bash
 cd /root
 rm -rf unified-proxy-manager
 git clone https://github.com/TinVeles/xuinaive.git unified-proxy-manager
 cd unified-proxy-manager
+
 sudo bash install.sh --mode all \
   --xui-domain xui.example.com \
   --nh-domain naive.example.com \
@@ -72,16 +40,86 @@ sudo bash install.sh --mode all \
   --yes
 ```
 
-## x-ui + NHM Without WARP
+This gives you:
 
-Use this profile when you want the full x-ui + NHM Panel + NaiveProxy + Hysteria2 stack, but no Cloudflare WARP routing and no WARP service:
+- x-ui and NHM on one VPS.
+- 3x-ui profiles on normal inbounds.
+- NaiveProxy and Hysteria2 profiles.
+- AI-only WARP routing for x-ui.
+- Local WARP proxy ready for NHM Panel Hysteria2 routing.
+- Final access summary in the terminal and `access-info.txt`.
+
+## Architecture
+
+`--mode all` resolves the public `443/tcp` conflict by giving public TCP `443` to nginx from x-ui-pro:
+
+```text
+Internet 443/tcp
+  -> nginx stream
+     -> x-ui / Xray for x-ui domains and inbounds
+     -> 127.0.0.1:9445 for NHM NaiveProxy by SNI
+
+Internet 443/udp
+  -> hysteria-server
+
+NHM Panel
+  -> 127.0.0.1:3000 internally
+  -> 8081 through nginx by default
+```
+
+NaiveProxy Caddy does not bind public `443/tcp` in all-in-one mode. It listens on `127.0.0.1:9445`, accepts nginx stream PROXY protocol, and uses the certificate prepared by the installer.
+
+## Modes
+
+```text
+all      3x-ui + NHM Panel + NaiveProxy + Hysteria2
+xui      only x-ui-pro / 3x-ui planning or install path
+naive    compatibility mode routed through the NHM installer
+nh       standalone NHM Panel + NaiveProxy + Hysteria2
+both     compatibility alias for all
+```
+
+Dry run:
 
 ```bash
-cd /root
-rm -rf unified-proxy-manager
-git clone https://github.com/TinVeles/xuinaive.git unified-proxy-manager
-cd unified-proxy-manager
+sudo bash install.sh --mode all \
+  --xui-domain x.example.com \
+  --nh-domain n.example.com \
+  --reality-dest r.example.com \
+  --nh-email admin@example.com \
+  --dry-run
+```
 
+Standalone NHM install:
+
+```bash
+sudo bash install.sh --mode nh \
+  --domain vpn.example.com \
+  --proxy-email admin@example.com \
+  --nh-stack both \
+  --nh-access nginx8080 \
+  --install \
+  --yes
+```
+
+Standalone NHM with a panel subdomain:
+
+```bash
+sudo bash install.sh --mode nh \
+  --domain vpn.example.com \
+  --proxy-email admin@example.com \
+  --nh-access subdomain \
+  --panel-domain panel.example.com \
+  --panel-email admin@example.com \
+  --install \
+  --yes
+```
+
+## Install Without WARP
+
+Use this when you want all generated profiles but no Cloudflare WARP service and no WARP routing:
+
+```bash
 sudo XUI_ENABLE_WARP_ROUTING=0 \
   XUI_CREATE_WARP=0 \
   AUTO_INSTALL_WARP=0 \
@@ -97,21 +135,16 @@ sudo XUI_ENABLE_WARP_ROUTING=0 \
     --yes
 ```
 
-With this mode:
+In this mode:
 
-- no `--install-warp` flag is used;
-- WARP routing is not written into the x-ui/Xray template;
-- legacy `*-warp` inbounds are not created;
-- generated x-ui clients, NaiveProxy users, Hysteria2 users, and combined subscriptions are still created.
+- `install-warp.sh` is not run.
+- x-ui WARP routing is not written.
+- Legacy `*-warp` inbounds are not created.
+- Normal x-ui, NaiveProxy, Hysteria2, and subscription generation still work.
 
-If you already have the NHM/NaiveProxy certificate, add the certificate paths to the same command:
+## Existing Certificates
 
-```bash
-    --tls-cert /etc/letsencrypt/live/naive.example.com/fullchain.pem \
-    --tls-key /etc/letsencrypt/live/naive.example.com/privkey.pem \
-```
-
-If you already have a certificate for the NHM/NaiveProxy domain, pass it explicitly:
+If the NHM/NaiveProxy domain already has a certificate, pass it explicitly:
 
 ```bash
 sudo bash install.sh --mode all \
@@ -125,233 +158,62 @@ sudo bash install.sh --mode all \
   --yes
 ```
 
-In `--mode all`, the installer does not let Caddy issue its own certificate on `127.0.0.1:9445`. If `--tls-cert` and `--tls-key` are omitted, it first issues the NHM/NaiveProxy certificate through nginx HTTP-01 on port `80`; if that fails, it automatically tries a standalone certbot fallback after stopping nginx/caddy and checking that `80/tcp` is free. It then configures both Caddy and Hysteria2 to use the same cert/key, installs a renewal deploy hook, and stops the install if backend TLS or public nginx stream TLS does not pass `openssl s_client` checks. The NHM Panel is checked on `127.0.0.1:3000`, through local nginx on `127.0.0.1:8081`, and through the server public IP on `8081`; if the last check fails, open `8081/tcp` in the VPS provider firewall/security group.
+If no certificate paths are provided, all-in-one mode first tries nginx HTTP-01 on port `80`. If that fails, it tries a standalone certbot fallback after checking that port `80` is free. The same certificate is used by Caddy-NH and Hysteria2.
 
-`--install-warp` installs Cloudflare WARP in local proxy mode after the main stack is installed. It creates a local SOCKS/HTTP proxy on `127.0.0.1:40000` and saves ready 3x-ui/Xray snippets to `/etc/x-ui/warp-xray-snippets.json`. The default routing is split: ChatGPT/OpenAI, Claude/Anthropic, Gemini/Google AI plus required Google API/static/auth hosts, and NotebookLM domains go through WARP; everything else uses direct routing. When x-ui WARP routing or generated profiles are enabled, the bash scripts auto-install and validate this local proxy by default. The NHM Panel can use the same local WARP proxy for Hysteria2: open `Bypass`, enable `AI through WARP for Hy2`, and the panel writes Hysteria2 `outbounds` plus ACL rules for the configured AI domains. NaiveProxy cannot apply this server-side because Caddy `forward_proxy` has no per-domain outbound ACL. Use `--no-auto-install-warp` or `XUI_AUTO_INSTALL_WARP=0` only if you intentionally manage WARP yourself.
+## WARP Routing
 
-`--with-mieru` exposes the optional Mieru module inside NHM Panel. The default install does not install `mita`, does not show Mieru controls, and keeps the base stack as x-ui + NHM Panel + NaiveProxy + Hysteria2.
-
-By default the x-ui installer creates standard clients on the preset inbounds and applies WARP as routing, not as separate `*-warp` profiles. Generated clients stay on the normal Reality, WS, XHTTP, and Trojan-gRPC inbounds; only the configured AI domains go through the local `warp-cli` outbound. Legacy WARP clone inbounds are deleted by default.
-
-`--generate-profiles` additionally creates 15 standard x-ui clients on each preset inbound, 15 NaiveProxy profiles, and 15 Hysteria2 profiles. By default each x-ui client index gets its own `subId`, so `auto-01` contains the matching standard x-ui variants for client 01, `auto-02` contains the matching set for client 02, and so on. WARP routing is written into the x-ui template by default: only the configured AI domains use the `warp-cli` outbound, while all unmatched traffic falls back to direct. Before writing that routing, the generator checks `warp-cli`, WARP connected state, and `curl --socks5-hostname 127.0.0.1:40000`; if missing, it runs `install-warp.sh` automatically. Client emails stay unique and stable per variant, for example `auto-01-reality` and `auto-01-ws`, so rerunning the generator keeps the same email/UUID/password instead of rotating links. Add `--xui-keep-existing` to preserve manual clients, `--xui-inbound-id ID` to target one inbound only, or set `XUI_ENABLE_WARP_ROUTING=0` to skip WARP routing. Use `--profile-count N`, `--profile-prefix NAME`, and `--warp-ai-domains "domain:example.com,domain:other.example"` to change the defaults.
-
-Deprecated compatibility: `--xui-warp-clone` / `XUI_CREATE_WARP=1` still creates legacy `*-warp` clone inbounds for manual fallback workflows, but the supported default is one normal profile set plus server-side AI-only WARP routing.
-
-Dry-run only:
-
-```bash
-cd /root
-rm -rf unified-proxy-manager
-git clone https://github.com/TinVeles/xuinaive.git unified-proxy-manager
-cd unified-proxy-manager
-sudo bash install.sh
-```
-
-## Dry-run commands
-
-Interactive mode:
-
-```bash
-sudo bash install.sh
-```
-
-The script will ask for:
-
-- mode: `xui`, `naive`, `all`, `both`, or `nh`;
-- x-ui domain when needed;
-- NaiveProxy domain when needed;
-- REALITY destination domain when needed;
-- email for future NaiveProxy/Caddy TLS planning.
-
-Only x-ui-pro plan:
-
-```bash
-sudo bash install.sh --mode xui --xui-domain x.example.com --reality-dest r.example.com --dry-run
-```
-
-Only NaiveProxy plan:
-
-```bash
-sudo bash install.sh --mode naive --naive-domain n.example.com --dry-run
-```
-
-All components plan:
-
-```bash
-sudo bash install.sh --mode all \
-  --xui-domain x.example.com \
-  --nh-domain n.example.com \
-  --reality-dest r.example.com \
-  --nh-email admin@example.com \
-  --dry-run
-```
-
-Standalone NHM Panel plan:
-
-```bash
-sudo bash install.sh --mode nh \
-  --domain vpn.example.com \
-  --proxy-email admin@example.com \
-  --dry-run
-```
-
-Real NHM Panel install:
-
-```bash
-sudo bash install.sh --mode nh \
-  --domain vpn.example.com \
-  --proxy-email admin@example.com \
-  --nh-stack both \
-  --nh-access nginx8080 \
-  --install \
-  --yes
-```
-
-With a separate HTTPS panel subdomain:
-
-```bash
-sudo bash install.sh --mode nh \
-  --domain vpn.example.com \
-  --proxy-email admin@example.com \
-  --nh-access subdomain \
-  --panel-domain panel.example.com \
-  --panel-email admin@example.com \
-  --install \
-  --yes
-```
-
-Status:
-
-```bash
-sudo ./status.sh
-```
-
-Copy-friendly access info after installation:
-
-```bash
-sudo cat ./access-info.txt
-sudo bash ./show-access-info.sh
-```
-
-Doctor:
-
-```bash
-sudo ./doctor.sh
-```
-
-Security hardening dry-run:
-
-```bash
-sudo bash security-hardening.sh
-```
-
-Apply the recommended profile:
-
-```bash
-sudo bash security-hardening.sh --apply --yes
-```
-
-The recommended profile keeps only SSH, `80/tcp`, `443/tcp`, and `443/udp` open, closes the NHM Panel port `8081/tcp` publicly, installs fail2ban and unattended-upgrades, enables `probe_resistance` in `/etc/caddy-nh/Caddyfile`, and restricts access files to `0600`. After that, access the NHM Panel through an SSH tunnel:
-
-```bash
-ssh -L 8081:127.0.0.1:8081 root@SERVER_IP
-```
-
-Then open:
+`--install-warp` installs Cloudflare WARP in local proxy mode:
 
 ```text
-http://127.0.0.1:8081
+SOCKS/HTTP proxy: 127.0.0.1:40000
+default outbound tag: warp-cli
 ```
 
-If you intentionally need an extra public inbound port, keep it open explicitly:
+The default model is AI-only routing:
 
-```bash
-sudo bash security-hardening.sh --apply --yes --allow-port 8443/tcp
-```
+- OpenAI and ChatGPT domains go through WARP.
+- Anthropic and Claude domains go through WARP.
+- Gemini, Google AI, Google API/static/auth hosts, YouTube support hosts, and NotebookLM domains go through WARP.
+- Everything else stays on the normal direct outbound.
 
-To allow the panel only from your current static IP/CIDR:
+For x-ui, the installer and profile generator write one `warp-cli` outbound plus one AI-domain routing rule into the x-ui/Xray template. Generated clients stay on the normal Reality, WS, XHTTP, and Trojan-gRPC inbounds.
 
-```bash
-sudo bash security-hardening.sh --apply --yes \
-  --panel-mode allow-ip \
-  --allow-panel-from YOUR_IP/32
-```
+For NHM Panel, open `Bypass` and enable `AI through WARP for Hy2`. The panel writes Hysteria2 `outbounds` and ACL rules so matching AI domains use the same local WARP proxy. NaiveProxy cannot do this server-side because Caddy `forward_proxy` has no per-domain outbound ACL; configure NaiveProxy split routing in the client instead.
 
-SSH password/root login hardening is opt-in because it can lock you out if SSH keys or a sudo user are not ready:
+### Sniffing
 
-```bash
-sudo bash security-hardening.sh --apply --yes --ssh-disable-password
-```
+When x-ui WARP routing is enabled, generated preset inbounds get Xray sniffing enabled for `http`, `tls`, `quic`, and `fakedns`. This lets Xray see the destination domain from HTTP Host, TLS SNI, or QUIC SNI before applying domain routing. Without sniffing, some AI-domain rules can be skipped because Xray only sees an IP.
 
-## Optional WARP
+## Profile Generation
 
-Standalone WARP install:
-
-```bash
-sudo bash install-warp.sh --yes
-```
-
-Custom tags/ports for 3x-ui routing:
-
-```bash
-sudo bash install-warp.sh \
-  --proxy-port 40000 \
-  --outbound-tag warp-cli \
-  --inbound-tag all \
-  --route-port 443 \
-  --yes
-```
-
-The script installs `cloudflare-warp`, registers the client, switches it to local proxy mode, connects WARP, checks the local proxy, and writes:
-
-```text
-/etc/x-ui/warp-xray-snippets.json
-```
-
-Use those values in 3x-ui/Xray:
-
-```text
-Outbound:
-  Protocol: socks
-  Tag:      warp-cli
-  Address:  127.0.0.1
-  Port:     40000
-
-Routing:
-  Inbound tags: all, or generated preset inbound tags when the x-ui template is applied automatically
-  Domains:      OpenAI/ChatGPT, Claude/Anthropic, Gemini/Google AI, Google API/static/auth hosts, NotebookLM
-  Outbound:     warp-cli
-```
-
-Check WARP:
-
-```bash
-warp-cli --accept-tos status
-curl --socks5-hostname 127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace
-```
-
-## Bulk Profiles
-
-Create the default profile set after installation:
+Generate or refresh profiles after installation:
 
 ```bash
 sudo bash generate-profiles.sh --yes
 ```
 
-This creates:
+Default output:
 
 ```text
 x-ui:
   15 standard clients on each preset inbound
-  15 x-ui subscription subIds, one per client index
-  AI-only WARP routing and direct fallback
+  one x-ui subscription subId per client index
+  AI-only WARP routing when enabled
 
 NHM:
   15 NaiveProxy profiles
   15 Hysteria2 profiles
+  token-protected subscription files
 ```
 
-The script backs up `/etc/x-ui/x-ui.db`, NHM config, Caddyfile, and Hysteria config before writing. x-ui profiles use grouped `subId` values like `auto-01` and stable emails like `auto-01-reality`; the same `subId` is reused across all standard x-ui protocol variants for that client index. WARP routing is bound to the normal preset inbound tags plus the AI domain list and outbound `warp-cli`; unmatched domains use the first `direct` outbound. Existing legacy WARP clone inbounds are deleted by default so the 3x-ui editor stays focused on the normal inbounds. NHM generated subscriptions contain exactly `COUNT` NaiveProxy links and `COUNT` Hysteria2 links for the selected prefix.
+Custom count and prefix:
+
+```bash
+sudo bash generate-profiles.sh \
+  --count 15 \
+  --prefix auto \
+  --yes
+```
 
 Generated reports:
 
@@ -370,21 +232,16 @@ NHM subscription files:
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/auto-01.b64
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/combined.txt
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/combined.b64
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/naive.b64
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/hy2.b64
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/all.b64
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/sing-box.json
 ```
 
-The `auto-01.txt` ... `auto-15.txt` files are combined per-user subscriptions. Each contains the matching x-ui links for that `subId` plus the matching NaiveProxy and Hysteria2 links. `combined.txt` is an admin aggregate with all generated x-ui + NHM links.
-
-The token is generated once and stored root-only:
+The subscription token is generated once and stored root-only:
 
 ```bash
 sudo cat /etc/nh-panel/subscription-token
 ```
 
-When the NHM Panel is exposed by nginx on `8081`, the generator also adds token-protected `/sub/` URLs:
+When NHM Panel is exposed on `8081`, subscription URLs look like:
 
 ```text
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/naive.txt
@@ -396,95 +253,80 @@ http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/combined.txt
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/sing-box.json
 ```
 
-Custom count/prefix:
+## Access Info
+
+After install or profile generation:
 
 ```bash
-sudo bash generate-profiles.sh \
-  --count 15 \
-  --prefix auto \
-  --yes
+sudo bash show-access-info.sh
+sudo cat access-info.txt
 ```
 
-## What install.sh checks
+The access summary includes panel URLs, generated credentials, service hints, WARP details when configured, and a profiles section when generated files are present.
 
-- root or non-root execution warning;
-- OS support: Ubuntu 22.04, Ubuntu 24.04, Debian 12;
-- required commands: `curl`, `wget`, `git`, `systemctl`;
-- vendored component presence;
-- service states for `x-ui`, `nginx`, `caddy-nh`, `ufw`;
-- service states for `hysteria-server` and `panel-naive-hy2` when present;
-- listeners on `80`, `443`, `2053`, `8443`, `9443`;
-- DNS A records for provided domains against current public IPv4;
-- NHM backend/public TLS checks and SNI backend layout for `all` mode.
-- NHM Panel HTTP checks on backend `3000`, nginx proxy `8081`, and public `SERVER_IP:8081`.
+## Operations
 
-## Important
-
-The audit found that upstream `x-ui-pro.sh` performs destructive actions early: it removes x-ui/nginx paths and kills listeners on `80/443`. This safe version intentionally does not run it.
-
-## Current Safety Status
-
-`install.sh` is intentionally a planner. It is safe to run on a VPS because it only reads system state:
-
-- no package installation;
-- no writes to `/etc`;
-- no service start/stop/restart;
-- no firewall changes;
-- no upstream installer execution.
-
-## Real Unified Installer
-
-Direct all-in-one installer command through `install.sh`:
+Status:
 
 ```bash
-sudo bash install.sh --mode all \
-  --xui-domain xui.example.com \
-  --nh-domain naive.example.com \
-  --reality-dest reality.example.com \
-  --nh-email admin@example.com \
-  --install \
-  --yes
+sudo ./status.sh
 ```
 
-This installer uses one public `443` owner:
-
-- x-ui-pro/nginx listens on public `443`;
-- NHM NaiveProxy/Caddy listens on `127.0.0.1:9445`;
-- nginx stream routes the NHM/NaiveProxy domain by SNI to `127.0.0.1:9445` and Caddy accepts the stream PROXY protocol before TLS;
-- Hysteria2 listens on public `443/udp`;
-- NHM Panel is available through nginx on `8081` by default.
-
-Warning: `install-unified.sh` runs the vendored x-ui-pro installer, which is destructive like upstream. Use it only on a fresh VPS or after backups.
-
-## Safe Uninstall
-
-`uninstall-stack.sh` removes the installed x-ui + NHM stack while preserving reusable certificate stores. Default mode is dry-run:
+Doctor:
 
 ```bash
-sudo bash uninstall-stack.sh
+sudo ./doctor.sh
 ```
 
-Real removal requires both flags:
+Security hardening dry run:
 
 ```bash
-sudo bash uninstall-stack.sh --apply --yes
+sudo bash security-hardening.sh
 ```
 
-It stops/disables stack services, backs up removed files to `/opt/unified-proxy-manager/backups/uninstall-*`, removes x-ui/NHM/Caddy-NH/Hysteria stack files, removes stack nginx snippets/sites, cleans stack cron entries, and keeps certificate material under `/etc/letsencrypt`, `/root/cert`, `/var/lib/caddy`, and `/root/.local/share/caddy`. Add `--remove-warp` only when you also want to remove the Cloudflare WARP package/config:
+Apply recommended hardening:
 
 ```bash
-sudo bash uninstall-stack.sh --apply --yes --remove-warp
+sudo bash security-hardening.sh --apply --yes
 ```
 
-## Legacy / Standalone Modes
+The recommended profile keeps only SSH, `80/tcp`, `443/tcp`, and `443/udp` open, closes public NHM Panel port `8081/tcp`, installs fail2ban and unattended-upgrades, enables `probe_resistance` in `/etc/caddy-nh/Caddyfile`, and restricts access files to `0600`.
 
-`--mode nh` still exists for a standalone NHM Panel install without 3x-ui. For one-command 3x-ui + NHM, use `--mode all`.
+Access NHM Panel through an SSH tunnel after hardening:
+
+```bash
+ssh -L 8081:127.0.0.1:8081 root@SERVER_IP
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8081
+```
+
+Allow an extra public port only when needed:
+
+```bash
+sudo bash security-hardening.sh --apply --yes --allow-port 8443/tcp
+```
+
+Restrict panel access to a static IP/CIDR:
+
+```bash
+sudo bash security-hardening.sh --apply --yes \
+  --panel-mode allow-ip \
+  --allow-panel-from YOUR_IP/32
+```
+
+SSH password/root login hardening is opt-in:
+
+```bash
+sudo bash security-hardening.sh --apply --yes --ssh-disable-password
+```
 
 ## Manual WARP Setup
 
-Use this only if the main stack was installed without WARP and you later decide to add WARP manually.
-
-Install and connect the local WARP proxy:
+Use this when the stack was installed without WARP and you want to add it later:
 
 ```bash
 cd /root/unified-proxy-manager
@@ -495,7 +337,7 @@ sudo bash install-warp.sh \
   --yes
 ```
 
-Check that WARP is really running:
+Check WARP:
 
 ```bash
 systemctl status warp-svc --no-pager
@@ -505,7 +347,7 @@ curl -I --max-time 20 --socks5-hostname 127.0.0.1:40000 https://www.google.com/g
 curl --max-time 20 --socks5-hostname 127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace
 ```
 
-Enable x-ui routing through WARP for the AI domain list only:
+Apply x-ui AI routing through WARP without creating legacy clone inbounds:
 
 ```bash
 sudo XUI_ENABLE_WARP_ROUTING=1 \
@@ -522,116 +364,7 @@ sudo XUI_ENABLE_WARP_ROUTING=1 \
 sudo systemctl restart x-ui
 ```
 
-This does not create legacy `*-warp` inbounds. It only adds the `warp-cli` outbound and routing rules for the configured AI domains; all other traffic remains direct.
-
-### Manual AI Routing In x-ui Xray Configs
-
-If you do not want the script to write the x-ui template automatically, you can paste the routing manually in the x-ui panel.
-
-Prerequisites:
-
-```bash
-systemctl status warp-svc --no-pager
-ss -lntp | grep 40000
-curl -I --max-time 20 --socks5-hostname 127.0.0.1:40000 https://www.google.com/generate_204
-```
-
-Open:
-
-```text
-x-ui panel -> Xray Configs
-```
-
-Use these settings. The important part is that the outbound tag is exactly `warp-cli`, and the SOCKS server points to `127.0.0.1:40000`.
-For every x-ui inbound that should use this routing, enable sniffing with `http`, `tls`, `quic`, and `fakedns`; otherwise Xray may not see the destination domain and the AI rule can be skipped.
-
-```json
-{
-  "outbounds": [
-    {
-      "tag": "direct",
-      "protocol": "freedom"
-    },
-    {
-      "tag": "warp-cli",
-      "protocol": "socks",
-      "settings": {
-        "servers": [
-          {
-            "address": "127.0.0.1",
-            "port": 40000
-          }
-        ]
-      }
-    },
-    {
-      "tag": "blocked",
-      "protocol": "blackhole"
-    }
-  ],
-  "routing": {
-    "domainStrategy": "AsIs",
-    "rules": [
-      {
-        "type": "field",
-        "domain": [
-          "domain:openai.com",
-          "domain:chatgpt.com",
-          "domain:oaistatic.com",
-          "domain:oaiusercontent.com",
-          "domain:anthropic.com",
-          "domain:claude.ai",
-          "domain:gemini.google.com",
-          "domain:aistudio.google.com",
-          "domain:ai.google.dev",
-          "domain:generativelanguage.googleapis.com",
-          "domain:aiplatform.googleapis.com",
-          "domain:googleapis.com",
-          "domain:gstatic.com",
-          "domain:googleusercontent.com",
-          "domain:ggpht.com",
-          "domain:clients6.google.com",
-          "domain:accounts.google.com",
-          "domain:apis.google.com",
-          "domain:ogs.google.com",
-          "domain:www.google.com",
-          "domain:play.google.com",
-          "domain:withgoogle.com",
-          "domain:youtube.com",
-          "domain:ytimg.com",
-          "domain:notebooklm.google.com",
-          "domain:notebooklm.google"
-        ],
-        "outboundTag": "warp-cli"
-      },
-      {
-        "type": "field",
-        "ip": [
-          "geoip:private"
-        ],
-        "outboundTag": "blocked"
-      },
-      {
-        "type": "field",
-        "protocol": [
-          "bittorrent"
-        ],
-        "outboundTag": "blocked"
-      }
-    ]
-  }
-}
-```
-
-Correct rule order:
-
-- AI domains -> `warp-cli`;
-- private IP and BitTorrent blocks after that;
-- everything else has no matching rule and goes through `direct`.
-
-If your x-ui template already has `outbounds` or `routing.rules`, do not duplicate tags. Keep only one outbound with `tag: "warp-cli"` and only one AI routing rule pointing to `warp-cli`.
-
-The script can generate the same data without applying it:
+Generate the routing snippet without applying it:
 
 ```bash
 sudo XUI_ENABLE_WARP_ROUTING=1 \
@@ -647,14 +380,7 @@ sudo XUI_ENABLE_WARP_ROUTING=1 \
 sudo jq . /etc/x-ui/warp-generated-routing.json
 ```
 
-After manual changes in `Xray Configs`, restart x-ui:
-
-```bash
-sudo systemctl restart x-ui
-sudo journalctl -u x-ui -n 80 --no-pager -l
-```
-
-To disable WARP routing again:
+Disable x-ui WARP routing:
 
 ```bash
 sudo XUI_ENABLE_WARP_ROUTING=0 \
@@ -667,3 +393,71 @@ sudo XUI_ENABLE_WARP_ROUTING=0 \
 
 sudo systemctl restart x-ui
 ```
+
+## Uninstall
+
+Dry run:
+
+```bash
+sudo bash uninstall-stack.sh
+```
+
+Real removal:
+
+```bash
+sudo bash uninstall-stack.sh --apply --yes
+```
+
+Remove Cloudflare WARP too:
+
+```bash
+sudo bash uninstall-stack.sh --apply --yes --remove-warp
+```
+
+The uninstaller stops and disables stack services, backs up removed files under `/opt/unified-proxy-manager/backups/uninstall-*`, removes x-ui/NHM/Caddy-NH/Hysteria stack files, removes stack nginx snippets and sites, cleans stack cron entries, and keeps reusable certificate stores.
+
+## Validation
+
+Useful checks before and after changes:
+
+```bash
+bash -n install.sh install-unified.sh install-warp.sh generate-profiles.sh status.sh doctor.sh show-access-info.sh uninstall-stack.sh
+bash install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email a@example.com --dry-run
+bash install-warp.sh --help
+bash generate-profiles.sh --help
+```
+
+On Windows, use a working WSL or Git/MSYS Bash. The real target is Ubuntu 22.04/24.04 or Debian 12.
+
+## Repository Layout
+
+```text
+.
++-- components/
+|   +-- x-ui-pro/
+|   +-- nh-panel/
++-- docs/
+|   +-- ARCHITECTURE.md
+|   +-- PORTS.md
++-- lib/
+|   +-- common.sh
+|   +-- warp.sh
+|   +-- xui-routing.sh
++-- install.sh
++-- install-unified.sh
++-- install-warp.sh
++-- generate-profiles.sh
++-- show-access-info.sh
++-- status.sh
++-- doctor.sh
++-- security-hardening.sh
++-- uninstall-stack.sh
+```
+
+## Safety Notes
+
+- Dry-run mode makes no package, service, firewall, or `/etc` changes.
+- Real install mode is guarded by `--install --yes`.
+- `install-unified.sh` runs the vendored x-ui-pro installer, which can recreate x-ui and nginx configuration. Use it on a fresh VPS or after backups.
+- Installers create backups before real stack writes where practical.
+- `--xui-warp-clone` and `XUI_CREATE_WARP=1` still exist for deprecated compatibility, but the supported default is normal profiles plus AI-only server-side WARP routing.
