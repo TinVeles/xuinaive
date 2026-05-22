@@ -432,6 +432,87 @@ ensure_nh_naive_sni_route() {
   bash "$patch_script" --domain "$domain" --backend "$backend" --name nh_naive >/dev/null 2>&1 || true
 }
 
+subscription_token() {
+  local token
+  token="$(first_nonempty "$(config_value NH_SUBSCRIPTION_TOKEN)" "$(config_value SUBSCRIPTION_TOKEN)")"
+  if [[ -z "$token" && -f /etc/nh-panel/subscription-token ]]; then
+    token="$(tr -d '[:space:]' < /etc/nh-panel/subscription-token 2>/dev/null || true)"
+  fi
+  if [[ -z "$token" && -d /opt/panel-naive-hy2/subscriptions ]]; then
+    token="$(find /opt/panel-naive-hy2/subscriptions -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | head -n 1 || true)"
+  fi
+  printf '%s\n' "$token"
+}
+
+subscription_base_url() {
+  local panel_url="$1" token="$2"
+  [[ -n "$panel_url" && -n "$token" ]] || return 0
+  printf '%s/sub/%s\n' "${panel_url%/}" "$token"
+}
+
+append_profiles_summary() {
+  local file="$1" base_url="$2" token="$3"
+  local xui_report="/etc/x-ui/generated-clients.txt"
+  local sub_dir="/opt/panel-naive-hy2/subscriptions/${token}"
+  local generated_links="/opt/panel-naive-hy2/generated-profiles.txt"
+
+  {
+    printf '\nGenerated profiles\n'
+    printf '==================\n\n'
+    if [[ -f "$xui_report" ]]; then
+      printf 'x-ui report: %s\n' "$xui_report"
+      printf 'x-ui generated rows: %s\n' "$(wc -l < "$xui_report" 2>/dev/null || printf 'unknown')"
+    else
+      printf 'x-ui report: not generated\n'
+    fi
+
+    if [[ -n "$token" && -d "$sub_dir" ]]; then
+      printf '\nSubscription files: %s\n' "$sub_dir"
+      if [[ -n "$base_url" ]]; then
+        printf 'naive:     %s/naive.txt\n' "$base_url"
+        printf 'hysteria2: %s/hy2.txt\n' "$base_url"
+        printf 'all:       %s/all.txt\n' "$base_url"
+        printf 'combined:  %s/combined.txt\n' "$base_url"
+        printf 'sing-box:  %s/sing-box.json\n' "$base_url"
+      fi
+      find "$sub_dir" -maxdepth 1 -type f \( -name '*.txt' -o -name '*.json' -o -name '*.b64' \) -printf '  %f\n' 2>/dev/null | sort
+    elif [[ -f "$generated_links" ]]; then
+      printf '\nGenerated NHM links: %s\n' "$generated_links"
+    else
+      printf '\nNHM subscriptions: not generated\n'
+    fi
+  } >> "$file"
+}
+
+print_profiles_summary() {
+  local base_url="$1" token="$2"
+  local xui_report="/etc/x-ui/generated-clients.txt"
+  local sub_dir="/opt/panel-naive-hy2/subscriptions/${token}"
+  local generated_links="/opt/panel-naive-hy2/generated-profiles.txt"
+
+  echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"
+  echo -e "${PURPLE}${BOLD}║   📦  Profiles                                              ║${RESET}"
+  if [[ -f "$xui_report" ]]; then
+    echo -e "${PURPLE}${BOLD}║   x-ui report:${RESET} ${CYAN}${xui_report}${RESET}"
+    echo -e "${PURPLE}${BOLD}║   x-ui rows:${RESET} $(wc -l < "$xui_report" 2>/dev/null || printf 'unknown')"
+  else
+    echo -e "${PURPLE}${BOLD}║   x-ui report:${RESET} not generated"
+  fi
+
+  if [[ -n "$token" && -d "$sub_dir" ]]; then
+    echo -e "${PURPLE}${BOLD}║   Subscriptions:${RESET} ${CYAN}${sub_dir}${RESET}"
+    if [[ -n "$base_url" ]]; then
+      echo -e "${CYAN}   ${base_url}/all.txt${RESET}"
+      echo -e "${CYAN}   ${base_url}/combined.txt${RESET}"
+      echo -e "${CYAN}   ${base_url}/sing-box.json${RESET}"
+    fi
+  elif [[ -f "$generated_links" ]]; then
+    echo -e "${PURPLE}${BOLD}║   NHM links:${RESET} ${CYAN}${generated_links}${RESET}"
+  else
+    echo -e "${PURPLE}${BOLD}║   Subscriptions:${RESET} not generated"
+  fi
+}
+
 XUI_DOMAIN="$(first_nonempty "$(config_value XUI_DOMAIN)" "$(xui_setting webDomain)" "$(xui_setting subDomain)" "$(xui_domain_from_cert)")"
 nh_panel_port="$(first_nonempty "$(config_value NH_PANEL_PORT)" "8081")"
 nh_panel_url="$(first_nonempty "$(config_value NH_PANEL_URL)" "$(json_value panelUrl)")"
@@ -473,6 +554,8 @@ sync_nh_naive_config_from_caddy
 persist_nh_naive_access
 ensure_nh_panel_nginx_proxy
 ensure_nh_naive_sni_route
+sub_token="$(subscription_token)"
+sub_base_url="$(subscription_base_url "$nh_panel_url" "$sub_token")"
 
 reset_terminal_style
 cat > "$SUMMARY_FILE" <<EOF
@@ -489,6 +572,7 @@ NHM Panel
   Login:    ${nh_panel_login:-check config.env}
   Password: ${nh_panel_password:-check config.env}
 EOF
+append_profiles_summary "$SUMMARY_FILE" "$sub_base_url" "$sub_token"
 chmod 600 "$SUMMARY_FILE" 2>/dev/null || true
 
 echo ""
@@ -506,6 +590,7 @@ echo -e "${PURPLE}${BOLD}║   URL:${RESET}"
 echo -e "${CYAN}   ${nh_panel_url:-check config.env}${RESET}"
 echo -e "${PURPLE}${BOLD}║   Login:    ${nh_panel_login:-check config.env}${RESET}"
 echo -e "${PURPLE}${BOLD}║   Password: ${nh_panel_password:-check config.env}${RESET}"
+print_profiles_summary "$sub_base_url" "$sub_token"
 
 echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"
 echo -e "${PURPLE}${BOLD}║   📌  Команды                                               ║${RESET}"
