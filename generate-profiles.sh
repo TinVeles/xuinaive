@@ -701,9 +701,58 @@ xui_cleanup_unix_sockets() {
     | while IFS= read -r listen_path; do
         [[ -n "$listen_path" ]] || continue
         socket_path="${listen_path%%,*}"
-        [[ -S "$socket_path" ]] || continue
+        [[ "$socket_path" == /dev/shm/* || "$socket_path" == /run/* || "$socket_path" == /tmp/* ]] || continue
         rm -f -- "$socket_path" || true
       done
+}
+
+xui_install_uds_cleanup_dropin() {
+  command_exists systemctl || return 0
+  [[ -f "$XUI_DB" ]] || return 0
+  local sockets dropin_dir dropin_file rm_args
+  sockets="$(sqlite3 -readonly "$XUI_DB" "SELECT DISTINCT substr(listen, 1, instr(listen || ',', ',') - 1) FROM inbounds WHERE listen LIKE '/%' AND json_valid(stream_settings)=1 AND json_extract(stream_settings,'$.network')='xhttp';" 2>/dev/null || true)"
+  [[ -n "$sockets" ]] || return 0
+  dropin_dir="/etc/systemd/system/x-ui.service.d"
+  dropin_file="$dropin_dir/10-clean-xhttp-uds.conf"
+  rm_args=""
+  while IFS= read -r socket_path; do
+    [[ -n "$socket_path" ]] || continue
+    [[ "$socket_path" == /dev/shm/* || "$socket_path" == /run/* || "$socket_path" == /tmp/* ]] || continue
+    rm_args="${rm_args} $(printf '%q' "$socket_path")"
+  done <<<"$sockets"
+  [[ -n "$rm_args" ]] || return 0
+  mkdir -p "$dropin_dir"
+  cat > "$dropin_file" <<EOF
+[Service]
+ExecStartPre=/bin/sh -c 'rm -f$rm_args'
+EOF
+  systemctl daemon-reload || true
+  ok "x-ui systemd UDS cleanup installed: $dropin_file"
+}
+
+xui_disable_duplicate_xhttp_unix_listeners() {
+  [[ -f "$XUI_DB" ]] || return 0
+  sqlite3 "$XUI_DB" "
+    UPDATE inbounds
+    SET enable=0
+    WHERE id IN (
+      SELECT i.id
+      FROM inbounds i
+      WHERE i.enable=1
+        AND i.listen LIKE '/%'
+        AND json_valid(i.stream_settings)=1
+        AND json_extract(i.stream_settings,'$.network')='xhttp'
+        AND i.id NOT IN (
+          SELECT MIN(id)
+          FROM inbounds
+          WHERE enable=1
+            AND listen LIKE '/%'
+            AND json_valid(stream_settings)=1
+            AND json_extract(stream_settings,'$.network')='xhttp'
+          GROUP BY substr(listen, 1, instr(listen || ',', ',') - 1)
+        )
+    );
+  " 2>/dev/null || true
 }
 
 nh_generate() {
@@ -1226,6 +1275,9 @@ EOF
 
 if [[ "$CREATE_XUI" == "1" ]]; then
   xui_add_clients
+  xui_disable_duplicate_xhttp_unix_listeners
+  xui_install_uds_cleanup_dropin
+  xui_cleanup_unix_sockets
 fi
 
 if [[ "$CREATE_NH" == "1" ]]; then

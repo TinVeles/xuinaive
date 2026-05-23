@@ -215,6 +215,13 @@ sudo bash generate-profiles.sh \
   --yes
 ```
 
+## Generate profiles without warp
+
+```bash
+sudo XUI_ENABLE_WARP_ROUTING=0 bash generate-profiles.sh --yes
+sudo systemctl restart x-ui
+```
+
 Generated reports:
 
 ```text
