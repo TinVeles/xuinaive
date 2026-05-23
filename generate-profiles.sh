@@ -981,6 +981,57 @@ function xuiRows() {
   return JSON.parse(out || '[]');
 }
 
+let cachedXuiSettings = null;
+function xuiSettings() {
+  if (cachedXuiSettings) return cachedXuiSettings;
+  const sql = `
+    SELECT COALESCE(json_group_object(key, value), '{}')
+    FROM settings
+    WHERE key IN ('subPort','subPath');
+  `;
+  try {
+    const out = cp.execFileSync('sqlite3', ['-readonly', xuiDb, sql], { encoding: 'utf8' });
+    cachedXuiSettings = JSON.parse(out || '{}');
+  } catch (_) {
+    cachedXuiSettings = {};
+  }
+  return cachedXuiSettings;
+}
+
+function normalizeSubText(raw) {
+  const text = String(raw || '').trim();
+  if (!text || /<html/i.test(text)) return '';
+  const hasLinks = /(?:vless|trojan|vmess|ss|hysteria2|hy2):\/\//i.test(text);
+  if (hasLinks) return text.split(/\r?\n/).map(s => s.trim()).filter(Boolean).join('\n');
+  const compact = text.replace(/\s+/g, '');
+  if (!/^[A-Za-z0-9+/=_-]+$/.test(compact)) return '';
+  try {
+    const decoded = Buffer.from(compact.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8').trim();
+    if (/(?:vless|trojan|vmess|ss|hysteria2|hy2):\/\//i.test(decoded)) {
+      return decoded.split(/\r?\n/).map(s => s.trim()).filter(Boolean).join('\n');
+    }
+  } catch (_) {}
+  return '';
+}
+
+function fetchXuiSubscription(subId) {
+  const settings = xuiSettings();
+  const subPort = String(settings.subPort || '').trim();
+  let subPath = String(settings.subPath || '').trim();
+  if (!subPort || !subPath) return '';
+  if (!subPath.startsWith('/')) subPath = `/${subPath}`;
+  if (!subPath.endsWith('/')) subPath = `${subPath}/`;
+  const urls = [`https://127.0.0.1:${subPort}${subPath}${encodeURIComponent(subId)}`];
+  for (const url of urls) {
+    try {
+      const raw = cp.execFileSync('curl', ['-kfsSL', '--max-time', '4', url], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      const normalized = normalizeSubText(raw);
+      if (normalized) return normalized;
+    } catch (_) {}
+  }
+  return '';
+}
+
 function xuiDisplayNamesBySubId(rows) {
   const names = new Map();
   for (const row of rows) {
@@ -1043,17 +1094,24 @@ const stableXrayAll = [];
 fs.mkdirSync(subDir, { recursive: true, mode: 0o755 });
 
 for (const [subId, links] of bySubId) {
-  const combined = [...links, ...(nhBySubId.get(subId) || [])];
+  const officialXuiText = fetchXuiSubscription(subId);
+  const officialXuiLinks = officialXuiText ? officialXuiText.split(/\n/).filter(Boolean) : [];
+  const xuiLinks = officialXuiLinks.length ? officialXuiLinks : links;
+  const combined = [...xuiLinks, ...(nhBySubId.get(subId) || [])];
   const text = combined.join('\n');
-  const xrayText = links.join('\n');
+  const xrayText = xuiLinks.join('\n');
   const stableLinks = [];
-  for (const row of rows) {
-    if (!isStableV2rayNLink(row)) continue;
-    let settings;
-    try { settings = JSON.parse(row.settings || '{}'); } catch (_) { continue; }
-    for (const client of firstEnabledClient(settings, subId)) {
-      const link = row.protocol === 'trojan' ? trojanLink(row, client) : vlessLink(row, client);
-      if (link) stableLinks.push(link);
+  if (officialXuiLinks.length) {
+    stableLinks.push(...officialXuiLinks.filter(link => !/[?&]type=xhttp(?:&|$)/i.test(link) && !/[?&]type=splithttp(?:&|$)/i.test(link)));
+  } else {
+    for (const row of rows) {
+      if (!isStableV2rayNLink(row)) continue;
+      let settings;
+      try { settings = JSON.parse(row.settings || '{}'); } catch (_) { continue; }
+      for (const client of firstEnabledClient(settings, subId)) {
+        const link = row.protocol === 'trojan' ? trojanLink(row, client) : vlessLink(row, client);
+        if (link) stableLinks.push(link);
+      }
     }
   }
   const stableText = stableLinks.join('\n');
@@ -1171,13 +1229,25 @@ fi
 if [[ "$CREATE_NH" == "1" ]]; then
   nh_generate
 fi
+XUI_STARTED_FOR_COMBINED=0
+if [[ "$CREATE_XUI" == "1" && "$RELOAD_SERVICES" == "1" && "$XUI_STOPPED_FOR_DB_UPDATE" == "1" ]] && command_exists systemctl; then
+  info "Starting x-ui before combined subscription generation"
+  xui_cleanup_unix_sockets
+  if systemctl start x-ui; then
+    sleep 2
+    XUI_STARTED_FOR_COMBINED=1
+    XUI_STOPPED_FOR_DB_UPDATE=0
+  else
+    warn "x-ui start failed before combined subscription generation; using database fallback"
+  fi
+fi
 if [[ "$CREATE_XUI" == "1" || "$CREATE_NH" == "1" ]]; then
   combined_generate
 fi
 
 if [[ "$RELOAD_SERVICES" == "1" ]]; then
   info "Reloading services"
-  if [[ "$CREATE_XUI" == "1" ]] && command_exists systemctl; then
+  if [[ "$CREATE_XUI" == "1" && "$XUI_STARTED_FOR_COMBINED" != "1" ]] && command_exists systemctl; then
     [[ "$XUI_STOPPED_FOR_DB_UPDATE" == "1" ]] || systemctl stop x-ui 2>/dev/null || true
     xui_cleanup_unix_sockets
     systemctl start x-ui || warn "x-ui start failed"
