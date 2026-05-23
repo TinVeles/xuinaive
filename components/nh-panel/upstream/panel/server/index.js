@@ -410,7 +410,15 @@ function remainingSeconds(user) {
 function getRequestHost(req) {
   const forwarded = TRUST_PROXY ? req.headers['x-forwarded-host'] : '';
   const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded || req.headers.host || '';
-  return String(raw).split(',')[0].trim().toLowerCase();
+  const host = String(raw).split(',')[0].trim().toLowerCase();
+  if (!TRUST_PROXY || !host || host.includes(':')) return host;
+  const forwardedPortRaw = req.headers['x-forwarded-port'];
+  const forwardedPort = String(Array.isArray(forwardedPortRaw) ? forwardedPortRaw[0] : forwardedPortRaw || '').split(',')[0].trim();
+  if (!/^[0-9]+$/.test(forwardedPort)) return host;
+  const protoRaw = req.headers['x-forwarded-proto'];
+  const proto = String(Array.isArray(protoRaw) ? protoRaw[0] : protoRaw || '').split(',')[0].trim().toLowerCase();
+  if ((proto === 'http' && forwardedPort === '80') || (proto === 'https' && forwardedPort === '443')) return host;
+  return `${host}:${forwardedPort}`;
 }
 
 function isAllowedOrigin(origin, req) {

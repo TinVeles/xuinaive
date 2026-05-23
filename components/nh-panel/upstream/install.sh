@@ -1099,6 +1099,7 @@ server {
         proxy_set_header Host \$http_host;
         proxy_set_header X-Forwarded-Host \$http_host;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Port \$server_port;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_read_timeout 86400;
@@ -1196,7 +1197,9 @@ server {
         proxy_set_header Host \$http_host;
         proxy_set_header X-Forwarded-Host \$http_host;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Port \$server_port;
         proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_read_timeout 86400;
     }
 }
