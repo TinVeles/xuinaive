@@ -262,6 +262,8 @@ NHM subscription files:
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/sing-box.json
 ```
 
+Combined per-client subscriptions use the matching 3x-ui client `email` as the visible profile name for bundled NaiveProxy and Hysteria2 links. The NHM username/password in those links is unchanged.
+
 The subscription token is generated once and stored root-only:
 
 ```bash

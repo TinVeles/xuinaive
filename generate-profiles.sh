@@ -981,7 +981,23 @@ function xuiRows() {
   return JSON.parse(out || '[]');
 }
 
-function nhLinksBySubId() {
+function xuiDisplayNamesBySubId(rows) {
+  const names = new Map();
+  for (const row of rows) {
+    let settings;
+    try { settings = JSON.parse(row.settings || '{}'); } catch (_) { continue; }
+    const clients = Array.isArray(settings.clients) ? settings.clients : [];
+    for (const client of clients) {
+      if (!client || client.enable === false) continue;
+      const subId = String(client.subId || '');
+      const email = String(client.email || '').trim();
+      if (subId && email && !names.has(subId)) names.set(subId, email);
+    }
+  }
+  return names;
+}
+
+function nhLinksBySubId(displayNames) {
   const cfg = JSON.parse(fs.readFileSync(nhConfig, 'utf8'));
   const domain = cfg.domain || 'DOMAIN_NOT_SET';
   const bySubId = new Map();
@@ -994,19 +1010,22 @@ function nhLinksBySubId() {
     const links = [];
     const nUser = naive.find(u => String(u.username || '') === `${prefix}-naive-${n}`);
     const hUser = hy2.find(u => String(u.username || '') === `${prefix}-hy2-${n}`);
-    if (nUser) links.push(`naive+https://${encode(nUser.username)}:${encode(nUser.password)}@${domain}:443#${encode(nUser.username)}`);
-    if (hUser) links.push(`hysteria2://${encode(hUser.username)}:${encode(hUser.password)}@${domain}:443?sni=${domain}&insecure=0#${encode(hUser.username)}`);
+    const displayName = displayNames.get(subId) || subId;
+    if (nUser) links.push(`naive+https://${encode(nUser.username)}:${encode(nUser.password)}@${domain}:443#${encode(displayName)}`);
+    if (hUser) links.push(`hysteria2://${encode(hUser.username)}:${encode(hUser.password)}@${domain}:443?sni=${domain}&insecure=0#${encode(displayName)}`);
     bySubId.set(subId, links);
   }
   return bySubId;
 }
 
+const rows = xuiRows();
+const displayNames = xuiDisplayNamesBySubId(rows);
 const bySubId = new Map();
 for (let i = 1; i <= count; i += 1) {
   bySubId.set(`${prefix}-${String(i).padStart(2, '0')}`, []);
 }
 
-for (const row of xuiRows()) {
+for (const row of rows) {
   let settings;
   try { settings = JSON.parse(row.settings || '{}'); } catch (_) { continue; }
   for (const subId of bySubId.keys()) {
@@ -1017,7 +1036,7 @@ for (const row of xuiRows()) {
   }
 }
 
-const nhBySubId = nhLinksBySubId();
+const nhBySubId = nhLinksBySubId(displayNames);
 const combinedAll = [];
 const xrayAll = [];
 const stableXrayAll = [];
@@ -1028,7 +1047,7 @@ for (const [subId, links] of bySubId) {
   const text = combined.join('\n');
   const xrayText = links.join('\n');
   const stableLinks = [];
-  for (const row of xuiRows()) {
+  for (const row of rows) {
     if (!isStableV2rayNLink(row)) continue;
     let settings;
     try { settings = JSON.parse(row.settings || '{}'); } catch (_) { continue; }
