@@ -378,6 +378,7 @@ persist_nh_naive_access() {
 
 ensure_nh_panel_nginx_proxy() {
   local port="${nh_panel_port:-}" conf="/etc/nginx/sites-available/panel-naive-hy2"
+  local sub_include=""
   [[ "$port" =~ ^[0-9]+$ ]] || return 0
   is_root || return 0
   command -v nginx >/dev/null 2>&1 || return 0
@@ -390,11 +391,13 @@ ensure_nh_panel_nginx_proxy() {
     return 0
   fi
 
+  [[ -f /etc/nginx/snippets/nh-subscriptions.conf ]] && sub_include='    include /etc/nginx/snippets/nh-subscriptions.conf;'
   cat > "$conf" <<EOF
 server {
     listen ${port};
     server_name _;
 
+${sub_include}
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;

@@ -1094,12 +1094,24 @@ location ^~ /sub/ {
 EOF
 
   local conf="/etc/nginx/conf.d/nh-subscriptions.conf"
-  local panel_conf="/etc/nginx/sites-available/panel-naive-hy2"
-  if [[ -f "$panel_conf" ]]; then
+  local panel_conf patched=0
+  local -a panel_confs=(
+    /etc/nginx/sites-available/panel-naive-hy2
+    /etc/nginx/conf.d/nhm-panel-8081.conf
+    /etc/nginx/conf.d/panel-naive-hy2.conf
+  )
+  while IFS= read -r panel_conf; do
+    [[ -n "$panel_conf" ]] && panel_confs+=("$panel_conf")
+  done < <(grep -rl 'proxy_pass http://127\.0\.0\.1:3000' /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null || true)
+
+  while IFS= read -r panel_conf; do
+    [[ -f "$panel_conf" ]] || continue
+    grep -q 'proxy_pass http://127\.0\.0\.1:3000' "$panel_conf" || grep -q 'proxy_pass http://127.0.0.1:3000' "$panel_conf" || continue
     if ! grep -q 'include /etc/nginx/snippets/nh-subscriptions.conf;' "$panel_conf"; then
-      sed -i '/location \/ {/i\    include /etc/nginx/snippets/nh-subscriptions.conf;' "$panel_conf"
+      sed -i '/^[[:space:]]*location[[:space:]]*\/[[:space:]]*{/i\    include /etc/nginx/snippets/nh-subscriptions.conf;' "$panel_conf"
     fi
-  fi
+    patched=1
+  done < <(printf '%s\n' "${panel_confs[@]}" | sort -u)
 
   if [[ ! -f "$conf" ]]; then
     cat > "$conf" <<'EOF'
@@ -1111,7 +1123,7 @@ server {
 EOF
   fi
 
-  if nginx -T 2>/dev/null | grep -q 'include /etc/nginx/snippets/nh-subscriptions.conf'; then
+  if [[ "$patched" == "1" ]] && nginx -T 2>/dev/null | grep -q 'include /etc/nginx/snippets/nh-subscriptions.conf'; then
     ok "nginx subscription location is configured"
   else
     warn "nginx snippet was written, but no public server includes it. Files are still available locally in ${NH_SUBSCRIPTION_DIR%/}/$NH_SUBSCRIPTION_TOKEN"
