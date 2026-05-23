@@ -50,7 +50,7 @@ NH_ENABLE_MIERU="${NH_ENABLE_MIERU:-0}"
 TLS_CERT="${TLS_CERT:-}"
 TLS_KEY="${TLS_KEY:-}"
 INSTALL_WARP="${INSTALL_WARP:-0}"
-AUTO_INSTALL_WARP="${AUTO_INSTALL_WARP:-1}"
+AUTO_INSTALL_WARP="${AUTO_INSTALL_WARP:-0}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
@@ -609,7 +609,15 @@ run_real_install() {
 
   if [[ "$MODE" == "xui" ]]; then
     local xui_installer="$PROJECT_DIR/components/x-ui-pro/x-ui-pro.sh"
+    local xui_install_warp_routing="$XUI_ENABLE_WARP_ROUTING"
+    local xui_auto_install_warp="$AUTO_INSTALL_WARP"
+    local xui_apply_warp_template="$XUI_ENABLE_WARP_ROUTING"
     [[ -f "$xui_installer" ]] || die "x-ui installer not found: $xui_installer. Pull latest project version."
+    if [[ "$INSTALL_WARP" != "1" && "$GENERATE_PROFILES" != "1" && "$XUI_CREATE_WARP" != "1" ]]; then
+      xui_install_warp_routing=0
+      xui_auto_install_warp=0
+      xui_apply_warp_template=0
+    fi
 
     cat <<EOF
 
@@ -618,7 +626,8 @@ Real x-ui-only install requested
 Installer:      $xui_installer
 x-ui domain:    $XUI_DOMAIN
 REALITY dest:   $REALITY_DEST
-WARP routing:   $XUI_ENABLE_WARP_ROUTING
+WARP routing:   $xui_install_warp_routing
+WARP auto-install: $xui_auto_install_warp
 WARP clones:    $XUI_CREATE_WARP
 Profiles:       ${GENERATE_PROFILES} (${PROFILE_COUNT}, prefix ${PROFILE_PREFIX})
 
@@ -638,7 +647,9 @@ EOF
 
     XUI_PRINT_ACCESS_INFO=0 \
     XUI_SEED_PROFILES=0 \
-    XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
+    XUI_ENABLE_WARP_ROUTING="$xui_install_warp_routing" \
+    XUI_AUTO_INSTALL_WARP="$xui_auto_install_warp" \
+    XUI_APPLY_WARP_TEMPLATE="$xui_apply_warp_template" \
     XUI_CREATE_WARP_INBOUNDS="$XUI_CREATE_WARP" \
     XUI_CREATE_DIRECT_CLIENTS="$XUI_CREATE_DIRECT" \
     WARP_INBOUND_TAG="$WARP_INBOUND_TAG" \
@@ -776,7 +787,7 @@ run_warp_install_if_requested() {
   local should_install=0
   if [[ "$INSTALL_WARP" == "1" ]]; then
     should_install=1
-  elif [[ "$AUTO_INSTALL_WARP" == "1" && "$XUI_ENABLE_WARP_ROUTING" == "1" ]] && { [[ "$GENERATE_PROFILES" == "1" ]] || mode_uses_xui; }; then
+  elif [[ "$AUTO_INSTALL_WARP" == "1" && "$XUI_ENABLE_WARP_ROUTING" == "1" && "$GENERATE_PROFILES" == "1" ]]; then
     should_install=1
   fi
   [[ "$should_install" == "1" ]] || return 0
@@ -875,6 +886,10 @@ while [[ $# -gt 0 ]]; do
     --install-warp) INSTALL_WARP=1; shift ;;
     --no-auto-install-warp) AUTO_INSTALL_WARP=0; shift ;;
     --auto-install-warp) AUTO_INSTALL_WARP=1; shift ;;
+    --no-xui-warp-routing) XUI_ENABLE_WARP_ROUTING=0; shift ;;
+    --xui-warp-routing) XUI_ENABLE_WARP_ROUTING=1; shift ;;
+    --xui-warp-clone) XUI_CREATE_WARP=1; shift ;;
+    --no-xui-warp-clone) XUI_CREATE_WARP=0; shift ;;
     --warp-proxy-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;

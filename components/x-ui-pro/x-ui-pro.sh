@@ -18,7 +18,7 @@ XUI_SEED_PROFILES="${XUI_SEED_PROFILES:-0}"
 XUI_CREATE_WARP_INBOUNDS="${XUI_CREATE_WARP_INBOUNDS:-0}"
 XUI_CREATE_DIRECT_CLIENTS="${XUI_CREATE_DIRECT_CLIENTS:-1}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
-XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-1}"
+XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-0}"
 XUI_PRINT_ACCESS_INFO="${XUI_PRINT_ACCESS_INFO:-1}"
 XUI_PRO_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UPM_ROOT_DIR="$(cd "${XUI_PRO_SCRIPT_DIR}/../.." 2>/dev/null && pwd || echo "")"
@@ -33,7 +33,7 @@ WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
 XUI_WARP_EXTERNAL_PORT="${XUI_WARP_EXTERNAL_PORT:-8443}"
-XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-1}"
+XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
 XUI_VERSION="${XUI_VERSION:-}"
 XUI_TARBALL_SHA256="${XUI_TARBALL_SHA256:-}"
 if [[ "$XUI_CREATE_WARP_INBOUNDS" != "1" && "$XUI_CREATE_DIRECT_CLIENTS" != "1" ]]; then
@@ -639,7 +639,7 @@ $(xui_preset_inbound_filter_sql)
   XUI_SUB_ID_MODE="$old_sub_mode"
   XUI_COMMON_SUB_ID="$old_common_sub_id"
 
-  if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" ]]; then
+  if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && "$XUI_APPLY_WARP_TEMPLATE" == "1" ]]; then
     xui_apply_warp_template "$warp_tags_file"
   else
     xui_remove_warp_template
@@ -682,7 +682,7 @@ $(xui_preset_inbound_filter_sql)
       fi
     fi
   done <<<"$inbound_rows"
-  if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" ]]; then
+  if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && "$XUI_APPLY_WARP_TEMPLATE" == "1" ]]; then
     xui_apply_warp_template "$warp_tags_file"
   else
     xui_remove_warp_template
