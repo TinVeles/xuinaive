@@ -10,8 +10,8 @@ The default command is a dry run. Real installation always requires `--install -
 - NHM Panel for NaiveProxy and Hysteria2 management.
 - NaiveProxy behind a dedicated Caddy backend.
 - Hysteria2 on public UDP `443`.
-- Cloudflare WARP local proxy on `127.0.0.1:40000` by default.
-- Generated profiles and token-protected subscription files by default.
+- 15 generated profiles and token-protected subscription files by default.
+- Optional Cloudflare WARP local proxy on `127.0.0.1:40000` when `--install-warp` is used.
 - Optional Mieru module in NHM Panel.
 
 The full stack still uses two panels:
@@ -41,10 +41,10 @@ sudo bash install.sh --mode all \
 This gives you:
 
 - x-ui and NHM on one VPS.
-- 3x-ui profiles on normal inbounds.
-- NaiveProxy and Hysteria2 profiles.
-- Local WARP proxy and an AI-domain routing snippet for x-ui.
-- Local WARP proxy ready for NHM Panel Hysteria2 routing.
+- 15 generated 3x-ui profiles on normal inbounds.
+- 15 generated NaiveProxy profiles.
+- 15 generated Hysteria2 profiles.
+- No WARP by default.
 - Final access summary in the terminal and `access-info.txt`.
 
 ## Architecture
@@ -113,9 +113,9 @@ sudo bash install.sh --mode nh \
   --yes
 ```
 
-## Install Without WARP
+## Install With WARP
 
-Use this when you want all generated profiles but no Cloudflare WARP service and no WARP routing:
+Use this when you want the default 15 profiles plus Cloudflare WARP for AI routing:
 
 ```bash
 sudo bash install.sh --mode all \
@@ -123,8 +123,7 @@ sudo bash install.sh --mode all \
     --nh-domain naive.example.com \
     --reality-dest reality.example.com \
     --nh-email admin@example.com \
-    --no-install-warp \
-    --no-auto-install-warp \
+    --install-warp \
     --profile-count 15 \
     --profile-prefix auto \
     --install \
@@ -133,8 +132,8 @@ sudo bash install.sh --mode all \
 
 In this mode:
 
-- `install-warp.sh` is not run.
-- x-ui WARP routing is not written.
+- `install-warp.sh` prepares local WARP proxy on `127.0.0.1:40000`.
+- x-ui WARP routing snippet is generated for AI domains.
 - Normal x-ui, NaiveProxy, Hysteria2, and subscription generation still work.
 
 ## Existing Certificates
@@ -157,21 +156,23 @@ If no certificate paths are provided, all-in-one mode first tries nginx HTTP-01 
 
 ## WARP Routing
 
-All-in-one install enables Cloudflare WARP in local proxy mode by default:
+WARP is disabled by default. Enable it during install with `--install-warp`.
+
+When enabled, Cloudflare WARP runs in local proxy mode:
 
 ```text
 SOCKS/HTTP proxy: 127.0.0.1:40000
 default outbound tag: warp-cli
 ```
 
-The default model is AI-only routing:
+When WARP is enabled, the routing model is AI-only:
 
 - OpenAI and ChatGPT domains go through WARP.
 - Anthropic and Claude domains go through WARP.
 - Gemini, Google AI, Google API/static/auth hosts, YouTube support hosts, and NotebookLM domains go through WARP.
 - Everything else stays on the normal direct outbound.
 
-For x-ui, the installer prepares one `warp-cli` SOCKS outbound and one AI-domain routing snippet. By default it does not write directly into the x-ui routing settings DB, because that path can make 3x-ui inbound edits unstable on some panel versions. Generated clients stay on the normal Reality, WS, XHTTP, and Trojan-gRPC inbounds.
+For x-ui, WARP mode prepares one `warp-cli` SOCKS outbound and one AI-domain routing snippet. By default it does not write directly into the x-ui routing settings DB, because that path can make 3x-ui inbound edits unstable on some panel versions. Generated clients stay on the normal Reality, WS, XHTTP, and Trojan-gRPC inbounds.
 
 For NHM Panel, open `Bypass` and enable `AI through WARP for Hy2`. The panel writes Hysteria2 `outbounds` and ACL rules so matching AI domains use the same local WARP proxy. NaiveProxy cannot do this server-side because Caddy `forward_proxy` has no per-domain outbound ACL; configure NaiveProxy split routing in the client instead.
 
@@ -187,13 +188,15 @@ Generate or refresh profiles after installation:
 sudo bash generate-profiles.sh --yes
 ```
 
+By default this creates 15 x-ui clients per preset inbound, 15 NaiveProxy profiles, and 15 Hysteria2 profiles. It does not install WARP and does not write WARP routing.
+
 Default output:
 
 ```text
 x-ui:
   15 standard clients on each preset inbound
   one x-ui subscription subId per client index
-  WARP routing snippet when enabled
+  no WARP routing unless explicitly enabled
 
 NHM:
   15 NaiveProxy profiles
@@ -210,29 +213,16 @@ sudo bash generate-profiles.sh \
   --yes
 ```
 
-generate 
+Generate profiles with WARP routing later:
 
 ```bash
 sudo bash generate-profiles.sh \
-  --xui-only \
-  --xui-warp-routing \
-  --no-auto-install-warp \
+  --install-warp \
   --yes
-
 sudo systemctl restart x-ui
 ```
 
-## Generate profiles without warp
-
-```bash
-sudo XUI_ENABLE_WARP_ROUTING=0 bash generate-profiles.sh --yes
-sudo systemctl restart x-ui
-```
-
-```bash
-sudo bash generate-profiles.sh --xui-only --no-xui-warp-routing --no-auto-install-warp --yes
-sudo systemctl restart x-ui
-```
+Clean up old WARP template settings if an earlier install wrote them directly into x-ui:
 
 ```bash
 cd ~/unified-proxy-manager

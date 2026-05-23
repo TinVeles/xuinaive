@@ -28,8 +28,8 @@ WARP_PROXY_PORT=40000
 WARP_OUTBOUND_TAG="warp-cli"
 WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-all}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
-AUTO_INSTALL_WARP="${AUTO_INSTALL_WARP:-1}"
-XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
+AUTO_INSTALL_WARP="${AUTO_INSTALL_WARP:-0}"
+XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-0}"
 XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
 PRINT_ACCESS_INFO=1
@@ -45,11 +45,12 @@ Usage:
     --nh-email admin@example.com \
     [--tls-cert /path/fullchain.pem --tls-key /path/privkey.pem] \
     [--with-mieru] \
+    [--install-warp] \
     [--no-install-warp] \
     --yes
 
 This is the explicit real installer. It runs vendored component scripts.
-It installs WARP and generates profiles/subscriptions by default.
+It generates profiles/subscriptions by default. Add --install-warp to install WARP and enable AI routing through it.
 Mieru is disabled by default. Add --with-mieru to expose the optional Mieru module in NHM Panel.
 For dry-run checks use ./install.sh.
 EOF
@@ -268,7 +269,7 @@ Unified all-in-one real install plan
    caddy-nh binds ${NH_BACKEND} for TCP NaiveProxy.
    hysteria-server binds 0.0.0.0:443/udp.
    panel-naive-hy2 is exposed with panel access mode ${PANEL_ACCESS} on port ${PANEL_PUBLIC_PORT}.
-4. Install WARP local proxy when enabled.
+4. Install WARP local proxy only when --install-warp is enabled.
 5. Generate x-ui, NaiveProxy, Hysteria2, and combined subscriptions when enabled.
 
 WARNING:

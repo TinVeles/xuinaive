@@ -34,9 +34,9 @@ XUI_INBOUND_ID="${XUI_INBOUND_ID:-}"
 XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-$PREFIX}"
 XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
-XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
+XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-0}"
 XUI_CLEANUP_WARP_TEMPLATE="${XUI_CLEANUP_WARP_TEMPLATE:-0}"
-XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-1}"
+XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-0}"
 XUI_REPLACE_CLIENTS="${XUI_REPLACE_CLIENTS:-1}"
 CREATE_XUI="${CREATE_XUI:-1}"
 CREATE_NH="${CREATE_NH:-1}"
@@ -63,6 +63,7 @@ Usage:
   sudo bash generate-profiles.sh --count 15 --prefix auto --yes
   sudo bash generate-profiles.sh --xui-only --yes
   sudo bash generate-profiles.sh --nh-only --yes
+  sudo bash generate-profiles.sh --install-warp --yes
 
 Creates:
   x-ui:  COUNT standard clients on every selected preset inbound.
@@ -75,10 +76,10 @@ WARP routing:
   local proxy:  ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}
   inbound filter: ${WARP_INBOUND_TAG} (all = no inboundTag in routing rule)
   AI domains:   ${WARP_AI_DOMAINS}
-  routing enabled by default, but x-ui template DB is not modified unless explicitly requested.
+  disabled by default; enable routing with --xui-warp-routing or install+route with --install-warp.
   generated clients use standard preset inbounds by default.
-  AI-domain WARP routing is written to /etc/x-ui/warp-generated-routing.json.
-  auto-installs Cloudflare WARP local proxy when WARP routing is enabled.
+  AI-domain WARP routing is written to /etc/x-ui/warp-generated-routing.json when enabled.
+  auto-installs Cloudflare WARP local proxy only with --install-warp or --auto-install-warp.
   use --apply-xui-warp-template to also write warp-cli outbound/rules into x-ui settings.
   use --cleanup-xui-warp-template to remove previously written warp-cli outbound/rules.
 
@@ -110,6 +111,7 @@ while [[ $# -gt 0 ]]; do
     --xui-inbound-id) XUI_INBOUND_ID="${2:-}"; shift 2 ;;
     --xui-common-sub-id) XUI_COMMON_SUB_ID="${2:-}"; shift 2 ;;
     --xui-sub-id-mode) XUI_SUB_ID_MODE="${2:-}"; shift 2 ;;
+    --install-warp) XUI_ENABLE_WARP_ROUTING=1; XUI_AUTO_INSTALL_WARP=1; shift ;;
     --xui-warp-routing) XUI_ENABLE_WARP_ROUTING=1; shift ;;
     --no-xui-warp-routing) XUI_ENABLE_WARP_ROUTING=0; shift ;;
     --apply-xui-warp-template) XUI_APPLY_WARP_TEMPLATE=1; shift ;;
