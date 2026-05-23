@@ -264,6 +264,14 @@ NHM subscription files:
 
 Combined per-client subscriptions first pull the matching 3x-ui subscription, then append NaiveProxy and Hysteria2 links. That keeps the same x-ui names/remarks as the direct 3x-ui subscription. The NHM username/password in NaiveProxy and Hysteria2 links is unchanged.
 
+Refresh combined subscriptions after changing names in 3x-ui:
+
+```bash
+sudo bash update-subscriptions.sh --yes
+```
+
+This does not edit x-ui clients, NHM users, inbounds, routing, or passwords.
+
 The subscription token is generated once and stored root-only:
 
 ```bash

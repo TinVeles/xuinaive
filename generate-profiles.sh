@@ -40,6 +40,7 @@ XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-0}"
 XUI_REPLACE_CLIENTS="${XUI_REPLACE_CLIENTS:-1}"
 CREATE_XUI="${CREATE_XUI:-1}"
 CREATE_NH="${CREATE_NH:-1}"
+COMBINED_ONLY="${COMBINED_ONLY:-0}"
 RELOAD_SERVICES="${RELOAD_SERVICES:-1}"
 ASSUME_YES=0
 
@@ -63,6 +64,7 @@ Usage:
   sudo bash generate-profiles.sh --count 15 --prefix auto --yes
   sudo bash generate-profiles.sh --xui-only --yes
   sudo bash generate-profiles.sh --nh-only --yes
+  sudo bash generate-profiles.sh --combined-only --yes
   sudo bash generate-profiles.sh --install-warp --yes
 
 Creates:
@@ -90,6 +92,7 @@ x-ui selection:
   --xui-sub-id-mode common: one subscription contains all generated clients
   default replace mode: selected inbound clients become exactly COUNT
   --xui-keep-existing: keep existing non-generated clients
+  --combined-only: refresh combined subscription files only; do not edit x-ui or NHM users
 EOF
 }
 
@@ -124,6 +127,7 @@ while [[ $# -gt 0 ]]; do
     --xui-keep-existing) XUI_REPLACE_CLIENTS=0; shift ;;
     --xui-only) CREATE_XUI=1; CREATE_NH=0; shift ;;
     --nh-only) CREATE_XUI=0; CREATE_NH=1; shift ;;
+    --combined-only) COMBINED_ONLY=1; CREATE_XUI=0; CREATE_NH=0; RELOAD_SERVICES=0; shift ;;
     --no-reload) RELOAD_SERVICES=0; shift ;;
     --yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -147,10 +151,15 @@ fi
 for cmd in node openssl; do
   command_exists "$cmd" || die "$cmd is required"
 done
-if [[ "$CREATE_XUI" == "1" ]]; then
+if [[ "$CREATE_XUI" == "1" || "$COMBINED_ONLY" == "1" ]]; then
   command_exists sqlite3 || die "sqlite3 is required for x-ui profile generation"
-  command_exists jq || die "jq is required for x-ui profile generation"
   [[ -f "$XUI_DB" ]] || die "x-ui database not found: $XUI_DB"
+fi
+if [[ "$CREATE_XUI" == "1" ]]; then
+  command_exists jq || die "jq is required for x-ui profile generation"
+fi
+if [[ "$COMBINED_ONLY" == "1" ]]; then
+  [[ -f "$NH_CONFIG" ]] || die "NHM config not found: $NH_CONFIG"
 fi
 
 if [[ "$CREATE_XUI" == "1" && "$XUI_ENABLE_WARP_ROUTING" == "1" && "$XUI_AUTO_INSTALL_WARP" == "1" ]]; then
@@ -1241,7 +1250,7 @@ if [[ "$CREATE_XUI" == "1" && "$RELOAD_SERVICES" == "1" && "$XUI_STOPPED_FOR_DB_
     warn "x-ui start failed before combined subscription generation; using database fallback"
   fi
 fi
-if [[ "$CREATE_XUI" == "1" || "$CREATE_NH" == "1" ]]; then
+if [[ "$CREATE_XUI" == "1" || "$CREATE_NH" == "1" || "$COMBINED_ONLY" == "1" ]]; then
   combined_generate
 fi
 
