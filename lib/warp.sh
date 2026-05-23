@@ -33,7 +33,7 @@ warp_write_xray_snippet() {
     --argjson inboundTags "$inbound_tags_json" \
     --argjson domains "$domains_json" \
     '{
-      outbound: {tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port}]}},
+      outbound: {tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port, users:[]}]}},
       routingRule: ({type:"field", domain:$domains, outboundTag:$tag} + (if $inboundTags == null then {} else {inboundTag:$inboundTags} end))
     }' > "$snippet_file"
 }
