@@ -9,6 +9,8 @@ XUI_DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
+XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
+XUI_CLEANUP_WARP_TEMPLATE="${XUI_CLEANUP_WARP_TEMPLATE:-0}"
 
 # all = правило без inboundTag, то есть работает для всех inbounds.
 # generated = только для сгенерированных preset inbound tags.
@@ -96,18 +98,34 @@ test_warp_proxy() {
   fi
 }
 
-apply_xui_warp_routing() {
+write_xui_warp_snippet() {
   [[ -f "$XUI_DB" ]] || {
-    warn "Пропускаю x-ui routing: нет $XUI_DB"
+    warn "Пропускаю x-ui snippet: нет $XUI_DB"
     return 0
   }
 
-  log "Applying x-ui/Xray WARP outbound and routing rule"
+  if [[ "$XUI_APPLY_WARP_TEMPLATE" == "1" ]]; then
+    warn "XUI_APPLY_WARP_TEMPLATE=1: будет изменён x-ui routing template DB. Этот режим экспериментальный."
+  else
+    log "Writing x-ui/Xray WARP snippet only; x-ui DB routing template will not be modified"
+  fi
 
   cd "$APP_DIR"
 
+  local -a args=(
+    --xui-only
+    --count "$PROFILE_COUNT"
+    --prefix "$PROFILE_PREFIX"
+    --warp-port "$WARP_PROXY_PORT"
+    --warp-outbound-tag "$WARP_OUTBOUND_TAG"
+    --yes
+  )
+  [[ "$XUI_APPLY_WARP_TEMPLATE" == "1" ]] && args+=(--apply-xui-warp-template)
+  [[ "$XUI_CLEANUP_WARP_TEMPLATE" == "1" ]] && args+=(--cleanup-xui-warp-template --no-xui-warp-routing)
+
   XUI_ENABLE_WARP_ROUTING=1 \
-  XUI_APPLY_WARP_TEMPLATE=1 \
+  XUI_APPLY_WARP_TEMPLATE="$XUI_APPLY_WARP_TEMPLATE" \
+  XUI_CLEANUP_WARP_TEMPLATE="$XUI_CLEANUP_WARP_TEMPLATE" \
   XUI_AUTO_INSTALL_WARP=0 \
   XUI_CREATE_DIRECT=1 \
   XUI_DB="$XUI_DB" \
@@ -116,14 +134,7 @@ apply_xui_warp_routing() {
   WARP_OUTBOUND_TAG="$WARP_OUTBOUND_TAG" \
   WARP_INBOUND_TAG="$WARP_INBOUND_TAG" \
   WARP_AI_DOMAINS="$WARP_AI_DOMAINS" \
-  bash generate-profiles.sh \
-    --xui-only \
-    --count "$PROFILE_COUNT" \
-    --prefix "$PROFILE_PREFIX" \
-    --warp-port "$WARP_PROXY_PORT" \
-    --warp-outbound-tag "$WARP_OUTBOUND_TAG" \
-    --apply-xui-warp-template \
-    --yes
+  bash generate-profiles.sh "${args[@]}"
 
   if [[ -f /etc/x-ui/warp-generated-routing.json ]]; then
     ok "Generated routing snippet:"
@@ -152,7 +163,7 @@ main() {
   backup_xui_db
   install_warp_proxy
   test_warp_proxy
-  apply_xui_warp_routing
+  write_xui_warp_snippet
   restart_services
 
   ok "Done."
@@ -162,6 +173,11 @@ main() {
   echo
   echo "Файл routing snippet:"
   echo "  /etc/x-ui/warp-generated-routing.json"
+  echo
+  echo "x-ui DB template apply:"
+  echo "  default: disabled"
+  echo "  enable only for test: XUI_APPLY_WARP_TEMPLATE=1 sudo bash auto-warp-xui-routing.sh"
+  echo "  cleanup old DB routing: XUI_CLEANUP_WARP_TEMPLATE=1 sudo bash auto-warp-xui-routing.sh"
 }
 
 main "$@"
