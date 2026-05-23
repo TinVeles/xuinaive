@@ -30,7 +30,6 @@ WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-all}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
 AUTO_INSTALL_WARP="${AUTO_INSTALL_WARP:-0}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
-XUI_CREATE_WARP="${XUI_CREATE_WARP:-0}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
 PRINT_ACCESS_INFO=1
 NH_ENABLE_MIERU=0
@@ -198,8 +197,6 @@ while [[ $# -gt 0 ]]; do
     --auto-install-warp) AUTO_INSTALL_WARP=1; shift ;;
     --no-xui-warp-routing) XUI_ENABLE_WARP_ROUTING=0; shift ;;
     --xui-warp-routing) XUI_ENABLE_WARP_ROUTING=1; shift ;;
-    --xui-warp-clone) XUI_CREATE_WARP=1; shift ;;
-    --no-xui-warp-clone) XUI_CREATE_WARP=0; shift ;;
     --with-mieru|--enable-mieru) NH_ENABLE_MIERU=1; shift ;;
     --no-access-info) PRINT_ACCESS_INFO=0; shift ;;
     --yes) ASSUME_YES=1; shift ;;
@@ -286,7 +283,6 @@ XUI_SEED_PROFILES=1 \
 XUI_PROFILE_COUNT="$PROFILE_COUNT" \
 XUI_PROFILE_PREFIX="$PROFILE_PREFIX" \
 XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
-XUI_CREATE_WARP_INBOUNDS="$XUI_CREATE_WARP" \
 XUI_CREATE_DIRECT_CLIENTS="$XUI_CREATE_DIRECT" \
 WARP_INBOUND_TAG="$WARP_INBOUND_TAG" \
 bash "$XUI_SCRIPT" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
@@ -372,14 +368,12 @@ config_set WARP_OUTBOUND_TAG "$WARP_OUTBOUND_TAG"
 config_set WARP_INBOUND_TAG "$WARP_INBOUND_TAG"
 config_set WARP_AI_DOMAINS "$WARP_AI_DOMAINS"
 config_set XUI_ENABLE_WARP_ROUTING "$XUI_ENABLE_WARP_ROUTING"
-config_set XUI_CREATE_WARP "$XUI_CREATE_WARP"
 config_set XUI_CREATE_DIRECT "$XUI_CREATE_DIRECT"
 ok "Saved final configuration: $SCRIPT_DIR/config.env"
 
 if [[ "$GENERATE_PROFILES" == "1" ]]; then
   info "Running profile generation as part of unified install"
   XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
-  XUI_CREATE_WARP="$XUI_CREATE_WARP" \
   XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
   bash "$SCRIPT_DIR/generate-profiles.sh" \
     --count "${PROFILE_COUNT:-15}" \

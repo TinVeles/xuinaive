@@ -57,7 +57,6 @@ WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
 WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-all}"
 WARP_ROUTE_PORT="${WARP_ROUTE_PORT:-443}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
-XUI_CREATE_WARP="${XUI_CREATE_WARP:-0}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
 GENERATE_PROFILES="${GENERATE_PROFILES:-0}"
 PROFILE_COUNT="${PROFILE_COUNT:-15}"
@@ -237,7 +236,7 @@ load_config() {
         value="${value//\\\\/\\}"
       fi
       case "$key" in
-        MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NAIVE_EMAIL|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PROXY_EMAIL|PROXY_EMAIL|NH_STACK|NH_ACCESS|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_EMAIL|PANEL_EMAIL|NH_SSH_ONLY|NH_MASQUERADE|NH_MASQUERADE_URL|NH_ALLOW_PORT_CONFLICT|NH_ENABLE_MIERU|TLS_CERT|TLS_KEY|INSTALL_WARP|AUTO_INSTALL_WARP|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_AI_DOMAINS|WARP_INBOUND_TAG|WARP_ROUTE_PORT|XUI_ENABLE_WARP_ROUTING|XUI_CREATE_WARP|XUI_CREATE_DIRECT|GENERATE_PROFILES|PROFILE_COUNT|PROFILE_PREFIX|UPM_PROJECT_DIR)
+        MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NAIVE_EMAIL|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PROXY_EMAIL|PROXY_EMAIL|NH_STACK|NH_ACCESS|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_EMAIL|PANEL_EMAIL|NH_SSH_ONLY|NH_MASQUERADE|NH_MASQUERADE_URL|NH_ALLOW_PORT_CONFLICT|NH_ENABLE_MIERU|TLS_CERT|TLS_KEY|INSTALL_WARP|AUTO_INSTALL_WARP|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_AI_DOMAINS|WARP_INBOUND_TAG|WARP_ROUTE_PORT|XUI_ENABLE_WARP_ROUTING|XUI_CREATE_DIRECT|GENERATE_PROFILES|PROFILE_COUNT|PROFILE_PREFIX|UPM_PROJECT_DIR)
           printf -v "$key" '%s' "$value"
           ;;
       esac
@@ -613,7 +612,7 @@ run_real_install() {
     local xui_auto_install_warp="$AUTO_INSTALL_WARP"
     local xui_apply_warp_template="$XUI_ENABLE_WARP_ROUTING"
     [[ -f "$xui_installer" ]] || die "x-ui installer not found: $xui_installer. Pull latest project version."
-    if [[ "$INSTALL_WARP" != "1" && "$GENERATE_PROFILES" != "1" && "$XUI_CREATE_WARP" != "1" ]]; then
+    if [[ "$INSTALL_WARP" != "1" && "$GENERATE_PROFILES" != "1" ]]; then
       xui_install_warp_routing=0
       xui_auto_install_warp=0
       xui_apply_warp_template=0
@@ -628,7 +627,6 @@ x-ui domain:    $XUI_DOMAIN
 REALITY dest:   $REALITY_DEST
 WARP routing:   $xui_install_warp_routing
 WARP auto-install: $xui_auto_install_warp
-WARP clones:    $XUI_CREATE_WARP
 Profiles:       ${GENERATE_PROFILES} (${PROFILE_COUNT}, prefix ${PROFILE_PREFIX})
 
 This will install only x-ui-pro / 3x-ui / Xray / nginx.
@@ -650,7 +648,6 @@ EOF
     XUI_ENABLE_WARP_ROUTING="$xui_install_warp_routing" \
     XUI_AUTO_INSTALL_WARP="$xui_auto_install_warp" \
     XUI_APPLY_WARP_TEMPLATE="$xui_apply_warp_template" \
-    XUI_CREATE_WARP_INBOUNDS="$XUI_CREATE_WARP" \
     XUI_CREATE_DIRECT_CLIENTS="$XUI_CREATE_DIRECT" \
     WARP_INBOUND_TAG="$WARP_INBOUND_TAG" \
     bash "$xui_installer" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
@@ -694,7 +691,6 @@ EOF
     [[ -n "$TLS_KEY" ]] && all_args+=(--tls-key "$TLS_KEY")
     [[ "$NH_ENABLE_MIERU" == "1" ]] && all_args+=(--with-mieru)
     XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
-    XUI_CREATE_WARP="$XUI_CREATE_WARP" \
     XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
     bash "$installer" "${all_args[@]}"
     run_warp_install_if_requested
@@ -775,7 +771,6 @@ EOF
   )
   [[ "$NH_ENABLE_MIERU" == "1" ]] && legacy_args+=(--with-mieru)
   XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
-  XUI_CREATE_WARP="$XUI_CREATE_WARP" \
   XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
   bash "$installer" "${legacy_args[@]}"
   run_warp_install_if_requested
@@ -840,7 +835,6 @@ WARP AI domains: $WARP_AI_DOMAINS
 EOF
 
   XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
-  XUI_CREATE_WARP="$XUI_CREATE_WARP" \
   XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
   CREATE_XUI=1 \
   CREATE_NH="$create_nh" \
@@ -888,8 +882,6 @@ while [[ $# -gt 0 ]]; do
     --auto-install-warp) AUTO_INSTALL_WARP=1; shift ;;
     --no-xui-warp-routing) XUI_ENABLE_WARP_ROUTING=0; shift ;;
     --xui-warp-routing) XUI_ENABLE_WARP_ROUTING=1; shift ;;
-    --xui-warp-clone) XUI_CREATE_WARP=1; shift ;;
-    --no-xui-warp-clone) XUI_CREATE_WARP=0; shift ;;
     --warp-proxy-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;

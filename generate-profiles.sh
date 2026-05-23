@@ -326,10 +326,6 @@ xui_sanitize_inbound_tags() {
       CASE
         WHEN port IS NOT NULL AND port > 0 THEN port
         ELSE id
-      END ||
-      CASE
-        WHEN lower(COALESCE(remark,'')) LIKE '%warp%' THEN '-warp'
-        ELSE ''
       END
     WHERE tag IS NULL
        OR tag = ''

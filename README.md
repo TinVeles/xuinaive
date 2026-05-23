@@ -121,7 +121,6 @@ Use this when you want all generated profiles but no Cloudflare WARP service and
 
 ```bash
 sudo XUI_ENABLE_WARP_ROUTING=0 \
-  XUI_CREATE_WARP=0 \
   AUTO_INSTALL_WARP=0 \
   bash install.sh --mode all \
     --xui-domain xui.example.com \
@@ -139,7 +138,6 @@ In this mode:
 
 - `install-warp.sh` is not run.
 - x-ui WARP routing is not written.
-- Legacy `*-warp` inbounds are not created.
 - Normal x-ui, NaiveProxy, Hysteria2, and subscription generation still work.
 
 ## Existing Certificates
@@ -219,6 +217,11 @@ sudo bash generate-profiles.sh \
 
 ```bash
 sudo XUI_ENABLE_WARP_ROUTING=0 bash generate-profiles.sh --yes
+sudo systemctl restart x-ui
+```
+
+```bash
+sudo bash generate-profiles.sh --xui-only --no-xui-warp-routing --no-auto-install-warp --yes
 sudo systemctl restart x-ui
 ```
 
@@ -354,11 +357,10 @@ curl -I --max-time 20 --socks5-hostname 127.0.0.1:40000 https://www.google.com/g
 curl --max-time 20 --socks5-hostname 127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace
 ```
 
-Apply x-ui AI routing through WARP without creating legacy clone inbounds:
+Apply x-ui AI routing through WARP:
 
 ```bash
 sudo XUI_ENABLE_WARP_ROUTING=1 \
-  XUI_CREATE_WARP=0 \
   XUI_CREATE_DIRECT=1 \
   XUI_AUTO_INSTALL_WARP=0 \
   bash generate-profiles.sh \
@@ -397,7 +399,6 @@ Disable x-ui WARP routing:
 
 ```bash
 sudo XUI_ENABLE_WARP_ROUTING=0 \
-  XUI_CREATE_WARP=0 \
   XUI_CREATE_DIRECT=1 \
   bash generate-profiles.sh \
     --count 15 \
@@ -488,4 +489,4 @@ On Windows, use a working WSL or Git/MSYS Bash. The real target is Ubuntu 22.04/
 - Real install mode is guarded by `--install --yes`.
 - `install-unified.sh` runs the vendored x-ui-pro installer, which can recreate x-ui and nginx configuration. Use it on a fresh VPS or after backups.
 - Installers create backups before real stack writes where practical.
-- `--xui-warp-clone` and `XUI_CREATE_WARP=1` still exist for deprecated compatibility, but the supported default is normal profiles plus AI-only server-side WARP routing.
+- Generated x-ui profiles use only the normal preset inbounds. WARP is server-side routing through the `warp-cli` outbound, not separate `*-warp` clone inbounds.
