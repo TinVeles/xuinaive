@@ -67,7 +67,7 @@ xui_delete_warp_clone_inbounds() {
 
 xui_apply_warp_template() {
   local warp_tags_file="$1"
-  local db tags_json domains_json current key keys snippet_file updated updated_count inbound_spec snippet_inbound_tags
+  local db tags_json domains_json current key keys snippet_file updated updated_count inbound_spec snippet_inbound_tags key_exists
   db="$(xui_db_path)"
   inbound_spec="${WARP_INBOUND_TAG:-all}"
   if [[ ! -s "$warp_tags_file" && "$inbound_spec" != "all" && "$inbound_spec" != "*" && "$inbound_spec" != "" ]]; then
@@ -115,6 +115,8 @@ xui_apply_warp_template() {
         ((.outbounds // []) | map(select(.tag == $tag)) | .[0]) // $default;
       def warp_outbound($tag; $host; $port):
         {tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port, users:[]}]}};
+      def missing_outbound($tag):
+        any((.outbounds // [])[]?; .tag == $tag) | not;
       def rule_marker($rule):
         ($rule.outboundTag // "") + "|" +
         (($rule.inboundTag // []) | tostring) + "|" +
@@ -124,32 +126,32 @@ xui_apply_warp_template() {
       def merge_rules($base; $add):
         ($base + $add)
         | reduce .[] as $r ([]; if any(.[]; rule_marker(.) == rule_marker($r)) then . else . + [$r] end);
-      def not_legacy_warp_helper_rule:
-        ((.inboundTag // []) != ["api"] or (.outboundTag // "") != "api")
-        and ((.ip // []) != ["geoip:private"] or (.outboundTag // "") != "blocked")
-        and ((.protocol // []) != ["bittorrent"] or (.outboundTag // "") != "blocked")
-        and ((.domain // []) != ["geosite:category-ru"] or (.outboundTag // "") != "direct")
-        and ((.ip // []) != ["geoip:ru"] or (.outboundTag // "") != "direct");
 
       . as $root
       | .outbounds = (
-          [
-            ($root | outbound_or("direct"; {tag:"direct", protocol:"freedom"})),
-            warp_outbound($tag; $host; $port)
-          ]
-          + (($root.outbounds // []) | map(select(.tag != "direct" and .tag != "blocked" and .tag != $tag)))
+          (($root.outbounds // []) | map(select(.tag != $tag)))
+          + (if ($root | missing_outbound("direct")) then [{tag:"direct", protocol:"freedom"}] else [] end)
+          + (if ($root | missing_outbound("blocked")) then [{tag:"blocked", protocol:"blackhole"}] else [] end)
+          + [warp_outbound($tag; $host; $port)]
         )
       | .routing = (.routing // {})
       | .routing.rules = merge_rules(
-          ((.routing.rules // []) | map(select((.outboundTag != $tag) and not_legacy_warp_helper_rule)));
+          ((.routing.rules // []) | map(select(.outboundTag != $tag)));
           [
+            {type:"field", inboundTag:["api"], outboundTag:"api"},
+            {type:"field", ip:["geoip:private"], outboundTag:"blocked"},
+            {type:"field", protocol:["bittorrent"], outboundTag:"blocked"},
             ({type:"field", domain:$domains, outboundTag:$tag} + (if $inboundTags == null then {} else {inboundTag:$inboundTags} end))
           ]
         )
     ' <<<"$current")"
 
-    sqlite3 "$db" "DELETE FROM settings WHERE key=$(sql_quote "$key");"
-    sqlite3 "$db" "INSERT INTO settings (key, value) VALUES ($(sql_quote "$key"), $(sql_quote "$updated"));"
+    key_exists="$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM settings WHERE key=$(sql_quote "$key");" || printf '0')"
+    if [[ "$key_exists" -gt 0 ]]; then
+      sqlite3 "$db" "UPDATE settings SET value=$(sql_quote "$updated") WHERE key=$(sql_quote "$key");"
+    else
+      sqlite3 "$db" "INSERT INTO settings (key, value) VALUES ($(sql_quote "$key"), $(sql_quote "$updated"));"
+    fi
     updated_count=$((updated_count + 1))
   done <<<"$keys"
   if [[ "$updated_count" -gt 0 ]]; then
@@ -177,15 +179,38 @@ xui_remove_warp_template() {
       continue
     fi
     updated="$(jq -c --arg tag "${WARP_OUTBOUND_TAG:-warp-cli}" '
-      .outbounds = ((.outbounds // []) | map(select(.tag != $tag)))
+      def missing_outbound($tag):
+        any((.outbounds // [])[]?; .tag == $tag) | not;
+      def rule_marker($rule):
+        ($rule.outboundTag // "") + "|" +
+        (($rule.inboundTag // []) | tostring) + "|" +
+        (($rule.domain // []) | tostring) + "|" +
+        (($rule.ip // []) | tostring) + "|" +
+        (($rule.protocol // []) | tostring);
+      def merge_rules($base; $add):
+        ($base + $add)
+        | reduce .[] as $r ([]; if any(.[]; rule_marker(.) == rule_marker($r)) then . else . + [$r] end);
+
+      . as $root
+      | .outbounds = (
+          (($root.outbounds // []) | map(select(.tag != $tag)))
+          + (if ($root | missing_outbound("direct")) then [{tag:"direct", protocol:"freedom"}] else [] end)
+          + (if ($root | missing_outbound("blocked")) then [{tag:"blocked", protocol:"blackhole"}] else [] end)
+        )
       | .routing = (.routing // {})
-      | .routing.rules = ((.routing.rules // []) | map(select(.outboundTag != $tag)))
+      | .routing.rules = merge_rules(
+          ((.routing.rules // []) | map(select(.outboundTag != $tag)));
+          [
+            {type:"field", inboundTag:["api"], outboundTag:"api"},
+            {type:"field", ip:["geoip:private"], outboundTag:"blocked"},
+            {type:"field", protocol:["bittorrent"], outboundTag:"blocked"}
+          ]
+        )
       | if (.outbounds | length) == 0 then del(.outbounds) else . end
       | if ((.routing.rules? // []) | length) == 0 then del(.routing.rules) else . end
       | if ((.routing? // {}) | length) == 0 then del(.routing) else . end
     ' <<<"$current")"
-    sqlite3 "$db" "DELETE FROM settings WHERE key=$(sql_quote "$key");"
-    sqlite3 "$db" "INSERT INTO settings (key, value) VALUES ($(sql_quote "$key"), $(sql_quote "$updated"));"
+    sqlite3 "$db" "UPDATE settings SET value=$(sql_quote "$updated") WHERE key=$(sql_quote "$key");"
     updated_count=$((updated_count + 1))
   done <<<"$keys"
   rm -f "$snippet_file" 2>/dev/null || true
