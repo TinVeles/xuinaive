@@ -25,9 +25,9 @@ Common Bash behavior lives under `lib/` and is sourced by the public scripts ins
 
 - `lib/common.sh`: logging adapters, command checks, SQL quoting, nginx stream include helper, and guarded `config.env` updates.
 - `lib/warp.sh`: default AI domain list, WARP readiness checks, auto-install wrapper, and Xray snippet generation.
-- `lib/xui-routing.sh`: x-ui preset inbound filtering, sniffing enablement, and WARP template apply/remove.
+- `lib/xui-routing.sh`: x-ui preset inbound filtering, sniffing enablement, WARP snippet generation, and explicit opt-in WARP template apply/remove.
 
-The supported WARP model is AI-only server-side routing through the normal x-ui inbounds. The project no longer creates or deletes `*-warp` clone inbounds.
+The supported x-ui WARP model is normal x-ui inbounds plus a local SOCKS proxy at `127.0.0.1:40000`. Profile generation writes the AI-domain routing snippet by default and does not edit x-ui routing settings unless `XUI_APPLY_WARP_TEMPLATE=1` or `--apply-xui-warp-template` is used. The project no longer creates or deletes `*-warp` clone inbounds.
 
 NHM Panel also exposes a Hysteria2-only WARP routing control on the Bypass page. It reuses the same local WARP SOCKS proxy and writes Hysteria2 `outbounds` plus ACL rules, so AI domains can leave through WARP while unmatched Hy2 traffic remains direct. NaiveProxy stays client-side only for this kind of split routing because Caddy `forward_proxy` has no server-side per-domain outbound ACL.
 

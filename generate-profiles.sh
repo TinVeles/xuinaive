@@ -29,12 +29,13 @@ WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-all}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
-XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-1}"
+XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
 XUI_INBOUND_ID="${XUI_INBOUND_ID:-}"
 XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-$PREFIX}"
 XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
+XUI_CLEANUP_WARP_TEMPLATE="${XUI_CLEANUP_WARP_TEMPLATE:-0}"
 XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-1}"
 XUI_REPLACE_CLIENTS="${XUI_REPLACE_CLIENTS:-1}"
 CREATE_XUI="${CREATE_XUI:-1}"
@@ -74,10 +75,12 @@ WARP routing:
   local proxy:  ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}
   inbound filter: ${WARP_INBOUND_TAG} (all = no inboundTag in routing rule)
   AI domains:   ${WARP_AI_DOMAINS}
-  routing enabled by default; set XUI_ENABLE_WARP_ROUTING=0 to skip WARP routing.
-  generated clients use standard preset inbounds by default; AI domains route through WARP server-side.
+  routing enabled by default, but x-ui template DB is not modified unless explicitly requested.
+  generated clients use standard preset inbounds by default.
+  AI-domain WARP routing is written to /etc/x-ui/warp-generated-routing.json.
   auto-installs Cloudflare WARP local proxy when WARP routing is enabled.
-  when XUI_ENABLE_WARP_ROUTING=0, old warp-cli outbound/rules are removed from the x-ui template.
+  use --apply-xui-warp-template to also write warp-cli outbound/rules into x-ui settings.
+  use --cleanup-xui-warp-template to remove previously written warp-cli outbound/rules.
 
 x-ui selection:
   default: every preset vless/trojan inbound
@@ -109,6 +112,9 @@ while [[ $# -gt 0 ]]; do
     --xui-sub-id-mode) XUI_SUB_ID_MODE="${2:-}"; shift 2 ;;
     --xui-warp-routing) XUI_ENABLE_WARP_ROUTING=1; shift ;;
     --no-xui-warp-routing) XUI_ENABLE_WARP_ROUTING=0; shift ;;
+    --apply-xui-warp-template) XUI_APPLY_WARP_TEMPLATE=1; shift ;;
+    --no-apply-xui-warp-template) XUI_APPLY_WARP_TEMPLATE=0; shift ;;
+    --cleanup-xui-warp-template) XUI_CLEANUP_WARP_TEMPLATE=1; shift ;;
     --no-auto-install-warp) XUI_AUTO_INSTALL_WARP=0; shift ;;
     --auto-install-warp) XUI_AUTO_INSTALL_WARP=1; shift ;;
     --xui-direct-clients) XUI_CREATE_DIRECT=1; shift ;;
@@ -145,7 +151,7 @@ if [[ "$CREATE_XUI" == "1" ]]; then
   [[ -f "$XUI_DB" ]] || die "x-ui database not found: $XUI_DB"
 fi
 
-if [[ "$CREATE_XUI" == "1" && "$XUI_ENABLE_WARP_ROUTING" == "1" ]]; then
+if [[ "$CREATE_XUI" == "1" && "$XUI_ENABLE_WARP_ROUTING" == "1" && "$XUI_AUTO_INSTALL_WARP" == "1" ]]; then
   ensure_warp_local_proxy "$SCRIPT_DIR"
 fi
 
@@ -454,9 +460,11 @@ $(xui_preset_inbound_filter_sql)"
     ok "x-ui inbound ${inbound_id}: $COUNT clients, subId mode=$XUI_SUB_ID_MODE"
   done <<<"$inbound_rows"
 
-  if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" ]]; then
+  if [[ "$XUI_CLEANUP_WARP_TEMPLATE" == "1" ]]; then
+    xui_remove_warp_template
+  elif [[ "$XUI_ENABLE_WARP_ROUTING" == "1" ]]; then
     xui_apply_warp_template "$warp_tags_file"
-  else
+  elif [[ "$XUI_APPLY_WARP_TEMPLATE" == "1" ]]; then
     xui_remove_warp_template
   fi
   rm -f "$warp_tags_file"
@@ -1126,6 +1134,9 @@ x-ui:
   common subId (only common mode): ${XUI_COMMON_SUB_ID}
   replace existing clients: ${XUI_REPLACE_CLIENTS}
   WARP routing: ${XUI_ENABLE_WARP_ROUTING}
+  WARP auto-install: ${XUI_AUTO_INSTALL_WARP}
+  WARP template DB apply: ${XUI_APPLY_WARP_TEMPLATE}
+  WARP template cleanup: ${XUI_CLEANUP_WARP_TEMPLATE}
   WARP outbound: ${WARP_OUTBOUND_TAG}
   WARP proxy: ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}
   WARP inbound filter: ${WARP_INBOUND_TAG}

@@ -45,7 +45,7 @@ This gives you:
 - x-ui and NHM on one VPS.
 - 3x-ui profiles on normal inbounds.
 - NaiveProxy and Hysteria2 profiles.
-- AI-only WARP routing for x-ui.
+- Local WARP proxy and an AI-domain routing snippet for x-ui.
 - Local WARP proxy ready for NHM Panel Hysteria2 routing.
 - Final access summary in the terminal and `access-info.txt`.
 
@@ -196,7 +196,7 @@ Default output:
 x-ui:
   15 standard clients on each preset inbound
   one x-ui subscription subId per client index
-  AI-only WARP routing when enabled
+  WARP routing snippet when enabled
 
 NHM:
   15 NaiveProxy profiles
@@ -370,29 +370,51 @@ sudo XUI_ENABLE_WARP_ROUTING=1 \
     --warp-outbound-tag warp-cli \
     --yes
 
+sudo jq . /etc/x-ui/warp-generated-routing.json
 sudo systemctl restart x-ui
 ```
 
-If you explicitly want the old behavior where WARP routing is limited to generated preset inbound tags, add:
+By default this does not edit x-ui routing settings. It only creates clients and writes `/etc/x-ui/warp-generated-routing.json`, so the x-ui UI stays editable. Add the outbound/routing manually in the panel:
+
+```text
+outbound tag: warp-cli
+protocol: socks
+address: 127.0.0.1
+port: 40000
+```
+
+If you explicitly want routing limited to generated preset inbound tags, add:
 
 ```bash
 --warp-inbound-tag generated
 ```
 
-Generate the routing snippet without applying it:
+Apply the generated WARP routing directly to the x-ui template database only when you are ready to test that mode:
 
 ```bash
 sudo XUI_ENABLE_WARP_ROUTING=1 \
-  XUI_APPLY_WARP_TEMPLATE=0 \
+  XUI_APPLY_WARP_TEMPLATE=1 \
   XUI_AUTO_INSTALL_WARP=0 \
   bash generate-profiles.sh \
     --count 15 \
     --prefix auto \
     --warp-port 40000 \
     --warp-outbound-tag warp-cli \
+    --apply-xui-warp-template \
     --yes
+```
 
-sudo jq . /etc/x-ui/warp-generated-routing.json
+Repair an older install where generated WARP settings were already written into x-ui and the panel cannot edit inbounds:
+
+```bash
+sudo bash generate-profiles.sh \
+  --xui-only \
+  --no-xui-warp-routing \
+  --no-auto-install-warp \
+  --cleanup-xui-warp-template \
+  --yes
+
+sudo systemctl restart x-ui
 ```
 
 Disable x-ui WARP routing:

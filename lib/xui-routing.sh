@@ -45,7 +45,7 @@ xui_apply_warp_template() {
   db="$(xui_db_path)"
   inbound_spec="${WARP_INBOUND_TAG:-all}"
   if [[ ! -s "$warp_tags_file" && "$inbound_spec" != "all" && "$inbound_spec" != "*" && "$inbound_spec" != "" ]]; then
-    xui_remove_warp_template
+    [[ "${XUI_APPLY_WARP_TEMPLATE:-0}" == "1" ]] && xui_remove_warp_template
     return 0
   fi
   if [[ "$inbound_spec" == "all" || "$inbound_spec" == "*" || "$inbound_spec" == "" ]]; then
@@ -62,7 +62,7 @@ xui_apply_warp_template() {
   snippet_file="/etc/x-ui/warp-generated-routing.json"
   warp_write_xray_snippet "$snippet_file" "${WARP_OUTBOUND_TAG:-warp-cli}" "${WARP_PROXY_HOST:-127.0.0.1}" "${WARP_PROXY_PORT:-40000}" "${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}" "$snippet_inbound_tags"
 
-  if [[ "${XUI_APPLY_WARP_TEMPLATE:-1}" != "1" ]]; then
+  if [[ "${XUI_APPLY_WARP_TEMPLATE:-0}" != "1" ]]; then
     upm_log_ok "WARP routing snippet saved: $snippet_file"
     return 0
   fi

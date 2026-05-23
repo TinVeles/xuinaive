@@ -399,7 +399,7 @@ $(xui_preset_inbound_filter_sql)
 
   if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && "$XUI_APPLY_WARP_TEMPLATE" == "1" ]]; then
     xui_apply_warp_template "$warp_tags_file"
-  else
+  elif [[ "$XUI_ENABLE_WARP_ROUTING" != "1" && "$XUI_APPLY_WARP_TEMPLATE" == "1" ]]; then
     xui_remove_warp_template
   fi
   rm -f "$warp_tags_file"
@@ -432,7 +432,7 @@ $(xui_preset_inbound_filter_sql)
   done <<<"$inbound_rows"
   if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && "$XUI_APPLY_WARP_TEMPLATE" == "1" ]]; then
     xui_apply_warp_template "$warp_tags_file"
-  else
+  elif [[ "$XUI_ENABLE_WARP_ROUTING" != "1" && "$XUI_APPLY_WARP_TEMPLATE" == "1" ]]; then
     xui_remove_warp_template
   fi
   rm -f "$warp_tags_file"

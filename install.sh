@@ -57,6 +57,7 @@ WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
 WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-all}"
 WARP_ROUTE_PORT="${WARP_ROUTE_PORT:-443}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
+XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
 GENERATE_PROFILES="${GENERATE_PROFILES:-0}"
 PROFILE_COUNT="${PROFILE_COUNT:-15}"
@@ -583,7 +584,7 @@ All-in-one layout:
 - Hysteria2 listens on public 443/udp.
 - NHM Panel runs as panel-naive-hy2 and is exposed by nginx on 8081 by default.
 - Optional WARP local proxy installs on 127.0.0.1:${WARP_PROXY_PORT} when --install-warp is used.
-- Optional profile generator creates ${PROFILE_COUNT} standard x-ui profiles with AI-only WARP routing, plus ${PROFILE_COUNT} NaiveProxy and ${PROFILE_COUNT} Hy2 profiles when --generate-profiles is used.
+- Optional profile generator creates ${PROFILE_COUNT} standard x-ui profiles, a WARP routing snippet, plus ${PROFILE_COUNT} NaiveProxy and ${PROFILE_COUNT} Hy2 profiles when --generate-profiles is used.
 EOF
       ;;
     nh)
@@ -610,7 +611,7 @@ run_real_install() {
     local xui_installer="$PROJECT_DIR/components/x-ui-pro/x-ui-pro.sh"
     local xui_install_warp_routing="$XUI_ENABLE_WARP_ROUTING"
     local xui_auto_install_warp="$AUTO_INSTALL_WARP"
-    local xui_apply_warp_template="$XUI_ENABLE_WARP_ROUTING"
+    local xui_apply_warp_template="$XUI_APPLY_WARP_TEMPLATE"
     [[ -f "$xui_installer" ]] || die "x-ui installer not found: $xui_installer. Pull latest project version."
     if [[ "$INSTALL_WARP" != "1" && "$GENERATE_PROFILES" != "1" ]]; then
       xui_install_warp_routing=0
@@ -627,6 +628,7 @@ x-ui domain:    $XUI_DOMAIN
 REALITY dest:   $REALITY_DEST
 WARP routing:   $xui_install_warp_routing
 WARP auto-install: $xui_auto_install_warp
+WARP template DB apply: $xui_apply_warp_template
 Profiles:       ${GENERATE_PROFILES} (${PROFILE_COUNT}, prefix ${PROFILE_PREFIX})
 
 This will install only x-ui-pro / 3x-ui / Xray / nginx.
@@ -691,6 +693,8 @@ EOF
     [[ -n "$TLS_KEY" ]] && all_args+=(--tls-key "$TLS_KEY")
     [[ "$NH_ENABLE_MIERU" == "1" ]] && all_args+=(--with-mieru)
     XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
+    XUI_APPLY_WARP_TEMPLATE="$XUI_APPLY_WARP_TEMPLATE" \
+    XUI_AUTO_INSTALL_WARP="$AUTO_INSTALL_WARP" \
     XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
     bash "$installer" "${all_args[@]}"
     run_warp_install_if_requested
@@ -771,6 +775,8 @@ EOF
   )
   [[ "$NH_ENABLE_MIERU" == "1" ]] && legacy_args+=(--with-mieru)
   XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
+  XUI_APPLY_WARP_TEMPLATE="$XUI_APPLY_WARP_TEMPLATE" \
+  XUI_AUTO_INSTALL_WARP="$AUTO_INSTALL_WARP" \
   XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
   bash "$installer" "${legacy_args[@]}"
   run_warp_install_if_requested
@@ -831,10 +837,14 @@ Prefix:          $PROFILE_PREFIX
 WARP outbound:   $WARP_OUTBOUND_TAG
 WARP proxy:      127.0.0.1:${WARP_PROXY_PORT}
 WARP inbound:    ${WARP_INBOUND_TAG}
+WARP auto-install: ${AUTO_INSTALL_WARP}
+WARP template DB apply: ${XUI_APPLY_WARP_TEMPLATE}
 WARP AI domains: $WARP_AI_DOMAINS
 EOF
 
   XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
+  XUI_APPLY_WARP_TEMPLATE="$XUI_APPLY_WARP_TEMPLATE" \
+  XUI_AUTO_INSTALL_WARP="$AUTO_INSTALL_WARP" \
   XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
   CREATE_XUI=1 \
   CREATE_NH="$create_nh" \
@@ -882,6 +892,8 @@ while [[ $# -gt 0 ]]; do
     --auto-install-warp) AUTO_INSTALL_WARP=1; shift ;;
     --no-xui-warp-routing) XUI_ENABLE_WARP_ROUTING=0; shift ;;
     --xui-warp-routing) XUI_ENABLE_WARP_ROUTING=1; shift ;;
+    --apply-xui-warp-template) XUI_APPLY_WARP_TEMPLATE=1; shift ;;
+    --no-apply-xui-warp-template) XUI_APPLY_WARP_TEMPLATE=0; shift ;;
     --warp-proxy-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
