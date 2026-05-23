@@ -1074,6 +1074,42 @@ function fetchXuiSubscription(subId) {
   return '';
 }
 
+function xuiLinkLabel(link) {
+  try {
+    const url = new URL(String(link || ''));
+    const scheme = url.protocol.replace(':', '').toLowerCase();
+    if (scheme === 'trojan') {
+      const type = (url.searchParams.get('type') || '').toLowerCase();
+      return type === 'grpc' ? 'trojan-grpc' : 'trojan';
+    }
+    if (scheme === 'vless') {
+      const type = (url.searchParams.get('type') || '').toLowerCase();
+      const security = (url.searchParams.get('security') || '').toLowerCase();
+      if (security === 'reality') return 'reality';
+      if (type === 'xhttp' || type === 'splithttp') return 'xhttp';
+      if (type === 'ws') return 'ws';
+      if (type === 'grpc') return 'grpc';
+      return type || 'vless';
+    }
+    return scheme || 'xui';
+  } catch (_) {
+    return 'xui';
+  }
+}
+
+function renameLinkFragment(link, name) {
+  const raw = String(link || '').trim();
+  if (!raw) return raw;
+  const hashIndex = raw.indexOf('#');
+  const body = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
+  return `${body}#${encode(name)}`;
+}
+
+function renameXuiLinks(links, subId, realityBases) {
+  const baseName = realityBases.get(subId) || subId;
+  return links.map(link => renameLinkFragment(link, `${xuiLinkLabel(link)}-${baseName}`));
+}
+
 function stripRealityLabel(email) {
   return String(email || '').trim().replace(/^reality-/, '').replace(/-reality$/, '');
 }
@@ -1151,7 +1187,7 @@ fs.mkdirSync(subDir, { recursive: true, mode: 0o755 });
 for (const [subId, links] of bySubId) {
   const officialXuiText = fetchXuiSubscription(subId);
   const officialXuiLinks = officialXuiText ? officialXuiText.split(/\n/).filter(Boolean) : [];
-  const xuiLinks = officialXuiLinks.length ? officialXuiLinks : links;
+  const xuiLinks = renameXuiLinks(officialXuiLinks.length ? officialXuiLinks : links, subId, realityBases);
   const combined = [...xuiLinks, ...(nhBySubId.get(subId) || [])];
   const text = combined.join('\n');
   const xrayText = xuiLinks.join('\n');

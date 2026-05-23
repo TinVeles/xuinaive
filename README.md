@@ -262,7 +262,7 @@ NHM subscription files:
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/sing-box.json
 ```
 
-Combined per-client subscriptions first pull the matching 3x-ui subscription, then append NaiveProxy and Hysteria2 links. That keeps the same x-ui names/remarks as the direct 3x-ui subscription. The NHM username/password in NaiveProxy and Hysteria2 links is unchanged.
+Combined per-client subscriptions first pull the matching 3x-ui subscription, then normalize visible names from the Reality profile name and append NaiveProxy and Hysteria2 links. The NHM username/password in NaiveProxy and Hysteria2 links is unchanged.
 
 Generated profile names use the Reality client name as the base. For example, if the Reality profile base is `user01`, generated links are named `reality-user01`, `ws-user01`, `xhttp-user01`, `trojan-grpc-user01`, `naive-user01`, and `hy2-user01`.
 
