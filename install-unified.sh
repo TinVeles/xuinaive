@@ -26,6 +26,7 @@ PROFILE_COUNT=15
 PROFILE_PREFIX="auto"
 WARP_PROXY_PORT=40000
 WARP_OUTBOUND_TAG="warp-cli"
+WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-all}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
 AUTO_INSTALL_WARP="${AUTO_INSTALL_WARP:-1}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
@@ -191,6 +192,7 @@ while [[ $# -gt 0 ]]; do
     --profile-prefix) PROFILE_PREFIX="${2:-}"; shift 2 ;;
     --warp-proxy-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
+    --warp-inbound-tag) WARP_INBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
     --no-auto-install-warp) AUTO_INSTALL_WARP=0; shift ;;
     --auto-install-warp) AUTO_INSTALL_WARP=1; shift ;;
@@ -286,6 +288,7 @@ XUI_PROFILE_PREFIX="$PROFILE_PREFIX" \
 XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
 XUI_CREATE_WARP_INBOUNDS="$XUI_CREATE_WARP" \
 XUI_CREATE_DIRECT_CLIENTS="$XUI_CREATE_DIRECT" \
+WARP_INBOUND_TAG="$WARP_INBOUND_TAG" \
 bash "$XUI_SCRIPT" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
 require_active x-ui
 require_active nginx
@@ -366,6 +369,7 @@ config_set WARP_ENABLED "$AUTO_INSTALL_WARP"
 config_set WARP_PROXY_HOST "127.0.0.1"
 config_set WARP_PROXY_PORT "$WARP_PROXY_PORT"
 config_set WARP_OUTBOUND_TAG "$WARP_OUTBOUND_TAG"
+config_set WARP_INBOUND_TAG "$WARP_INBOUND_TAG"
 config_set WARP_AI_DOMAINS "$WARP_AI_DOMAINS"
 config_set XUI_ENABLE_WARP_ROUTING "$XUI_ENABLE_WARP_ROUTING"
 config_set XUI_CREATE_WARP "$XUI_CREATE_WARP"
@@ -382,6 +386,7 @@ if [[ "$GENERATE_PROFILES" == "1" ]]; then
     --prefix "${PROFILE_PREFIX:-auto}" \
     --warp-port "${WARP_PROXY_PORT:-40000}" \
     --warp-outbound-tag "${WARP_OUTBOUND_TAG:-warp-cli}" \
+    --warp-inbound-tag "$WARP_INBOUND_TAG" \
     --warp-ai-domains "$WARP_AI_DOMAINS" \
     --yes
 fi

@@ -637,6 +637,7 @@ EOF
     XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
     XUI_CREATE_WARP_INBOUNDS="$XUI_CREATE_WARP" \
     XUI_CREATE_DIRECT_CLIENTS="$XUI_CREATE_DIRECT" \
+    WARP_INBOUND_TAG="$WARP_INBOUND_TAG" \
     bash "$xui_installer" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
 
     run_warp_install_if_requested
@@ -819,6 +820,7 @@ Count:           $PROFILE_COUNT
 Prefix:          $PROFILE_PREFIX
 WARP outbound:   $WARP_OUTBOUND_TAG
 WARP proxy:      127.0.0.1:${WARP_PROXY_PORT}
+WARP inbound:    ${WARP_INBOUND_TAG}
 WARP AI domains: $WARP_AI_DOMAINS
 EOF
 
@@ -832,6 +834,7 @@ EOF
     --prefix "$PROFILE_PREFIX" \
     --warp-port "$WARP_PROXY_PORT" \
     --warp-outbound-tag "$WARP_OUTBOUND_TAG" \
+    --warp-inbound-tag "$WARP_INBOUND_TAG" \
     --warp-ai-domains "$WARP_AI_DOMAINS" \
     --yes
 }

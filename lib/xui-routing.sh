@@ -67,16 +67,26 @@ xui_delete_warp_clone_inbounds() {
 
 xui_apply_warp_template() {
   local warp_tags_file="$1"
-  local db tags_json domains_json current key keys snippet_file updated updated_count
+  local db tags_json domains_json current key keys snippet_file updated updated_count inbound_spec snippet_inbound_tags
   db="$(xui_db_path)"
-  if [[ ! -s "$warp_tags_file" ]]; then
+  inbound_spec="${WARP_INBOUND_TAG:-all}"
+  if [[ ! -s "$warp_tags_file" && "$inbound_spec" != "all" && "$inbound_spec" != "*" && "$inbound_spec" != "" ]]; then
     xui_remove_warp_template
     return 0
   fi
-  tags_json="$(jq -Rsc 'split("\n") | map(select(length > 0)) | unique' "$warp_tags_file")"
+  if [[ "$inbound_spec" == "all" || "$inbound_spec" == "*" || "$inbound_spec" == "" ]]; then
+    tags_json="null"
+    snippet_inbound_tags="all"
+  elif [[ "$inbound_spec" == "generated" || "$inbound_spec" == "preset" ]]; then
+    tags_json="$(jq -Rsc 'split("\n") | map(select(length > 0)) | unique' "$warp_tags_file")"
+    snippet_inbound_tags="$(jq -r 'join(",")' <<<"$tags_json")"
+  else
+    tags_json="$(printf '%s\n' "$inbound_spec" | tr ',' '\n' | jq -Rsc 'split("\n") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(length > 0)) | unique')"
+    snippet_inbound_tags="$inbound_spec"
+  fi
   domains_json="$(warp_domains_json "${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}")"
   snippet_file="/etc/x-ui/warp-generated-routing.json"
-  warp_write_xray_snippet "$snippet_file" "${WARP_OUTBOUND_TAG:-warp-cli}" "${WARP_PROXY_HOST:-127.0.0.1}" "${WARP_PROXY_PORT:-40000}" "${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}" "$(jq -r 'join(",")' <<<"$tags_json")"
+  warp_write_xray_snippet "$snippet_file" "${WARP_OUTBOUND_TAG:-warp-cli}" "${WARP_PROXY_HOST:-127.0.0.1}" "${WARP_PROXY_PORT:-40000}" "${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}" "$snippet_inbound_tags"
 
   if [[ "${XUI_APPLY_WARP_TEMPLATE:-1}" != "1" ]]; then
     upm_log_ok "WARP routing snippet saved: $snippet_file"
@@ -128,7 +138,7 @@ xui_apply_warp_template() {
       | .routing.rules = merge_rules(
           ((.routing.rules // []) | map(select(.outboundTag != $tag)));
           [
-            {type:"field", inboundTag:$inboundTags, domain:$domains, outboundTag:$tag},
+            ({type:"field", domain:$domains, outboundTag:$tag} + (if $inboundTags == null then {} else {inboundTag:$inboundTags} end)),
             {type:"field", inboundTag:["api"], outboundTag:"api"},
             {type:"field", ip:["geoip:private"], outboundTag:"blocked"},
             {type:"field", protocol:["bittorrent"], outboundTag:"blocked"},

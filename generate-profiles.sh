@@ -27,6 +27,7 @@ NH_SUBSCRIPTION_NGINX="${NH_SUBSCRIPTION_NGINX:-1}"
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
+WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-all}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
 XUI_WARP_EXTERNAL_PORT="${XUI_WARP_EXTERNAL_PORT:-8443}"
 XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-1}"
@@ -74,6 +75,7 @@ Creates:
 WARP routing:
   outbound tag: ${WARP_OUTBOUND_TAG}
   local proxy:  ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}
+  inbound filter: ${WARP_INBOUND_TAG} (all = no inboundTag in routing rule)
   AI domains:   ${WARP_AI_DOMAINS}
   routing enabled by default; set XUI_ENABLE_WARP_ROUTING=0 to skip WARP routing.
   generated clients use standard preset inbounds by default; AI domains route through WARP server-side.
@@ -103,6 +105,7 @@ while [[ $# -gt 0 ]]; do
     --warp-host) WARP_PROXY_HOST="${2:-}"; shift 2 ;;
     --warp-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
+    --warp-inbound-tag) WARP_INBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
     --xui-warp-external-port) XUI_WARP_EXTERNAL_PORT="${2:-}"; shift 2 ;;
     --no-xui-warp-nginx) XUI_WARP_NGINX_STREAM=0; shift ;;
@@ -1268,6 +1271,7 @@ x-ui:
   legacy WARP clone inbounds: ${XUI_CREATE_WARP}
   WARP outbound: ${WARP_OUTBOUND_TAG}
   WARP proxy: ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}
+  WARP inbound filter: ${WARP_INBOUND_TAG}
   WARP public port: ${XUI_WARP_EXTERNAL_PORT} (WS/XHTTP/gRPC subscription port)
   WARP routed domains: ${WARP_AI_DOMAINS}
   WARP snippet: /etc/x-ui/warp-generated-routing.json

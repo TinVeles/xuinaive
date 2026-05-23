@@ -176,7 +176,7 @@ The default model is AI-only routing:
 - Gemini, Google AI, Google API/static/auth hosts, YouTube support hosts, and NotebookLM domains go through WARP.
 - Everything else stays on the normal direct outbound.
 
-For x-ui, the installer and profile generator write one `warp-cli` outbound plus one AI-domain routing rule into the x-ui/Xray template. Generated clients stay on the normal Reality, WS, XHTTP, and Trojan-gRPC inbounds.
+For x-ui, the installer and profile generator write one `warp-cli` SOCKS outbound plus one AI-domain routing rule into the x-ui/Xray template. By default the rule has no `inboundTag`, so later edits to inbound tags or inbound settings in 3x-ui do not break the WARP rule. Generated clients stay on the normal Reality, WS, XHTTP, and Trojan-gRPC inbounds.
 
 For NHM Panel, open `Bypass` and enable `AI through WARP for Hy2`. The panel writes Hysteria2 `outbounds` and ACL rules so matching AI domains use the same local WARP proxy. NaiveProxy cannot do this server-side because Caddy `forward_proxy` has no per-domain outbound ACL; configure NaiveProxy split routing in the client instead.
 
@@ -362,6 +362,12 @@ sudo XUI_ENABLE_WARP_ROUTING=1 \
     --yes
 
 sudo systemctl restart x-ui
+```
+
+If you explicitly want the old behavior where WARP routing is limited to generated preset inbound tags, add:
+
+```bash
+--warp-inbound-tag generated
 ```
 
 Generate the routing snippet without applying it:
