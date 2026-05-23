@@ -222,12 +222,43 @@ profile_indices() {
   done
 }
 
+xui_strip_reality_label() {
+  local email="$1"
+  email="${email#reality-}"
+  email="${email%-reality}"
+  printf '%s\n' "$email"
+}
+
+xui_reality_client_base() {
+  local sub_id="$1" email base
+  email="$(sqlite3 -readonly "$XUI_DB" "
+    SELECT settings
+    FROM inbounds
+    WHERE enable=1
+      AND protocol='vless'
+      AND json_valid(settings)=1
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.security')='reality'
+    ORDER BY id;
+  " 2>/dev/null | jq -r --arg sub_id "$sub_id" '
+    (.clients // [])[]
+    | select((.enable // true) != false)
+    | select((.subId // "") == $sub_id)
+    | (.email // "")
+    | select(. != "")
+  ' 2>/dev/null | head -n 1)"
+  base="$(xui_strip_reality_label "$email")"
+  [[ -n "$base" ]] || base="$sub_id"
+  printf '%s\n' "$base"
+}
+
 xui_client_email() {
-  local index="$1" mode="$2" label="$3"
+  local index="$1" mode="$2" label="$3" base="${4:-}"
+  [[ -n "$base" ]] || base="${PREFIX}-${index}"
   if [[ "$mode" == "direct" || "$mode" == "standard" ]]; then
-    printf '%s-%s-%s\n' "$PREFIX" "$index" "$label"
+    printf '%s-%s\n' "$label" "$base"
   else
-    printf '%s-%s-%s-%s\n' "$PREFIX" "$index" "$mode" "$label"
+    printf '%s-%s-%s\n' "$mode" "$label" "$base"
   fi
 }
 
@@ -366,7 +397,7 @@ xui_enable_preset_xhttp() {
 
 xui_replace_generated_clients() {
   local inbound_id="$1" protocol="$2" mode="$3" tag="$4" report_file="$5"
-  local now index label email sub_id client_json clients_json settings new_settings traffic_result existing_json
+  local now index label email sub_id base client_json clients_json settings new_settings traffic_result existing_json
   now="$(date +%s)000"
   clients_json="[]"
   label="$(xui_profile_label "$inbound_id" "$protocol")"
@@ -374,10 +405,11 @@ xui_replace_generated_clients() {
 
   for index in $(profile_indices "$COUNT"); do
     sub_id="${PREFIX}-${index}"
-    email="$(xui_client_email "$index" "$mode" "$label")"
     if [[ "$XUI_SUB_ID_MODE" == "common" ]]; then
       sub_id="$XUI_COMMON_SUB_ID"
     fi
+    base="$(xui_reality_client_base "$sub_id")"
+    email="$(xui_client_email "$index" "$mode" "$label" "$base")"
     existing_json="$(jq -c --arg email "$email" '((.clients // []) | map(select((.email // "") == $email)) | .[0]) // {}' <<<"$settings")"
     client_json="$(xui_client_json "$inbound_id" "$protocol" "$email" "$sub_id" "$now" "$existing_json")"
     if [[ -z "$client_json" ]] || ! jq -e . >/dev/null 2>&1 <<<"$client_json"; then
@@ -411,7 +443,8 @@ xui_replace_generated_clients() {
     else
       sub_id="${PREFIX}-${index}"
     fi
-    email="$(xui_client_email "$index" "$mode" "$label")"
+    base="$(xui_reality_client_base "$sub_id")"
+    email="$(xui_client_email "$index" "$mode" "$label" "$base")"
     traffic_result="$(sqlite3 "$XUI_DB" "INSERT OR IGNORE INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset) VALUES ($inbound_id, 1, $(sql_quote "$email"), 0, 0, 0, 0, 0); SELECT changes();" 2>/dev/null || true)"
     if [[ "${traffic_result##*$'\n'}" != "1" ]]; then
       printf 'WARN traffic duplicate/ignored inbound=%s email=%s\n' "$inbound_id" "$email" >> "$report_file"
@@ -1041,23 +1074,36 @@ function fetchXuiSubscription(subId) {
   return '';
 }
 
-function xuiDisplayNamesBySubId(rows) {
-  const names = new Map();
+function stripRealityLabel(email) {
+  return String(email || '').trim().replace(/^reality-/, '').replace(/-reality$/, '');
+}
+
+function xuiRealityBaseBySubId(rows) {
+  const bases = new Map();
+  const fallback = new Map();
   for (const row of rows) {
     let settings;
     try { settings = JSON.parse(row.settings || '{}'); } catch (_) { continue; }
+    let stream;
+    try { stream = JSON.parse(row.stream_settings || '{}'); } catch (_) { stream = {}; }
+    const isReality = String(stream.security || '') === 'reality';
     const clients = Array.isArray(settings.clients) ? settings.clients : [];
     for (const client of clients) {
       if (!client || client.enable === false) continue;
       const subId = String(client.subId || '');
       const email = String(client.email || '').trim();
-      if (subId && email && !names.has(subId)) names.set(subId, email);
+      if (!subId || !email) continue;
+      if (!fallback.has(subId)) fallback.set(subId, stripRealityLabel(email));
+      if (isReality && !bases.has(subId)) bases.set(subId, stripRealityLabel(email));
     }
   }
-  return names;
+  for (const [subId, base] of fallback) {
+    if (!bases.has(subId)) bases.set(subId, base);
+  }
+  return bases;
 }
 
-function nhLinksBySubId(displayNames) {
+function nhLinksBySubId(realityBases) {
   const cfg = JSON.parse(fs.readFileSync(nhConfig, 'utf8'));
   const domain = cfg.domain || 'DOMAIN_NOT_SET';
   const bySubId = new Map();
@@ -1070,16 +1116,16 @@ function nhLinksBySubId(displayNames) {
     const links = [];
     const nUser = naive.find(u => String(u.username || '') === `${prefix}-naive-${n}`);
     const hUser = hy2.find(u => String(u.username || '') === `${prefix}-hy2-${n}`);
-    const displayName = displayNames.get(subId) || subId;
-    if (nUser) links.push(`naive+https://${encode(nUser.username)}:${encode(nUser.password)}@${domain}:443#${encode(displayName)}`);
-    if (hUser) links.push(`hysteria2://${encode(hUser.username)}:${encode(hUser.password)}@${domain}:443?sni=${domain}&insecure=0#${encode(displayName)}`);
+    const baseName = realityBases.get(subId) || subId;
+    if (nUser) links.push(`naive+https://${encode(nUser.username)}:${encode(nUser.password)}@${domain}:443#${encode(`naive-${baseName}`)}`);
+    if (hUser) links.push(`hysteria2://${encode(hUser.username)}:${encode(hUser.password)}@${domain}:443?sni=${domain}&insecure=0#${encode(`hy2-${baseName}`)}`);
     bySubId.set(subId, links);
   }
   return bySubId;
 }
 
 const rows = xuiRows();
-const displayNames = xuiDisplayNamesBySubId(rows);
+const realityBases = xuiRealityBaseBySubId(rows);
 const bySubId = new Map();
 for (let i = 1; i <= count; i += 1) {
   bySubId.set(`${prefix}-${String(i).padStart(2, '0')}`, []);
@@ -1096,7 +1142,7 @@ for (const row of rows) {
   }
 }
 
-const nhBySubId = nhLinksBySubId(displayNames);
+const nhBySubId = nhLinksBySubId(realityBases);
 const combinedAll = [];
 const xrayAll = [];
 const stableXrayAll = [];
