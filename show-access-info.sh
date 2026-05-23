@@ -476,6 +476,7 @@ append_profiles_summary() {
         printf 'hysteria2: %s/hy2.txt\n' "$base_url"
         printf 'all:       %s/all.txt\n' "$base_url"
         printf 'combined:  %s/combined.txt\n' "$base_url"
+        printf 'v2rayN:    %s/v2rayn.txt\n' "$base_url"
         printf 'sing-box:  %s/sing-box.json\n' "$base_url"
       fi
       find "$sub_dir" -maxdepth 1 -type f \( -name '*.txt' -o -name '*.json' -o -name '*.b64' \) -printf '  %f\n' 2>/dev/null | sort
@@ -507,6 +508,7 @@ print_profiles_summary() {
     if [[ -n "$base_url" ]]; then
       echo -e "${CYAN}   ${base_url}/all.txt${RESET}"
       echo -e "${CYAN}   ${base_url}/combined.txt${RESET}"
+      echo -e "${CYAN}   ${base_url}/v2rayn.txt${RESET}"
       echo -e "${CYAN}   ${base_url}/sing-box.json${RESET}"
     fi
   elif [[ -f "$generated_links" ]]; then

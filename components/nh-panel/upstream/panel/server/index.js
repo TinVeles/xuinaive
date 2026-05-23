@@ -657,6 +657,10 @@ app.get('/api/subscriptions', requireAuth, (req, res) => {
       txt: has('combined.txt') ? url('combined.txt') : '',
       b64: has('combined.b64') ? url('combined.b64') : ''
     },
+    v2rayn: {
+      txt: has('v2rayn.txt') ? url('v2rayn.txt') : '',
+      b64: has('v2rayn.b64') ? url('v2rayn.b64') : ''
+    },
     singBox: has('sing-box.json') ? url('sing-box.json') : '',
     users
   });

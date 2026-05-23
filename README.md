@@ -268,6 +268,8 @@ NHM subscription files:
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/auto-01.b64
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/combined.txt
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/combined.b64
+/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/v2rayn.txt
+/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/v2rayn.b64
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/sing-box.json
 ```
 
@@ -286,8 +288,11 @@ http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/all.txt
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/auto-01.txt
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/auto-01.b64
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/combined.txt
+http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/v2rayn.txt
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/sing-box.json
 ```
+
+Use `v2rayn.txt` for v2rayN. `combined.txt` includes NaiveProxy and Hysteria2 links too, and some Xray clients reject the whole subscription when they see unsupported `naive+https://` lines.
 
 ## Access Info
 

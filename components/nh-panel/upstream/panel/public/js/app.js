@@ -325,6 +325,16 @@ async function renderQuickLinks(status) {
     if (subRes.ok) {
       const subs = await subRes.json();
       if (subs.available) {
+        if (subs.v2rayn?.txt) {
+          hasAny = true;
+          listEl.innerHTML += `
+            <div class="quick-link-item">
+              <span class="ql-type sub-tag">Sub</span>
+              <span class="ql-user">v2rayN</span>
+              <span class="ql-url">${escapeHtml(subs.v2rayn.txt)}</span>
+              <button class="quick-link-copy" data-copy="${escapeHtml(subs.v2rayn.txt)}">Копировать</button>
+            </div>`;
+        }
         if (subs.combined?.txt) {
           hasAny = true;
           listEl.innerHTML += `

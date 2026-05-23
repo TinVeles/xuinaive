@@ -1006,19 +1006,27 @@ for (const row of xuiRows()) {
 
 const nhBySubId = nhLinksBySubId();
 const combinedAll = [];
+const xrayAll = [];
 fs.mkdirSync(subDir, { recursive: true, mode: 0o755 });
 
 for (const [subId, links] of bySubId) {
   const combined = [...links, ...(nhBySubId.get(subId) || [])];
   const text = combined.join('\n');
+  const xrayText = links.join('\n');
   fs.writeFileSync(path.join(subDir, `${subId}.txt`), text + (text ? '\n' : ''), { mode: 0o644 });
   fs.writeFileSync(path.join(subDir, `${subId}.b64`), b64(text), { mode: 0o644 });
+  fs.writeFileSync(path.join(subDir, `${subId}-v2rayn.txt`), xrayText + (xrayText ? '\n' : ''), { mode: 0o644 });
+  fs.writeFileSync(path.join(subDir, `${subId}-v2rayn.b64`), b64(xrayText), { mode: 0o644 });
   combinedAll.push(...combined);
+  xrayAll.push(...links);
 }
 
 const allText = combinedAll.join('\n');
+const xrayText = xrayAll.join('\n');
 fs.writeFileSync(path.join(subDir, 'combined.txt'), allText + (allText ? '\n' : ''), { mode: 0o644 });
 fs.writeFileSync(path.join(subDir, 'combined.b64'), b64(allText), { mode: 0o644 });
+fs.writeFileSync(path.join(subDir, 'v2rayn.txt'), xrayText + (xrayText ? '\n' : ''), { mode: 0o644 });
+fs.writeFileSync(path.join(subDir, 'v2rayn.b64'), b64(xrayText), { mode: 0o644 });
 NODE
 
   local sub_dir="${NH_SUBSCRIPTION_DIR%/}/$NH_SUBSCRIPTION_TOKEN"
@@ -1033,6 +1041,7 @@ NODE
     fi
   fi
   ok "Combined x-ui + NHM subscriptions saved: ${NH_SUBSCRIPTION_DIR%/}/$NH_SUBSCRIPTION_TOKEN/${PREFIX}-01.txt ... ${PREFIX}-${COUNT}.txt"
+  ok "v2rayN-safe x-ui subscription saved: ${NH_SUBSCRIPTION_DIR%/}/$NH_SUBSCRIPTION_TOKEN/v2rayn.txt"
 }
 
 configure_nginx_subscription() {
