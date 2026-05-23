@@ -124,26 +124,26 @@ xui_apply_warp_template() {
       def merge_rules($base; $add):
         ($base + $add)
         | reduce .[] as $r ([]; if any(.[]; rule_marker(.) == rule_marker($r)) then . else . + [$r] end);
+      def not_legacy_warp_helper_rule:
+        ((.inboundTag // []) != ["api"] or (.outboundTag // "") != "api")
+        and ((.ip // []) != ["geoip:private"] or (.outboundTag // "") != "blocked")
+        and ((.protocol // []) != ["bittorrent"] or (.outboundTag // "") != "blocked")
+        and ((.domain // []) != ["geosite:category-ru"] or (.outboundTag // "") != "direct")
+        and ((.ip // []) != ["geoip:ru"] or (.outboundTag // "") != "direct");
 
       . as $root
       | .outbounds = (
           [
             ($root | outbound_or("direct"; {tag:"direct", protocol:"freedom"})),
-            warp_outbound($tag; $host; $port),
-            ($root | outbound_or("blocked"; {tag:"blocked", protocol:"blackhole"}))
+            warp_outbound($tag; $host; $port)
           ]
           + (($root.outbounds // []) | map(select(.tag != "direct" and .tag != "blocked" and .tag != $tag)))
         )
       | .routing = (.routing // {})
       | .routing.rules = merge_rules(
-          ((.routing.rules // []) | map(select(.outboundTag != $tag)));
+          ((.routing.rules // []) | map(select((.outboundTag != $tag) and not_legacy_warp_helper_rule)));
           [
-            ({type:"field", domain:$domains, outboundTag:$tag} + (if $inboundTags == null then {} else {inboundTag:$inboundTags} end)),
-            {type:"field", inboundTag:["api"], outboundTag:"api"},
-            {type:"field", ip:["geoip:private"], outboundTag:"blocked"},
-            {type:"field", protocol:["bittorrent"], outboundTag:"blocked"},
-            {type:"field", domain:["geosite:category-ru"], outboundTag:"direct"},
-            {type:"field", ip:["geoip:ru"], outboundTag:"direct"}
+            ({type:"field", domain:$domains, outboundTag:$tag} + (if $inboundTags == null then {} else {inboundTag:$inboundTags} end))
           ]
         )
     ' <<<"$current")"
