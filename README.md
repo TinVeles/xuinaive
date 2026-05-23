@@ -213,6 +213,18 @@ sudo bash generate-profiles.sh \
   --yes
 ```
 
+generate 
+
+```bash
+sudo bash generate-profiles.sh \
+  --xui-only \
+  --xui-warp-routing \
+  --no-auto-install-warp \
+  --yes
+
+sudo systemctl restart x-ui
+```
+
 ## Generate profiles without warp
 
 ```bash
@@ -222,6 +234,20 @@ sudo systemctl restart x-ui
 
 ```bash
 sudo bash generate-profiles.sh --xui-only --no-xui-warp-routing --no-auto-install-warp --yes
+sudo systemctl restart x-ui
+```
+
+```bash
+cd ~/unified-proxy-manager
+git pull
+
+sudo bash generate-profiles.sh \
+  --xui-only \
+  --no-xui-warp-routing \
+  --no-auto-install-warp \
+  --cleanup-xui-warp-template \
+  --yes
+
 sudo systemctl restart x-ui
 ```
 
