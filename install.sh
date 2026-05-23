@@ -188,6 +188,10 @@ collect_real_install_inputs() {
     return 0
   fi
   case "$MODE" in
+    xui)
+      prompt_value XUI_DOMAIN "Enter x-ui domain, for example xui.example.com" "$XUI_DOMAIN"
+      prompt_value REALITY_DEST "Enter REALITY destination domain, for example example.com" "$REALITY_DEST"
+      ;;
     both)
       prompt_value XUI_DOMAIN "Enter x-ui domain, for example xui.example.com" "$XUI_DOMAIN"
       prompt_value NAIVE_DOMAIN "Enter NaiveProxy domain, for example naive.example.com" "$NAIVE_DOMAIN"
@@ -204,7 +208,7 @@ collect_real_install_inputs() {
       prompt_value NH_PROXY_DOMAIN "Enter NHM proxy domain, for example vpn.example.com" "$NH_PROXY_DOMAIN"
       prompt_value NH_PROXY_EMAIL "Enter email for Let's Encrypt" "$NH_PROXY_EMAIL"
       ;;
-    *) die "Real install currently supports --mode all, --mode both, or --mode nh" ;;
+    *) die "Real install currently supports --mode xui, --mode all, --mode both, or --mode nh" ;;
   esac
 }
 
