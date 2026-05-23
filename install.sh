@@ -49,8 +49,9 @@ NH_ALLOW_PORT_CONFLICT="${NH_ALLOW_PORT_CONFLICT:-0}"
 NH_ENABLE_MIERU="${NH_ENABLE_MIERU:-0}"
 TLS_CERT="${TLS_CERT:-}"
 TLS_KEY="${TLS_KEY:-}"
-INSTALL_WARP="${INSTALL_WARP:-0}"
-AUTO_INSTALL_WARP="${AUTO_INSTALL_WARP:-0}"
+INSTALL_WARP="${INSTALL_WARP:-auto}"
+AUTO_INSTALL_WARP="${AUTO_INSTALL_WARP:-auto}"
+WARP_ENABLED="${WARP_ENABLED:-auto}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
@@ -59,7 +60,7 @@ WARP_ROUTE_PORT="${WARP_ROUTE_PORT:-443}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
 XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
-GENERATE_PROFILES="${GENERATE_PROFILES:-0}"
+GENERATE_PROFILES="${GENERATE_PROFILES:-auto}"
 PROFILE_COUNT="${PROFILE_COUNT:-15}"
 PROFILE_PREFIX="${PROFILE_PREFIX:-auto}"
 PROJECT_DIR="${PROJECT_DIR:-${UPM_PROJECT_DIR:-$SCRIPT_DIR}}"
@@ -95,8 +96,6 @@ Usage:
   ./install.sh --mode xui --xui-domain x.example.com --reality-dest r.example.com [--dry-run]
   ./install.sh --mode naive --naive-domain n.example.com [--dry-run]
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install --yes
-  ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install-warp --install --yes
-  ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install-warp --generate-profiles --install --yes
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem --install --yes
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --with-mieru --install --yes
   ./install.sh --mode nh --domain vpn.example.com --proxy-email admin@example.com --install --yes
@@ -106,6 +105,8 @@ Default mode is dry-run only. Real install requires --install --yes.
 When values are omitted in an interactive terminal, the script asks for them.
 When run from a URL, relative paths are resolved from the current directory or --project-dir.
 Mode all installs 3x-ui + NHM Panel + NaiveProxy + Hysteria2 on one VPS.
+Real --mode all also installs WARP and generates subscriptions by default.
+Use --no-install-warp or --no-generate-profiles only for minimal/manual recovery installs.
 Mode nh installs only the standalone NHM NaiveProxy + Hysteria2 web panel.
 Mieru is disabled by default. Add --with-mieru if you want the optional Mieru module in NHM Panel.
 EOF
@@ -237,11 +238,37 @@ load_config() {
         value="${value//\\\\/\\}"
       fi
       case "$key" in
-        MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NAIVE_EMAIL|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PROXY_EMAIL|PROXY_EMAIL|NH_STACK|NH_ACCESS|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_EMAIL|PANEL_EMAIL|NH_SSH_ONLY|NH_MASQUERADE|NH_MASQUERADE_URL|NH_ALLOW_PORT_CONFLICT|NH_ENABLE_MIERU|TLS_CERT|TLS_KEY|INSTALL_WARP|AUTO_INSTALL_WARP|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_AI_DOMAINS|WARP_INBOUND_TAG|WARP_ROUTE_PORT|XUI_ENABLE_WARP_ROUTING|XUI_CREATE_DIRECT|GENERATE_PROFILES|PROFILE_COUNT|PROFILE_PREFIX|UPM_PROJECT_DIR)
+        MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NAIVE_EMAIL|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PROXY_EMAIL|PROXY_EMAIL|NH_STACK|NH_ACCESS|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_EMAIL|PANEL_EMAIL|NH_SSH_ONLY|NH_MASQUERADE|NH_MASQUERADE_URL|NH_ALLOW_PORT_CONFLICT|NH_ENABLE_MIERU|TLS_CERT|TLS_KEY|INSTALL_WARP|AUTO_INSTALL_WARP|WARP_ENABLED|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_AI_DOMAINS|WARP_INBOUND_TAG|WARP_ROUTE_PORT|XUI_ENABLE_WARP_ROUTING|XUI_APPLY_WARP_TEMPLATE|XUI_CREATE_DIRECT|GENERATE_PROFILES|PROFILE_COUNT|PROFILE_PREFIX|UPM_PROJECT_DIR)
           printf -v "$key" '%s' "$value"
           ;;
       esac
     done < "$config_file"
+  fi
+}
+
+resolve_install_defaults() {
+  if [[ "$WARP_ENABLED" == "0" || "$WARP_ENABLED" == "1" ]]; then
+    [[ "$INSTALL_WARP" == "auto" ]] && INSTALL_WARP="$WARP_ENABLED"
+    [[ "$AUTO_INSTALL_WARP" == "auto" ]] && AUTO_INSTALL_WARP="$WARP_ENABLED"
+    [[ "$WARP_ENABLED" == "0" ]] && XUI_ENABLE_WARP_ROUTING=0
+  fi
+  if [[ "$INSTALL_WARP" == "auto" ]]; then
+    case "$MODE" in
+      all|both|xui) INSTALL_WARP=1 ;;
+      *) INSTALL_WARP=0 ;;
+    esac
+  fi
+  if [[ "$AUTO_INSTALL_WARP" == "auto" ]]; then
+    case "$MODE" in
+      all|both|xui) AUTO_INSTALL_WARP=1 ;;
+      *) AUTO_INSTALL_WARP=0 ;;
+    esac
+  fi
+  if [[ "$GENERATE_PROFILES" == "auto" ]]; then
+    case "$MODE" in
+      all|both|xui) GENERATE_PROFILES=1 ;;
+      *) GENERATE_PROFILES=0 ;;
+    esac
   fi
 }
 
@@ -583,8 +610,8 @@ All-in-one layout:
 - Caddy accepts nginx stream PROXY protocol on the backend listener.
 - Hysteria2 listens on public 443/udp.
 - NHM Panel runs as panel-naive-hy2 and is exposed by nginx on 8081 by default.
-- Optional WARP local proxy installs on 127.0.0.1:${WARP_PROXY_PORT} when --install-warp is used.
-- Optional profile generator creates ${PROFILE_COUNT} standard x-ui profiles, a WARP routing snippet, plus ${PROFILE_COUNT} NaiveProxy and ${PROFILE_COUNT} Hy2 profiles when --generate-profiles is used.
+- WARP local proxy installs on 127.0.0.1:${WARP_PROXY_PORT} when enabled. Current value: ${INSTALL_WARP}.
+- Profile generator creates ${PROFILE_COUNT} standard x-ui profiles plus ${PROFILE_COUNT} NaiveProxy and ${PROFILE_COUNT} Hy2 profiles when enabled. WARP snippet is added only when WARP routing is enabled. Current value: ${GENERATE_PROFILES}.
 EOF
       ;;
     nh)
@@ -675,6 +702,8 @@ REALITY dest:   $REALITY_DEST
 NHM email:    $NH_PROXY_EMAIL
 
 This will install 3x-ui + NHM Panel + NaiveProxy + Hysteria2.
+WARP install: $INSTALL_WARP
+Profile generation: $GENERATE_PROFILES
 EOF
 
     local -a all_args=(
@@ -692,13 +721,19 @@ EOF
     [[ -n "$TLS_CERT" ]] && all_args+=(--tls-cert "$TLS_CERT")
     [[ -n "$TLS_KEY" ]] && all_args+=(--tls-key "$TLS_KEY")
     [[ "$NH_ENABLE_MIERU" == "1" ]] && all_args+=(--with-mieru)
+    [[ "$GENERATE_PROFILES" == "1" ]] || all_args+=(--no-generate-profiles)
+    [[ "$AUTO_INSTALL_WARP" == "1" ]] || all_args+=(--no-auto-install-warp)
     XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
     XUI_APPLY_WARP_TEMPLATE="$XUI_APPLY_WARP_TEMPLATE" \
     XUI_AUTO_INSTALL_WARP="$AUTO_INSTALL_WARP" \
     XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
+    GENERATE_PROFILES="$GENERATE_PROFILES" \
+    AUTO_INSTALL_WARP="$AUTO_INSTALL_WARP" \
+    WARP_PROXY_PORT="$WARP_PROXY_PORT" \
+    WARP_OUTBOUND_TAG="$WARP_OUTBOUND_TAG" \
+    WARP_INBOUND_TAG="$WARP_INBOUND_TAG" \
+    WARP_AI_DOMAINS="$WARP_AI_DOMAINS" \
     bash "$installer" "${all_args[@]}"
-    run_warp_install_if_requested
-    run_profile_generation_if_requested
     show_final_access_info
     return 0
   fi
@@ -774,13 +809,19 @@ EOF
     --yes
   )
   [[ "$NH_ENABLE_MIERU" == "1" ]] && legacy_args+=(--with-mieru)
+  [[ "$GENERATE_PROFILES" == "1" ]] || legacy_args+=(--no-generate-profiles)
+  [[ "$AUTO_INSTALL_WARP" == "1" ]] || legacy_args+=(--no-auto-install-warp)
   XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
   XUI_APPLY_WARP_TEMPLATE="$XUI_APPLY_WARP_TEMPLATE" \
   XUI_AUTO_INSTALL_WARP="$AUTO_INSTALL_WARP" \
   XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
+  GENERATE_PROFILES="$GENERATE_PROFILES" \
+  AUTO_INSTALL_WARP="$AUTO_INSTALL_WARP" \
+  WARP_PROXY_PORT="$WARP_PROXY_PORT" \
+  WARP_OUTBOUND_TAG="$WARP_OUTBOUND_TAG" \
+  WARP_INBOUND_TAG="$WARP_INBOUND_TAG" \
+  WARP_AI_DOMAINS="$WARP_AI_DOMAINS" \
   bash "$installer" "${legacy_args[@]}"
-  run_warp_install_if_requested
-  run_profile_generation_if_requested
   show_final_access_info
 }
 
@@ -887,7 +928,8 @@ while [[ $# -gt 0 ]]; do
     --with-mieru|--enable-mieru) NH_ENABLE_MIERU=1; shift ;;
     --tls-cert) TLS_CERT="${2:-}"; shift 2 ;;
     --tls-key) TLS_KEY="${2:-}"; shift 2 ;;
-    --install-warp) INSTALL_WARP=1; shift ;;
+    --install-warp) INSTALL_WARP=1; AUTO_INSTALL_WARP=1; WARP_ENABLED=1; shift ;;
+    --no-install-warp) INSTALL_WARP=0; AUTO_INSTALL_WARP=0; WARP_ENABLED=0; XUI_ENABLE_WARP_ROUTING=0; shift ;;
     --no-auto-install-warp) AUTO_INSTALL_WARP=0; shift ;;
     --auto-install-warp) AUTO_INSTALL_WARP=1; shift ;;
     --no-xui-warp-routing) XUI_ENABLE_WARP_ROUTING=0; shift ;;
@@ -900,6 +942,7 @@ while [[ $# -gt 0 ]]; do
     --warp-inbound-tag) WARP_INBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-route-port) WARP_ROUTE_PORT="${2:-}"; shift 2 ;;
     --generate-profiles) GENERATE_PROFILES=1; shift ;;
+    --no-generate-profiles) GENERATE_PROFILES=0; shift ;;
     --profile-count) PROFILE_COUNT="${2:-}"; shift 2 ;;
     --profile-prefix) PROFILE_PREFIX="${2:-}"; shift 2 ;;
     --project-dir) PROJECT_DIR="${2:-}"; shift 2 ;;
@@ -919,6 +962,7 @@ else
 fi
 case "$MODE" in xui|naive|all|both|nh) ;; *) die "--mode must be xui, naive, all, both, or nh" ;; esac
 [[ "$NH_ENABLE_MIERU" == "1" ]] || NH_ENABLE_MIERU=0
+resolve_install_defaults
 
 validate_required_args
 validate_real_install_args

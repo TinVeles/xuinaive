@@ -21,14 +21,14 @@ PANEL_ACCESS="nginx8080"
 PANEL_PUBLIC_PORT="8081"
 TLS_CERT=""
 TLS_KEY=""
-GENERATE_PROFILES=0
+GENERATE_PROFILES="${GENERATE_PROFILES:-1}"
 PROFILE_COUNT=15
 PROFILE_PREFIX="auto"
 WARP_PROXY_PORT=40000
 WARP_OUTBOUND_TAG="warp-cli"
 WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-all}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
-AUTO_INSTALL_WARP="${AUTO_INSTALL_WARP:-0}"
+AUTO_INSTALL_WARP="${AUTO_INSTALL_WARP:-1}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
 XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
@@ -45,9 +45,11 @@ Usage:
     --nh-email admin@example.com \
     [--tls-cert /path/fullchain.pem --tls-key /path/privkey.pem] \
     [--with-mieru] \
+    [--no-install-warp] \
     --yes
 
 This is the explicit real installer. It runs vendored component scripts.
+It installs WARP and generates profiles/subscriptions by default.
 Mieru is disabled by default. Add --with-mieru to expose the optional Mieru module in NHM Panel.
 For dry-run checks use ./install.sh.
 EOF
@@ -188,12 +190,15 @@ while [[ $# -gt 0 ]]; do
     --tls-cert) TLS_CERT="${2:-}"; shift 2 ;;
     --tls-key) TLS_KEY="${2:-}"; shift 2 ;;
     --generate-profiles) GENERATE_PROFILES=1; shift ;;
+    --no-generate-profiles) GENERATE_PROFILES=0; shift ;;
     --profile-count) PROFILE_COUNT="${2:-}"; shift 2 ;;
     --profile-prefix) PROFILE_PREFIX="${2:-}"; shift 2 ;;
     --warp-proxy-port) WARP_PROXY_PORT="${2:-}"; shift 2 ;;
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-inbound-tag) WARP_INBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
+    --install-warp) AUTO_INSTALL_WARP=1; XUI_ENABLE_WARP_ROUTING=1; shift ;;
+    --no-install-warp) AUTO_INSTALL_WARP=0; XUI_ENABLE_WARP_ROUTING=0; shift ;;
     --no-auto-install-warp) AUTO_INSTALL_WARP=0; shift ;;
     --auto-install-warp) AUTO_INSTALL_WARP=1; shift ;;
     --no-xui-warp-routing) XUI_ENABLE_WARP_ROUTING=0; shift ;;
@@ -263,6 +268,8 @@ Unified all-in-one real install plan
    caddy-nh binds ${NH_BACKEND} for TCP NaiveProxy.
    hysteria-server binds 0.0.0.0:443/udp.
    panel-naive-hy2 is exposed with panel access mode ${PANEL_ACCESS} on port ${PANEL_PUBLIC_PORT}.
+4. Install WARP local proxy when enabled.
+5. Generate x-ui, NaiveProxy, Hysteria2, and combined subscriptions when enabled.
 
 WARNING:
 The vendored x-ui-pro script is still destructive like upstream:
@@ -282,7 +289,7 @@ ok "Backup directory: $backup_dir"
 
 info "Running x-ui-pro installer"
 XUI_PRINT_ACCESS_INFO=0 \
-XUI_SEED_PROFILES=1 \
+XUI_SEED_PROFILES=0 \
 XUI_PROFILE_COUNT="$PROFILE_COUNT" \
 XUI_PROFILE_PREFIX="$PROFILE_PREFIX" \
 XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \

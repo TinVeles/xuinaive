@@ -10,8 +10,8 @@ The default command is a dry run. Real installation always requires `--install -
 - NHM Panel for NaiveProxy and Hysteria2 management.
 - NaiveProxy behind a dedicated Caddy backend.
 - Hysteria2 on public UDP `443`.
-- Optional Cloudflare WARP local proxy on `127.0.0.1:40000`.
-- Optional generated profiles and token-protected subscription files.
+- Cloudflare WARP local proxy on `127.0.0.1:40000` by default.
+- Generated profiles and token-protected subscription files by default.
 - Optional Mieru module in NHM Panel.
 
 The full stack still uses two panels:
@@ -34,8 +34,6 @@ sudo bash install.sh --mode all \
   --nh-domain naive.example.com \
   --reality-dest reality.example.com \
   --nh-email admin@example.com \
-  --install-warp \
-  --generate-profiles \
   --install \
   --yes
 ```
@@ -120,14 +118,13 @@ sudo bash install.sh --mode nh \
 Use this when you want all generated profiles but no Cloudflare WARP service and no WARP routing:
 
 ```bash
-sudo XUI_ENABLE_WARP_ROUTING=0 \
-  AUTO_INSTALL_WARP=0 \
-  bash install.sh --mode all \
+sudo bash install.sh --mode all \
     --xui-domain xui.example.com \
     --nh-domain naive.example.com \
     --reality-dest reality.example.com \
     --nh-email admin@example.com \
-    --generate-profiles \
+    --no-install-warp \
+    --no-auto-install-warp \
     --profile-count 15 \
     --profile-prefix auto \
     --install \
@@ -160,7 +157,7 @@ If no certificate paths are provided, all-in-one mode first tries nginx HTTP-01 
 
 ## WARP Routing
 
-`--install-warp` installs Cloudflare WARP in local proxy mode:
+All-in-one install enables Cloudflare WARP in local proxy mode by default:
 
 ```text
 SOCKS/HTTP proxy: 127.0.0.1:40000
@@ -174,7 +171,7 @@ The default model is AI-only routing:
 - Gemini, Google AI, Google API/static/auth hosts, YouTube support hosts, and NotebookLM domains go through WARP.
 - Everything else stays on the normal direct outbound.
 
-For x-ui, the installer and profile generator write one `warp-cli` SOCKS outbound plus one AI-domain routing rule into the x-ui/Xray template. By default the rule has no `inboundTag`, so later edits to inbound tags or inbound settings in 3x-ui do not break the WARP rule. Generated clients stay on the normal Reality, WS, XHTTP, and Trojan-gRPC inbounds.
+For x-ui, the installer prepares one `warp-cli` SOCKS outbound and one AI-domain routing snippet. By default it does not write directly into the x-ui routing settings DB, because that path can make 3x-ui inbound edits unstable on some panel versions. Generated clients stay on the normal Reality, WS, XHTTP, and Trojan-gRPC inbounds.
 
 For NHM Panel, open `Bypass` and enable `AI through WARP for Hy2`. The panel writes Hysteria2 `outbounds` and ACL rules so matching AI domains use the same local WARP proxy. NaiveProxy cannot do this server-side because Caddy `forward_proxy` has no per-domain outbound ACL; configure NaiveProxy split routing in the client instead.
 
