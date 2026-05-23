@@ -659,7 +659,9 @@ app.get('/api/subscriptions', requireAuth, (req, res) => {
     },
     v2rayn: {
       txt: has('v2rayn.txt') ? url('v2rayn.txt') : '',
-      b64: has('v2rayn.b64') ? url('v2rayn.b64') : ''
+      b64: has('v2rayn.b64') ? url('v2rayn.b64') : '',
+      raw: has('v2rayn-raw.txt') ? url('v2rayn-raw.txt') : '',
+      stable: has('v2rayn-stable.txt') ? url('v2rayn-stable.txt') : ''
     },
     singBox: has('sing-box.json') ? url('sing-box.json') : '',
     users

@@ -943,6 +943,17 @@ function trojanLink(row, client) {
   return `trojan://${encode(password)}@${ep.server}:${ep.port}?${params.toString()}#${encode(client.email || row.remark || 'x-ui')}`;
 }
 
+function isStableV2rayNLink(row) {
+  try {
+    const stream = JSON.parse(row.stream_settings || '{}');
+    const network = String(stream.network || 'tcp');
+    const security = String(stream.security || 'none');
+    return network === 'ws' || network === 'grpc' || (network === 'tcp' && security === 'reality');
+  } catch (_) {
+    return false;
+  }
+}
+
 function xuiRows() {
   const sql = `
     SELECT COALESCE(json_group_array(json_object(
@@ -1007,26 +1018,44 @@ for (const row of xuiRows()) {
 const nhBySubId = nhLinksBySubId();
 const combinedAll = [];
 const xrayAll = [];
+const stableXrayAll = [];
 fs.mkdirSync(subDir, { recursive: true, mode: 0o755 });
 
 for (const [subId, links] of bySubId) {
   const combined = [...links, ...(nhBySubId.get(subId) || [])];
   const text = combined.join('\n');
   const xrayText = links.join('\n');
+  const stableLinks = [];
+  for (const row of xuiRows()) {
+    if (!isStableV2rayNLink(row)) continue;
+    let settings;
+    try { settings = JSON.parse(row.settings || '{}'); } catch (_) { continue; }
+    for (const client of firstEnabledClient(settings, subId)) {
+      const link = row.protocol === 'trojan' ? trojanLink(row, client) : vlessLink(row, client);
+      if (link) stableLinks.push(link);
+    }
+  }
+  const stableText = stableLinks.join('\n');
   fs.writeFileSync(path.join(subDir, `${subId}.txt`), text + (text ? '\n' : ''), { mode: 0o644 });
   fs.writeFileSync(path.join(subDir, `${subId}.b64`), b64(text), { mode: 0o644 });
-  fs.writeFileSync(path.join(subDir, `${subId}-v2rayn.txt`), xrayText + (xrayText ? '\n' : ''), { mode: 0o644 });
+  fs.writeFileSync(path.join(subDir, `${subId}-v2rayn.txt`), b64(xrayText) + '\n', { mode: 0o644 });
   fs.writeFileSync(path.join(subDir, `${subId}-v2rayn.b64`), b64(xrayText), { mode: 0o644 });
+  fs.writeFileSync(path.join(subDir, `${subId}-v2rayn-raw.txt`), xrayText + (xrayText ? '\n' : ''), { mode: 0o644 });
+  fs.writeFileSync(path.join(subDir, `${subId}-v2rayn-stable.txt`), b64(stableText) + '\n', { mode: 0o644 });
   combinedAll.push(...combined);
   xrayAll.push(...links);
+  stableXrayAll.push(...stableLinks);
 }
 
 const allText = combinedAll.join('\n');
 const xrayText = xrayAll.join('\n');
+const stableXrayText = stableXrayAll.join('\n');
 fs.writeFileSync(path.join(subDir, 'combined.txt'), allText + (allText ? '\n' : ''), { mode: 0o644 });
 fs.writeFileSync(path.join(subDir, 'combined.b64'), b64(allText), { mode: 0o644 });
-fs.writeFileSync(path.join(subDir, 'v2rayn.txt'), xrayText + (xrayText ? '\n' : ''), { mode: 0o644 });
+fs.writeFileSync(path.join(subDir, 'v2rayn.txt'), b64(xrayText) + '\n', { mode: 0o644 });
 fs.writeFileSync(path.join(subDir, 'v2rayn.b64'), b64(xrayText), { mode: 0o644 });
+fs.writeFileSync(path.join(subDir, 'v2rayn-raw.txt'), xrayText + (xrayText ? '\n' : ''), { mode: 0o644 });
+fs.writeFileSync(path.join(subDir, 'v2rayn-stable.txt'), b64(stableXrayText) + '\n', { mode: 0o644 });
 NODE
 
   local sub_dir="${NH_SUBSCRIPTION_DIR%/}/$NH_SUBSCRIPTION_TOKEN"
