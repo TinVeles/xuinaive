@@ -755,6 +755,39 @@ xui_disable_duplicate_xhttp_unix_listeners() {
   " 2>/dev/null || true
 }
 
+xui_repair_client_traffic_rows() {
+  [[ -f "$XUI_DB" ]] || return 0
+  local rows inbound_id protocol settings client_rows email enable exact_count email_count
+  rows="$(sqlite3 -readonly -separator $'\t' "$XUI_DB" "SELECT id, protocol, settings FROM inbounds WHERE protocol IN ('vless','trojan') AND json_valid(settings)=1;" 2>/dev/null || true)"
+  [[ -n "$rows" ]] || return 0
+  while IFS=$'\t' read -r inbound_id protocol settings; do
+    [[ -n "$inbound_id" && -n "$settings" ]] || continue
+    client_rows="$(jq -r '
+      (.clients // [])
+      | map(select((.email // "") != ""))
+      | .[]
+      | [(.email // ""), (if (.enable // true) then 1 else 0 end)]
+      | @tsv
+    ' <<<"$settings" 2>/dev/null || true)"
+    [[ -n "$client_rows" ]] || continue
+    while IFS=$'\t' read -r email enable; do
+      [[ -n "$email" ]] || continue
+      exact_count="$(sqlite3 -readonly "$XUI_DB" "SELECT COUNT(*) FROM client_traffics WHERE inbound_id=$inbound_id AND email=$(sql_quote "$email");" 2>/dev/null || printf '0')"
+      if [[ "$exact_count" == "0" ]]; then
+        email_count="$(sqlite3 -readonly "$XUI_DB" "SELECT COUNT(*) FROM client_traffics WHERE email=$(sql_quote "$email");" 2>/dev/null || printf '0')"
+        if [[ "$email_count" == "1" ]]; then
+          sqlite3 "$XUI_DB" "UPDATE client_traffics SET inbound_id=$inbound_id, enable=${enable:-1} WHERE email=$(sql_quote "$email");" 2>/dev/null || true
+        else
+          sqlite3 "$XUI_DB" "INSERT OR IGNORE INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset) VALUES ($inbound_id, ${enable:-1}, $(sql_quote "$email"), 0, 0, 0, 0, 0);" 2>/dev/null || true
+        fi
+      else
+        sqlite3 "$XUI_DB" "UPDATE client_traffics SET enable=${enable:-1} WHERE inbound_id=$inbound_id AND email=$(sql_quote "$email");" 2>/dev/null || true
+      fi
+    done <<<"$client_rows"
+  done <<<"$rows"
+  ok "x-ui client traffic rows repaired"
+}
+
 nh_generate() {
   info "Creating NHM NaiveProxy and Hysteria2 profiles"
   [[ -f "$NH_CONFIG" ]] || die "NHM config not found: $NH_CONFIG"
@@ -1275,6 +1308,7 @@ EOF
 
 if [[ "$CREATE_XUI" == "1" ]]; then
   xui_add_clients
+  xui_repair_client_traffic_rows
   xui_disable_duplicate_xhttp_unix_listeners
   xui_install_uds_cleanup_dropin
   xui_cleanup_unix_sockets
