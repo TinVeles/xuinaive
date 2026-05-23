@@ -29,13 +29,10 @@ WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
 WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-all}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
-XUI_WARP_EXTERNAL_PORT="${XUI_WARP_EXTERNAL_PORT:-8443}"
 XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-1}"
-XUI_WARP_NGINX_STREAM="${XUI_WARP_NGINX_STREAM:-1}"
 XUI_INBOUND_ID="${XUI_INBOUND_ID:-}"
 XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-$PREFIX}"
 XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
-XUI_CREATE_WARP="${XUI_CREATE_WARP:-0}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-1}"
 XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-1}"
@@ -107,13 +104,9 @@ while [[ $# -gt 0 ]]; do
     --warp-outbound-tag) WARP_OUTBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-inbound-tag) WARP_INBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
-    --xui-warp-external-port) XUI_WARP_EXTERNAL_PORT="${2:-}"; shift 2 ;;
-    --no-xui-warp-nginx) XUI_WARP_NGINX_STREAM=0; shift ;;
     --xui-inbound-id) XUI_INBOUND_ID="${2:-}"; shift 2 ;;
     --xui-common-sub-id) XUI_COMMON_SUB_ID="${2:-}"; shift 2 ;;
     --xui-sub-id-mode) XUI_SUB_ID_MODE="${2:-}"; shift 2 ;;
-    --xui-warp-clone) XUI_CREATE_WARP=1; shift ;;
-    --no-xui-warp-clone) XUI_CREATE_WARP=0; shift ;;
     --xui-warp-routing) XUI_ENABLE_WARP_ROUTING=1; shift ;;
     --no-xui-warp-routing) XUI_ENABLE_WARP_ROUTING=0; shift ;;
     --no-auto-install-warp) XUI_AUTO_INSTALL_WARP=0; shift ;;
@@ -134,13 +127,12 @@ done
 [[ "$ASSUME_YES" == "1" ]] || die "Add --yes after reading what this script changes"
 [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -gt 0 ]] || die "--count must be a positive number"
 [[ "$WARP_PROXY_PORT" =~ ^[0-9]+$ ]] || die "--warp-port must be numeric"
-[[ "$XUI_WARP_EXTERNAL_PORT" =~ ^[0-9]+$ && "$XUI_WARP_EXTERNAL_PORT" -gt 0 ]] || die "--xui-warp-external-port must be a positive number"
 [[ "$PREFIX" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--prefix may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
 [[ -z "$XUI_INBOUND_ID" || "$XUI_INBOUND_ID" =~ ^[0-9]+$ ]] || die "--xui-inbound-id must be numeric"
 [[ "$XUI_COMMON_SUB_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--xui-common-sub-id may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
 [[ "$XUI_SUB_ID_MODE" == "per-client" || "$XUI_SUB_ID_MODE" == "common" ]] || die "--xui-sub-id-mode must be per-client or common"
-if [[ "$XUI_CREATE_WARP" != "1" && "$XUI_CREATE_DIRECT" != "1" ]]; then
-  warn "Legacy WARP clones and standard clients are both disabled; enabling standard clients."
+if [[ "$XUI_CREATE_DIRECT" != "1" ]]; then
+  warn "Standard clients are disabled; enabling them because clone inbounds are no longer supported."
   XUI_CREATE_DIRECT=1
 fi
 
@@ -359,45 +351,6 @@ xui_enable_preset_xhttp() {
   "
 }
 
-xui_warp_stream_settings() {
-  local stream_settings="$1" warp_port="$2" external_port="$3"
-  jq -c --argjson port "$warp_port" --argjson externalPort "$external_port" '
-    def path_tail($p):
-      (($p // "") | tostring | split("/") | map(select(length > 0)) | .[1:] | join("/"));
-    def port_path($p):
-      (path_tail($p)) as $tail
-      | "/" + ($port | tostring) + (if $tail == "" then "" else "/" + $tail end);
-    .externalProxy = ((.externalProxy // []) | map(.port = $externalPort))
-    | if .network == "ws" then
-        .wsSettings.path = port_path(.wsSettings.path)
-      elif .network == "grpc" then
-        .grpcSettings.serviceName = port_path(.grpcSettings.serviceName)
-      elif .network == "xhttp" then
-        .xhttpSettings.path = port_path(.xhttpSettings.path)
-        | .sockopt.acceptProxyProtocol = false
-      elif .network == "tcp" and .security == "reality" then
-        .tcpSettings.acceptProxyProtocol = true
-      else
-        .
-      end
-  ' <<<"$stream_settings"
-}
-
-xui_bind_direct_reality_local_if_needed() {
-  local inbound_id="$1" port="$2" stream_settings
-  [[ "$XUI_WARP_NGINX_STREAM" == "1" ]] || return 0
-  [[ "$port" == "$XUI_WARP_EXTERNAL_PORT" ]] || return 0
-  stream_settings="$(sqlite3 -readonly "$XUI_DB" "SELECT stream_settings FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || true)"
-  if jq -e '.network == "tcp" and .security == "reality"' >/dev/null 2>&1 <<<"$stream_settings"; then
-    sqlite3 "$XUI_DB" "UPDATE inbounds SET listen='127.0.0.1' WHERE id=$inbound_id;"
-    ok "x-ui inbound ${inbound_id}: Reality backend bound to 127.0.0.1:${port}, public ${XUI_WARP_EXTERNAL_PORT} can be used by WARP HTTP router"
-  fi
-}
-
-xui_warp_listen_host() {
-  printf '127.0.0.1\n'
-}
-
 xui_replace_generated_clients() {
   local inbound_id="$1" protocol="$2" mode="$3" tag="$4" report_file="$5"
   local now index label email sub_id client_json clients_json settings new_settings traffic_result existing_json
@@ -468,63 +421,9 @@ xui_prune_generated_clients() {
   printf 'inbound=%s mode=direct action=pruned-generated prefix=%s\n' "$inbound_id" "$PREFIX" >> "$report_file"
 }
 
-xui_ensure_warp_inbound() {
-  local base_id="$1" protocol="$2" base_tag="$3" base_remark="$4" base_port="$5" base_enable="$6"
-  local existing_id existing_port warp_port lookup_tag warp_tag warp_remark warp_enable settings empty_settings stream_settings warp_stream_settings warp_listen
-
-  warp_remark="${base_remark:-$protocol-$base_id} WARP"
-  lookup_tag="${base_tag:-inbound-${base_id}}-warp"
-  stream_settings="$(sqlite3 -readonly "$XUI_DB" "SELECT stream_settings FROM inbounds WHERE id=$base_id;")"
-  existing_id="$(sqlite3 -readonly "$XUI_DB" "SELECT id FROM inbounds WHERE tag=$(sql_quote "$lookup_tag") OR remark=$(sql_quote "$warp_remark") LIMIT 1;" 2>/dev/null || true)"
-
-  if [[ "$base_port" =~ ^[0-9]+$ && "$base_port" -gt 0 ]]; then
-    warp_port="$((base_port + 10000))"
-    warp_enable="$base_enable"
-  else
-    warp_port="$((30000 + base_id))"
-    warp_enable="$base_enable"
-  fi
-  if [[ -n "$existing_id" ]]; then
-    existing_port="$(sqlite3 -readonly "$XUI_DB" "SELECT port FROM inbounds WHERE id=$existing_id;" 2>/dev/null || true)"
-    if [[ "$existing_port" =~ ^[0-9]+$ && "$existing_port" -gt 0 ]]; then
-      warp_port="$existing_port"
-    else
-      warp_port="$(xui_next_free_port "$warp_port")"
-    fi
-    warp_tag="inbound-${warp_port}-warp"
-  else
-    warp_port="$(xui_next_free_port "$warp_port")"
-    warp_tag="inbound-${warp_port}-warp"
-  fi
-
-  settings="$(sqlite3 -readonly "$XUI_DB" "SELECT settings FROM inbounds WHERE id=$base_id;")"
-  empty_settings="$(jq -c '.clients = []' <<<"$settings" | xui_normalize_inbound_settings "$protocol")"
-  warp_stream_settings="$(xui_warp_stream_settings "$stream_settings" "$warp_port" "$XUI_WARP_EXTERNAL_PORT")"
-  warp_listen="$(xui_warp_listen_host "$stream_settings")"
-  if [[ -n "$existing_id" ]]; then
-    sqlite3 "$XUI_DB" "
-      UPDATE inbounds
-      SET listen=$(sql_quote "$warp_listen"),
-          port=$warp_port,
-          stream_settings=$(sql_quote "$warp_stream_settings"),
-          tag=$(sql_quote "$warp_tag")
-      WHERE id=$existing_id;
-    "
-    printf '%s\n' "$existing_id"
-    return 0
-  fi
-
-  sqlite3 "$XUI_DB" "
-    INSERT INTO inbounds (user_id, up, down, total, remark, enable, expiry_time, listen, port, protocol, settings, stream_settings, tag, sniffing)
-    SELECT user_id, 0, 0, total, $(sql_quote "$warp_remark"), $warp_enable, expiry_time, $(sql_quote "$warp_listen"), $warp_port, protocol, $(sql_quote "$empty_settings"), $(sql_quote "$warp_stream_settings"), $(sql_quote "$warp_tag"), sniffing
-    FROM inbounds WHERE id=$base_id;
-  "
-  sqlite3 -readonly "$XUI_DB" "SELECT id FROM inbounds WHERE tag=$(sql_quote "$warp_tag") ORDER BY id DESC LIMIT 1;"
-}
-
 xui_add_clients() {
   info "Creating x-ui clients in $XUI_DB"
-  local inbound_rows inbound_id protocol tag remark port enable warp_id warp_tag report_file warp_tags_file query
+  local inbound_rows inbound_id protocol tag remark port enable report_file warp_tags_file query
   report_file="/etc/x-ui/generated-clients.txt"
   warp_tags_file="$(mktemp)"
   mkdir -p "$(dirname "$report_file")"
@@ -550,22 +449,13 @@ $(xui_preset_inbound_filter_sql)"
   while IFS=$'\t' read -r inbound_id protocol tag remark port enable; do
     [[ -n "$inbound_id" ]] || continue
 
-    xui_bind_direct_reality_local_if_needed "$inbound_id" "$port"
     if [[ "$XUI_CREATE_DIRECT" == "1" ]]; then
       xui_replace_generated_clients "$inbound_id" "$protocol" "direct" "$tag" "$report_file"
       [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && -n "$tag" ]] && printf '%s\n' "$tag" >> "$warp_tags_file"
     else
       xui_prune_generated_clients "$inbound_id" "$protocol" "$report_file"
     fi
-    if [[ "$XUI_CREATE_WARP" == "1" ]]; then
-      warp_id="$(xui_ensure_warp_inbound "$inbound_id" "$protocol" "$tag" "$remark" "$port" "$enable")"
-      warp_tag="$(sqlite3 -readonly "$XUI_DB" "SELECT COALESCE(tag,'') FROM inbounds WHERE id=$warp_id;")"
-      xui_replace_generated_clients "$warp_id" "$protocol" "warp" "$warp_tag" "$report_file"
-      [[ -n "$warp_tag" ]] && printf '%s\n' "$warp_tag" >> "$warp_tags_file"
-      ok "x-ui inbound ${inbound_id} + WARP inbound ${warp_id}: $COUNT clients each, subId mode=$XUI_SUB_ID_MODE"
-    else
-      ok "x-ui inbound ${inbound_id}: $COUNT clients, subId mode=$XUI_SUB_ID_MODE"
-    fi
+    ok "x-ui inbound ${inbound_id}: $COUNT clients, subId mode=$XUI_SUB_ID_MODE"
   done <<<"$inbound_rows"
 
   if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" ]]; then
@@ -573,126 +463,7 @@ $(xui_preset_inbound_filter_sql)"
   else
     xui_remove_warp_template
   fi
-  if [[ "$XUI_CREATE_WARP" == "1" ]]; then
-    xui_apply_warp_nginx_stream
-    xui_allow_warp_reality_ports
-  else
-    xui_delete_warp_clone_inbounds
-  fi
   rm -f "$warp_tags_file"
-}
-
-xui_warp_reality_ports() {
-  sqlite3 -readonly "$XUI_DB" "
-    SELECT DISTINCT port
-    FROM inbounds
-    WHERE protocol='vless'
-      AND port > 0
-      AND lower(COALESCE(remark,'')) LIKE '%warp%'
-      AND json_valid(stream_settings)=1
-      AND json_extract(stream_settings,'$.network')='tcp'
-      AND json_extract(stream_settings,'$.security')='reality'
-    ORDER BY port;
-  " 2>/dev/null || true
-}
-
-xui_fix_warp_reality_external_proxy() {
-  sqlite3 "$XUI_DB" "
-    UPDATE inbounds
-    SET listen='127.0.0.1',
-        stream_settings=json_set(
-          stream_settings,
-          '$.externalProxy[0].port', $XUI_WARP_EXTERNAL_PORT,
-          '$.tcpSettings.acceptProxyProtocol', json('true')
-        )
-    WHERE protocol='vless'
-      AND port > 0
-      AND lower(COALESCE(remark,'')) LIKE '%warp%'
-      AND json_valid(stream_settings)=1
-      AND json_extract(stream_settings,'$.network')='tcp'
-      AND json_extract(stream_settings,'$.security')='reality';
-  " 2>/dev/null || true
-}
-
-xui_allow_warp_reality_ports() {
-  local port
-  command_exists ufw || return 0
-  xui_fix_warp_reality_external_proxy
-  while IFS= read -r port; do
-    [[ "$port" =~ ^[0-9]+$ && "$port" -gt 0 ]] || continue
-    ufw allow "${port}/tcp" >/dev/null 2>&1 || true
-  done < <(xui_warp_reality_ports)
-}
-
-xui_apply_warp_nginx_stream() {
-  [[ "$XUI_WARP_NGINX_STREAM" == "1" ]] || return 0
-  [[ "$XUI_WARP_EXTERNAL_PORT" != "443" ]] || return 0
-  command_exists nginx || { warn "nginx not found; WARP public port ${XUI_WARP_EXTERNAL_PORT} stream was not configured"; return 0; }
-  [[ -d /etc/nginx ]] || { warn "/etc/nginx not found; WARP public port ${XUI_WARP_EXTERNAL_PORT} stream was not configured"; return 0; }
-
-  local public_ip conf reality_row reality_port reality_sni
-  public_ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')"
-  if [[ ! "$public_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    warn "Could not detect public IPv4; WARP public port ${XUI_WARP_EXTERNAL_PORT} stream was not configured"
-    return 0
-  fi
-
-  mkdir -p /etc/nginx/stream-enabled
-  conf="/etc/nginx/stream-enabled/warp-${XUI_WARP_EXTERNAL_PORT}.conf"
-  reality_row="$(sqlite3 -readonly -separator $'\t' "$XUI_DB" "
-    SELECT port, json_extract(stream_settings,'$.realitySettings.serverNames[0]')
-    FROM inbounds
-    WHERE protocol='vless'
-      AND port > 0
-      AND lower(COALESCE(remark,'')) LIKE '%warp%'
-      AND json_valid(stream_settings)=1
-      AND json_extract(stream_settings,'$.network')='tcp'
-      AND json_extract(stream_settings,'$.security')='reality'
-    LIMIT 1;
-  " 2>/dev/null || true)"
-  IFS=$'\t' read -r reality_port reality_sni <<<"$reality_row"
-
-  if [[ "$reality_port" =~ ^[0-9]+$ && "$reality_port" -gt 0 && -n "$reality_sni" ]]; then
-    cat > "$conf" <<EOF
-map \$ssl_preread_server_name \$warp_xui_sni_${XUI_WARP_EXTERNAL_PORT} {
-    hostnames;
-    ${reality_sni} warp_xui_reality_${XUI_WARP_EXTERNAL_PORT};
-    default warp_xui_www_${XUI_WARP_EXTERNAL_PORT};
-}
-
-upstream warp_xui_www_${XUI_WARP_EXTERNAL_PORT} {
-    server 127.0.0.1:7443;
-}
-
-upstream warp_xui_reality_${XUI_WARP_EXTERNAL_PORT} {
-    server 127.0.0.1:${reality_port};
-}
-
-server {
-    proxy_protocol on;
-    listen ${public_ip}:${XUI_WARP_EXTERNAL_PORT};
-    proxy_pass \$warp_xui_sni_${XUI_WARP_EXTERNAL_PORT};
-    ssl_preread on;
-}
-EOF
-  else
-    cat > "$conf" <<EOF
-upstream warp_xui_www_${XUI_WARP_EXTERNAL_PORT} {
-    server 127.0.0.1:7443;
-}
-
-server {
-    proxy_protocol on;
-    listen ${public_ip}:${XUI_WARP_EXTERNAL_PORT};
-    proxy_pass warp_xui_www_${XUI_WARP_EXTERNAL_PORT};
-    ssl_preread on;
-}
-EOF
-  fi
-
-  nginx_enable_stream_include || return 0
-  ufw allow "${XUI_WARP_EXTERNAL_PORT}/tcp" >/dev/null 2>&1 || true
-  ok "x-ui WARP public nginx stream saved: $conf (${public_ip}:${XUI_WARP_EXTERNAL_PORT} -> 127.0.0.1:7443)"
 }
 
 xui_cleanup_unix_sockets() {
@@ -1306,6 +1077,14 @@ EOF
   nginx -t >/dev/null && systemctl reload nginx 2>/dev/null || warn "nginx reload failed"
 }
 
+XUI_STOPPED_FOR_DB_UPDATE=0
+if [[ "$CREATE_XUI" == "1" && "$RELOAD_SERVICES" == "1" ]] && command_exists systemctl; then
+  info "Stopping x-ui before database profile update"
+  systemctl stop x-ui 2>/dev/null || true
+  xui_cleanup_unix_sockets
+  XUI_STOPPED_FOR_DB_UPDATE=1
+fi
+
 if [[ "$CREATE_XUI" == "1" ]]; then
   xui_add_clients
   xui_repair_client_traffic_rows
@@ -1324,12 +1103,9 @@ fi
 if [[ "$RELOAD_SERVICES" == "1" ]]; then
   info "Reloading services"
   if [[ "$CREATE_XUI" == "1" ]] && command_exists systemctl; then
-    systemctl stop x-ui 2>/dev/null || true
+    [[ "$XUI_STOPPED_FOR_DB_UPDATE" == "1" ]] || systemctl stop x-ui 2>/dev/null || true
     xui_cleanup_unix_sockets
     systemctl start x-ui || warn "x-ui start failed"
-    if [[ "$XUI_WARP_NGINX_STREAM" == "1" ]] && systemctl list-unit-files nginx.service >/dev/null 2>&1; then
-      nginx -t >/dev/null 2>&1 && (systemctl reload nginx 2>/dev/null || systemctl restart nginx) || warn "nginx config test failed after WARP public port update"
-    fi
   fi
   if [[ "$CREATE_NH" == "1" ]] && command_exists systemctl; then
     if systemctl is-active --quiet caddy-nh 2>/dev/null; then
@@ -1354,11 +1130,9 @@ x-ui:
   common subId (only common mode): ${XUI_COMMON_SUB_ID}
   replace existing clients: ${XUI_REPLACE_CLIENTS}
   WARP routing: ${XUI_ENABLE_WARP_ROUTING}
-  legacy WARP clone inbounds: ${XUI_CREATE_WARP}
   WARP outbound: ${WARP_OUTBOUND_TAG}
   WARP proxy: ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}
   WARP inbound filter: ${WARP_INBOUND_TAG}
-  WARP public port: ${XUI_WARP_EXTERNAL_PORT} (WS/XHTTP/gRPC subscription port)
   WARP routed domains: ${WARP_AI_DOMAINS}
   WARP snippet: /etc/x-ui/warp-generated-routing.json
   x-ui report: /etc/x-ui/generated-clients.txt

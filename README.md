@@ -429,6 +429,21 @@ sudo bash uninstall-stack.sh --apply --yes --remove-warp
 
 The uninstaller stops and disables stack services, backs up removed files under `/opt/unified-proxy-manager/backups/uninstall-*`, removes x-ui/NHM/Caddy-NH/Hysteria stack files, removes stack nginx snippets and sites, cleans stack cron entries, and keeps reusable certificate stores.
 
+Uninstall only 3x-ui
+
+```bash
+sudo systemctl stop x-ui 2>/dev/null || true
+sudo systemctl disable x-ui 2>/dev/null || true
+
+sudo rm -rf /etc/x-ui
+sudo rm -rf /usr/local/x-ui
+sudo rm -f /etc/systemd/system/x-ui.service
+sudo rm -rf /etc/systemd/system/x-ui.service.d
+
+sudo systemctl daemon-reload
+```
+
+
 ## Validation
 
 Useful checks before and after changes:

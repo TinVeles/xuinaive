@@ -39,32 +39,6 @@ xui_enable_warp_domain_sniffing() {
   xui_enable_preset_domain_sniffing
 }
 
-xui_delete_warp_clone_inbounds() {
-  local db deleted
-  db="$(xui_db_path)"
-  [[ -f "$db" ]] || return 0
-  deleted="$(sqlite3 "$db" "
-    DELETE FROM client_traffics
-    WHERE inbound_id IN (
-      SELECT id FROM inbounds
-      WHERE (
-        COALESCE(tag,'') LIKE '%-warp'
-        OR lower(COALESCE(remark,'')) LIKE '%warp%'
-      )
-    );
-    DELETE FROM inbounds
-    WHERE (
-      COALESCE(tag,'') LIKE '%-warp'
-      OR lower(COALESCE(remark,'')) LIKE '%warp%'
-    );
-    SELECT changes();
-  " 2>/dev/null || true)"
-  deleted="${deleted##*$'\n'}"
-  if [[ -n "$deleted" && "$deleted" != "0" ]]; then
-    upm_log_ok "Deleted legacy WARP clone inbounds: $deleted"
-  fi
-}
-
 xui_apply_warp_template() {
   local warp_tags_file="$1"
   local db tags_json domains_json current key keys snippet_file updated updated_count inbound_spec snippet_inbound_tags key_exists
@@ -93,7 +67,10 @@ xui_apply_warp_template() {
     return 0
   fi
 
-  keys="$(sqlite3 -readonly "$db" "SELECT key FROM settings WHERE key IN ('xrayTemplateConfig','xrayConfig','xraySetting') ORDER BY CASE key WHEN 'xrayTemplateConfig' THEN 0 ELSE 1 END;" || true)"
+  keys="$(sqlite3 -readonly "$db" "SELECT key FROM settings WHERE key='xrayTemplateConfig' LIMIT 1;" || true)"
+  if [[ -z "$keys" ]]; then
+    keys="$(sqlite3 -readonly "$db" "SELECT key FROM settings WHERE key IN ('xrayConfig','xraySetting') ORDER BY CASE key WHEN 'xrayConfig' THEN 0 ELSE 1 END LIMIT 1;" || true)"
+  fi
   [[ -n "$keys" ]] || keys="xrayTemplateConfig"
   updated_count=0
   while IFS= read -r key; do
@@ -109,14 +86,33 @@ xui_apply_warp_template() {
       --arg tag "${WARP_OUTBOUND_TAG:-warp-cli}" \
       --arg host "${WARP_PROXY_HOST:-127.0.0.1}" \
       --argjson port "${WARP_PROXY_PORT:-40000}" \
-      --argjson inboundTags "$tags_json" \
-      --argjson domains "$domains_json" '
-      def outbound_or($tag; $default):
-        ((.outbounds // []) | map(select(.tag == $tag)) | .[0]) // $default;
+      '
       def warp_outbound($tag; $host; $port):
         {tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port, users:[]}]}};
-      def missing_outbound($tag):
-        any((.outbounds // [])[]?; .tag == $tag) | not;
+
+      .outbounds = (
+        (.outbounds // [])
+        | if any(.[]?; .tag == "direct") then . else . + [{tag:"direct", protocol:"freedom"}] end
+        | if any(.[]?; .tag == "blocked") then . else . + [{tag:"blocked", protocol:"blackhole"}] end
+        | if any(.[]?; .tag == $tag)
+          then map(if .tag == $tag then warp_outbound($tag; $host; $port) else . end)
+          else . + [warp_outbound($tag; $host; $port)]
+          end
+      )
+    ' <<<"$current")"
+
+    key_exists="$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM settings WHERE key=$(sql_quote "$key");" || printf '0')"
+    if [[ "$key_exists" -gt 0 ]]; then
+      sqlite3 "$db" "UPDATE settings SET value=$(sql_quote "$updated") WHERE key=$(sql_quote "$key");"
+    else
+      sqlite3 "$db" "INSERT INTO settings (key, value) VALUES ($(sql_quote "$key"), $(sql_quote "$updated"));"
+    fi
+
+    current="$updated"
+    updated="$(jq -c \
+      --arg tag "${WARP_OUTBOUND_TAG:-warp-cli}" \
+      --argjson inboundTags "$tags_json" \
+      --argjson domains "$domains_json" '
       def rule_marker($rule):
         ($rule.outboundTag // "") + "|" +
         (($rule.inboundTag // []) | tostring) + "|" +
@@ -126,32 +122,29 @@ xui_apply_warp_template() {
       def merge_rules($base; $add):
         ($base + $add)
         | reduce .[] as $r ([]; if any(.[]; rule_marker(.) == rule_marker($r)) then . else . + [$r] end);
+      def warp_rule($domains; $inboundTags; $tag):
+        ({type:"field", domain:$domains, outboundTag:$tag}
+        + (if $inboundTags == null then {} else {inboundTag:$inboundTags} end));
 
-      . as $root
-      | .outbounds = (
-          (($root.outbounds // []) | map(select(.tag != $tag)))
-          + (if ($root | missing_outbound("direct")) then [{tag:"direct", protocol:"freedom"}] else [] end)
-          + (if ($root | missing_outbound("blocked")) then [{tag:"blocked", protocol:"blackhole"}] else [] end)
-          + [warp_outbound($tag; $host; $port)]
-        )
-      | .routing = (.routing // {})
+      .routing = (.routing // {})
       | .routing.rules = merge_rules(
-          ((.routing.rules // []) | map(select(.outboundTag != $tag)));
+          (.routing.rules // []);
           [
             {type:"field", inboundTag:["api"], outboundTag:"api"},
             {type:"field", ip:["geoip:private"], outboundTag:"blocked"},
-            {type:"field", protocol:["bittorrent"], outboundTag:"blocked"},
-            ({type:"field", domain:$domains, outboundTag:$tag} + (if $inboundTags == null then {} else {inboundTag:$inboundTags} end))
+            {type:"field", protocol:["bittorrent"], outboundTag:"blocked"}
           ]
+        )
+      | .routing.rules = (
+          (.routing.rules // [])
+          | if any(.[]?; .outboundTag == $tag)
+            then map(if .outboundTag == $tag then warp_rule($domains; $inboundTags; $tag) else . end)
+            else . + [warp_rule($domains; $inboundTags; $tag)]
+            end
         )
     ' <<<"$current")"
 
-    key_exists="$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM settings WHERE key=$(sql_quote "$key");" || printf '0')"
-    if [[ "$key_exists" -gt 0 ]]; then
-      sqlite3 "$db" "UPDATE settings SET value=$(sql_quote "$updated") WHERE key=$(sql_quote "$key");"
-    else
-      sqlite3 "$db" "INSERT INTO settings (key, value) VALUES ($(sql_quote "$key"), $(sql_quote "$updated"));"
-    fi
+    sqlite3 "$db" "UPDATE settings SET value=$(sql_quote "$updated") WHERE key=$(sql_quote "$key");"
     updated_count=$((updated_count + 1))
   done <<<"$keys"
   if [[ "$updated_count" -gt 0 ]]; then
@@ -167,7 +160,10 @@ xui_remove_warp_template() {
   db="$(xui_db_path)"
   snippet_file="/etc/x-ui/warp-generated-routing.json"
   [[ -f "$db" ]] || return 0
-  keys="$(sqlite3 -readonly "$db" "SELECT key FROM settings WHERE key IN ('xrayTemplateConfig','xrayConfig','xraySetting');" || true)"
+  keys="$(sqlite3 -readonly "$db" "SELECT key FROM settings WHERE key='xrayTemplateConfig' LIMIT 1;" || true)"
+  if [[ -z "$keys" ]]; then
+    keys="$(sqlite3 -readonly "$db" "SELECT key FROM settings WHERE key IN ('xrayConfig','xraySetting') ORDER BY CASE key WHEN 'xrayConfig' THEN 0 ELSE 1 END LIMIT 1;" || true)"
+  fi
   [[ -n "$keys" ]] || return 0
   updated_count=0
   while IFS= read -r key; do
