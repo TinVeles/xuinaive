@@ -13,18 +13,19 @@ source "$LIB_DIR/common.sh"
 
 XUI_DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
 DOMAIN="${XUI_SUB_DOMAIN:-}"
-SUB_PORT="${XUI_SUB_PORT:-57145}"
-SUB_PATH="${XUI_SUB_PATH:-/gtsubsync55/}"
-SUB_ID="${XUI_SUB_ID:-Tin}"
+SUB_PORT="${XUI_SUB_PORT:-}"
+SUB_PATH="${XUI_SUB_PATH:-}"
+SUB_ID="${XUI_SUB_ID:-}"
 BACKEND_PORT="${XUI_SUB_BACKEND_PORT:-9444}"
 STREAM_CONF="${NGINX_STREAM_CONF:-/etc/nginx/stream-enabled/stream.conf}"
 SITES_DIR="${NGINX_SITES_DIR:-/etc/nginx/sites-enabled}"
 ASSUME_YES=0
+ALLOW_REALITY_SNI_CONFLICT="${XUI_SUB_ALLOW_REALITY_SNI_CONFLICT:-0}"
 
 usage() {
   cat <<EOF
 Usage:
-  sudo bash configure-xui-subscription.sh --domain sub.example.com --path /gtsubsync55/ --sub-id Tin --yes
+  sudo bash configure-xui-subscription.sh --domain SUB_DOMAIN --port SUB_PORT --path /SUB_PATH/ --sub-id SUB_ID --yes
 
 What it does:
   - updates x-ui subscription settings: subPort, subPath, subURI
@@ -32,13 +33,19 @@ What it does:
   - maps the public subscription SNI/domain in nginx stream to that backend
   - reloads nginx and x-ui
 
+Important:
+  The subscription domain must not be used as a Reality SNI/serverName.
+  If both use the same SNI, nginx stream routes Reality clients to the subscription backend.
+
 Options:
-  --domain DOMAIN          public subscription domain, for example sub.example.com
-  --port PORT              x-ui subscription port, default: ${SUB_PORT}
-  --path /PATH/            x-ui subscription path, default: ${SUB_PATH}
-  --sub-id ID              test subscription id, default: ${SUB_ID}
+  --domain DOMAIN          public subscription domain
+  --port PORT              x-ui subscription port
+  --path /PATH/            x-ui subscription path
+  --sub-id ID              test subscription id
   --backend-port PORT      local nginx HTTPS backend port, default: ${BACKEND_PORT}
   --xui-db PATH            x-ui sqlite DB, default: ${XUI_DB}
+  --allow-reality-sni-conflict
+                           allow DOMAIN to appear in Reality serverNames anyway
   --yes                    apply changes
 EOF
 }
@@ -51,6 +58,7 @@ while [[ $# -gt 0 ]]; do
     --sub-id) SUB_ID="${2:-}"; shift 2 ;;
     --backend-port) BACKEND_PORT="${2:-}"; shift 2 ;;
     --xui-db) XUI_DB="${2:-}"; shift 2 ;;
+    --allow-reality-sni-conflict) ALLOW_REALITY_SNI_CONFLICT=1; shift ;;
     --yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
@@ -61,14 +69,36 @@ done
 [[ "$ASSUME_YES" == "1" ]] || die "Add --yes after reading what this script changes"
 [[ -n "$DOMAIN" ]] || die "--domain is required"
 [[ "$DOMAIN" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$ ]] || die "Invalid domain: $DOMAIN"
+[[ -n "$SUB_PORT" ]] || die "--port is required"
 [[ "$SUB_PORT" =~ ^[0-9]+$ ]] || die "--port must be numeric"
 [[ "$BACKEND_PORT" =~ ^[0-9]+$ ]] || die "--backend-port must be numeric"
+[[ -n "$SUB_PATH" ]] || die "--path is required"
 [[ "$SUB_PATH" == /*/ ]] || die "--path must start and end with /"
 [[ "$SUB_PATH" != *"'"* ]] || die "--path must not contain single quote"
+[[ -n "$SUB_ID" ]] || die "--sub-id is required for the post-change test"
 [[ "$SUB_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--sub-id may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
 command_exists sqlite3 || die "sqlite3 is required"
 command_exists nginx || die "nginx is required"
 [[ -f "$XUI_DB" ]] || die "x-ui database not found: $XUI_DB"
+
+reality_sni_conflicts="$(sqlite3 -readonly "$XUI_DB" "
+  SELECT COUNT(*)
+  FROM inbounds
+  WHERE json_valid(stream_settings)=1
+    AND json_extract(stream_settings,'$.security')='reality'
+    AND (
+      json_extract(stream_settings,'$.realitySettings.settings.serverName')=$(sql_quote "$DOMAIN")
+      OR EXISTS (
+        SELECT 1
+        FROM json_each(json_extract(stream_settings,'$.realitySettings.serverNames'))
+        WHERE value=$(sql_quote "$DOMAIN")
+      )
+    );
+" 2>/dev/null || printf '0')"
+reality_sni_conflicts="${reality_sni_conflicts:-0}"
+if [[ "$reality_sni_conflicts" != "0" && "$ALLOW_REALITY_SNI_CONFLICT" != "1" ]]; then
+  die "Subscription domain $DOMAIN is used by $reality_sni_conflicts Reality inbound(s). Change Reality SNI/serverName first, or rerun with --allow-reality-sni-conflict if you intentionally want this."
+fi
 
 CERT_FILE="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
 CERT_KEY="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
@@ -230,6 +260,7 @@ if command_exists systemctl; then
 fi
 
 ok "x-ui subscription URL configured: $public_url"
+printf 'Reality SNI note: keep Reality serverName/SNI different from %s.\n' "$DOMAIN"
 printf 'Backup: %s\n' "$BACKUP_DIR"
 printf 'Local test:  curl -k -i %s\n' "$local_url"
 printf 'Public test: curl -i %s\n' "$public_url"

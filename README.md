@@ -298,6 +298,23 @@ http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/sing-box.json
 
 Use `v2rayn-stable.txt` first for v2rayN. It is base64 and excludes newer XHTTP links for older clients. Use `v2rayn.txt` when your v2rayN supports all generated Xray links. `v2rayn-raw.txt` contains the same links as plain text. `combined.txt` includes NaiveProxy and Hysteria2 links too, and some Xray clients reject the whole subscription when they see unsupported `naive+https://` lines.
 
+## Optional x-ui Subscription Domain
+
+The default install does not expose a custom x-ui subscription domain. If you need a dedicated HTTPS subscription URL for x-ui clients, use the separate module:
+
+```bash
+sudo bash configure-xui-subscription.sh \
+  --domain SUB_DOMAIN \
+  --port SUB_PORT \
+  --path /SUB_PATH/ \
+  --sub-id SUB_ID \
+  --yes
+```
+
+Do not use the same domain for this subscription endpoint and Reality SNI/serverName. nginx stream routes public `443/tcp` by SNI, so reusing the subscription SNI for Reality sends Reality traffic to the subscription backend.
+
+Full setup notes and placeholder-only examples are in [docs/xui-subscription-domain.md](docs/xui-subscription-domain.md).
+
 ## Access Info
 
 After install or profile generation:
