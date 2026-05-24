@@ -21,6 +21,7 @@ XUI_DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
 NH_CONFIG="${NH_CONFIG:-/opt/panel-naive-hy2/panel/data/config.json}"
 CADDYFILE="${CADDYFILE:-/etc/caddy-nh/Caddyfile}"
 HYSTERIA_CONFIG="${HYSTERIA_CONFIG:-/etc/hysteria/config.yaml}"
+NH_PROFILE_MAP="${NH_PROFILE_MAP:-/etc/nh-panel/generated-profile-map.json}"
 NH_SUBSCRIPTION_DIR="${NH_SUBSCRIPTION_DIR:-/opt/panel-naive-hy2/subscriptions}"
 NH_SUBSCRIPTION_TOKEN_FILE="${NH_SUBSCRIPTION_TOKEN_FILE:-/etc/nh-panel/subscription-token}"
 NH_SUBSCRIPTION_NGINX="${NH_SUBSCRIPTION_NGINX:-1}"
@@ -88,7 +89,7 @@ WARP routing:
 x-ui selection:
   default: every preset vless/trojan inbound
   --xui-inbound-id ID: only one inbound
-  default subId mode: per-client (auto-01 contains all protocol variants for auto-01)
+  default subId mode: per-client (PREFIX-01 contains all protocol variants for PREFIX-01)
   --xui-sub-id-mode common: one subscription contains all generated clients
   default replace mode: selected inbound clients become exactly COUNT
   --xui-keep-existing: keep existing non-generated clients
@@ -168,7 +169,7 @@ fi
 
 backup_dir="/opt/unified-proxy-manager/backups/profiles-$(date '+%Y-%m-%d-%H-%M-%S')"
 mkdir -p "$backup_dir"
-for path in "$XUI_DB" "$NH_CONFIG" "$CADDYFILE" "$HYSTERIA_CONFIG" /etc/nginx/snippets/nh-subscriptions.conf; do
+for path in "$XUI_DB" "$NH_CONFIG" "$CADDYFILE" "$HYSTERIA_CONFIG" "$NH_PROFILE_MAP" /etc/nginx/snippets/nh-subscriptions.conf; do
   if [[ -e "$path" || -L "$path" ]]; then
     mkdir -p "$backup_dir$(dirname "$path")"
     cp -a "$path" "$backup_dir$(dirname "$path")/"
@@ -622,16 +623,18 @@ nh_generate() {
   [[ -n "$NH_SUBSCRIPTION_TOKEN" ]] || die "Could not create NHM subscription token"
   chmod 0600 "$NH_SUBSCRIPTION_TOKEN_FILE" 2>/dev/null || true
 
-  COUNT="$COUNT" PREFIX="$PREFIX" NH_CONFIG="$NH_CONFIG" CADDYFILE="$CADDYFILE" HYSTERIA_CONFIG="$HYSTERIA_CONFIG" NH_SUBSCRIPTION_DIR="$NH_SUBSCRIPTION_DIR" NH_SUBSCRIPTION_TOKEN="$NH_SUBSCRIPTION_TOKEN" SCRIPT_DIR="$SCRIPT_DIR" node <<'NODE'
+  COUNT="$COUNT" PREFIX="$PREFIX" NH_CONFIG="$NH_CONFIG" CADDYFILE="$CADDYFILE" HYSTERIA_CONFIG="$HYSTERIA_CONFIG" NH_PROFILE_MAP="$NH_PROFILE_MAP" NH_SUBSCRIPTION_DIR="$NH_SUBSCRIPTION_DIR" NH_SUBSCRIPTION_TOKEN="$NH_SUBSCRIPTION_TOKEN" SCRIPT_DIR="$SCRIPT_DIR" node <<'NODE'
 const fs = require('fs');
 const cp = require('child_process');
 const path = require('path');
+const crypto = require('crypto');
 
 const count = parseInt(process.env.COUNT || '4', 10);
 const prefix = process.env.PREFIX || 'auto';
 const cfgPath = process.env.NH_CONFIG;
 const caddyfile = process.env.CADDYFILE;
 const hyPath = process.env.HYSTERIA_CONFIG;
+const profileMapPath = process.env.NH_PROFILE_MAP || '/etc/nh-panel/generated-profile-map.json';
 const reportPath = '/opt/panel-naive-hy2/generated-profiles.txt';
 const subRoot = process.env.NH_SUBSCRIPTION_DIR || '/opt/panel-naive-hy2/subscriptions';
 const subToken = process.env.NH_SUBSCRIPTION_TOKEN || 'missing-token';
@@ -641,6 +644,48 @@ function pass() {
   return cp.execSync("openssl rand -base64 18 | tr -dc 'A-Za-z0-9' | head -c 20", { encoding: 'utf8', shell: '/bin/bash' }).trim();
 }
 
+function token(len = 12) {
+  return crypto.randomBytes(Math.ceil(len / 2))
+    .toString('hex')
+    .slice(0, len);
+}
+
+function loadProfileMap() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(profileMapPath, 'utf8'));
+    if (parsed && Array.isArray(parsed.profiles)) return parsed;
+  } catch (_) {}
+  return { version: 1, profiles: [] };
+}
+
+function saveProfileMap(map) {
+  fs.mkdirSync(path.dirname(profileMapPath), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(profileMapPath, JSON.stringify(map, null, 2) + '\n', { mode: 0o600 });
+  try { fs.chmodSync(profileMapPath, 0o600); } catch (_) {}
+}
+
+function ensureProfileMap(map) {
+  const byIndex = new Map(map.profiles.map(p => [Number(p.index), p]));
+  const profiles = [];
+  for (let i = 1; i <= count; i += 1) {
+    const n = String(i).padStart(2, '0');
+    const existing = byIndex.get(i) || {};
+    profiles.push({
+      ...existing,
+      index: i,
+      subId: existing.subId || `${prefix}-${n}`,
+      subscriptionId: existing.subscriptionId || `sub-${token(14)}`,
+      naiveUsername: existing.naiveUsername || `naive-${token(10)}`,
+      hy2Username: existing.hy2Username || `hy2-${token(10)}`
+    });
+  }
+  map.version = 1;
+  map.profiles = profiles;
+  saveProfileMap(map);
+  return map;
+}
+
+const profileMap = ensureProfileMap(loadProfileMap());
 const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
 cfg.stack = cfg.stack || {};
 cfg.stack.naive = true;
@@ -651,28 +696,30 @@ cfg.installed = cfg.installed !== false;
 const now = new Date().toISOString();
 const generatedNaive = [];
 const generatedHy2 = [];
+const mappedNaiveNames = new Set(profileMap.profiles.map(p => String(p.naiveUsername || '')).filter(Boolean));
+const mappedHy2Names = new Set(profileMap.profiles.map(p => String(p.hy2Username || '')).filter(Boolean));
 const generatedNaiveRe = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-naive-[0-9]+$`);
 const generatedHy2Re = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-hy2-[0-9]+$`);
 const existingGeneratedNaive = new Map(
   cfg.naiveUsers
-    .filter(u => generatedNaiveRe.test(String(u.username || '')))
+    .filter(u => mappedNaiveNames.has(String(u.username || '')) || generatedNaiveRe.test(String(u.username || '')))
     .map(u => [String(u.username), u])
 );
 const existingGeneratedHy2 = new Map(
   cfg.hy2Users
-    .filter(u => generatedHy2Re.test(String(u.username || '')))
+    .filter(u => mappedHy2Names.has(String(u.username || '')) || generatedHy2Re.test(String(u.username || '')))
     .map(u => [String(u.username), u])
 );
 
-cfg.naiveUsers = cfg.naiveUsers.filter(u => !generatedNaiveRe.test(String(u.username || '')));
-cfg.hy2Users = cfg.hy2Users.filter(u => !generatedHy2Re.test(String(u.username || '')));
+cfg.naiveUsers = cfg.naiveUsers.filter(u => !mappedNaiveNames.has(String(u.username || '')) && !generatedNaiveRe.test(String(u.username || '')));
+cfg.hy2Users = cfg.hy2Users.filter(u => !mappedHy2Names.has(String(u.username || '')) && !generatedHy2Re.test(String(u.username || '')));
 
-for (let i = 1; i <= count; i += 1) {
-  const n = String(i).padStart(2, '0');
-  const naiveName = `${prefix}-naive-${n}`;
-  const hyName = `${prefix}-hy2-${n}`;
-  const oldNaive = existingGeneratedNaive.get(naiveName) || {};
-  const oldHy = existingGeneratedHy2.get(hyName) || {};
+for (const profile of profileMap.profiles) {
+  const legacyIndex = String(profile.index).padStart(2, '0');
+  const naiveName = profile.naiveUsername;
+  const hyName = profile.hy2Username;
+  const oldNaive = existingGeneratedNaive.get(naiveName) || existingGeneratedNaive.get(`${prefix}-naive-${legacyIndex}`) || {};
+  const oldHy = existingGeneratedHy2.get(hyName) || existingGeneratedHy2.get(`${prefix}-hy2-${legacyIndex}`) || {};
   const naiveUser = {
     ...oldNaive,
     username: naiveName,
@@ -766,6 +813,13 @@ for (const link of generatedNaiveLinks) lines.push(link);
 lines.push('');
 lines.push('Hysteria2:');
 for (const link of generatedHy2Links) lines.push(link);
+lines.push('');
+lines.push(`Profile map: ${profileMapPath}`);
+lines.push('');
+lines.push('Per-client subscription names:');
+for (const profile of profileMap.profiles) {
+  lines.push(`${profile.subId} -> ${profile.subscriptionId}.txt`);
+}
 fs.mkdirSync(path.dirname(reportPath), { recursive: true });
 fs.writeFileSync(reportPath, lines.join('\n') + '\n', { mode: 0o600 });
 
@@ -869,15 +923,17 @@ combined_generate() {
     fi
   fi
 
-  COUNT="$COUNT" PREFIX="$PREFIX" XUI_DB="$XUI_DB" NH_CONFIG="$NH_CONFIG" NH_SUBSCRIPTION_DIR="$NH_SUBSCRIPTION_DIR" NH_SUBSCRIPTION_TOKEN="$NH_SUBSCRIPTION_TOKEN" node <<'NODE'
+  COUNT="$COUNT" PREFIX="$PREFIX" XUI_DB="$XUI_DB" NH_CONFIG="$NH_CONFIG" NH_PROFILE_MAP="$NH_PROFILE_MAP" NH_SUBSCRIPTION_DIR="$NH_SUBSCRIPTION_DIR" NH_SUBSCRIPTION_TOKEN="$NH_SUBSCRIPTION_TOKEN" node <<'NODE'
 const fs = require('fs');
 const cp = require('child_process');
 const path = require('path');
+const crypto = require('crypto');
 
 const count = parseInt(process.env.COUNT || '4', 10);
 const prefix = process.env.PREFIX || 'auto';
 const xuiDb = process.env.XUI_DB;
 const nhConfig = process.env.NH_CONFIG;
+const profileMapPath = process.env.NH_PROFILE_MAP || '/etc/nh-panel/generated-profile-map.json';
 const subRoot = process.env.NH_SUBSCRIPTION_DIR || '/opt/panel-naive-hy2/subscriptions';
 const subToken = process.env.NH_SUBSCRIPTION_TOKEN || '';
 const subDir = path.join(subRoot, subToken);
@@ -889,6 +945,50 @@ function b64(s) {
 function encode(v) {
   return encodeURIComponent(String(v ?? ''));
 }
+
+function token(len = 12) {
+  return crypto.randomBytes(Math.ceil(len / 2))
+    .toString('hex')
+    .slice(0, len);
+}
+
+function loadProfileMap() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(profileMapPath, 'utf8'));
+    if (parsed && Array.isArray(parsed.profiles)) return parsed;
+  } catch (_) {}
+  return { version: 1, profiles: [] };
+}
+
+function saveProfileMap(map) {
+  fs.mkdirSync(path.dirname(profileMapPath), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(profileMapPath, JSON.stringify(map, null, 2) + '\n', { mode: 0o600 });
+  try { fs.chmodSync(profileMapPath, 0o600); } catch (_) {}
+}
+
+function ensureProfileMap(map) {
+  const byIndex = new Map(map.profiles.map(p => [Number(p.index), p]));
+  const profiles = [];
+  for (let i = 1; i <= count; i += 1) {
+    const n = String(i).padStart(2, '0');
+    const existing = byIndex.get(i) || {};
+    profiles.push({
+      ...existing,
+      index: i,
+      subId: existing.subId || `${prefix}-${n}`,
+      subscriptionId: existing.subscriptionId || `sub-${token(14)}`,
+      naiveUsername: existing.naiveUsername || `naive-${token(10)}`,
+      hy2Username: existing.hy2Username || `hy2-${token(10)}`
+    });
+  }
+  map.version = 1;
+  map.profiles = profiles;
+  saveProfileMap(map);
+  return map;
+}
+
+const profileMap = ensureProfileMap(loadProfileMap());
+const profilesBySubId = new Map(profileMap.profiles.map(p => [String(p.subId), p]));
 
 function cleanHost(value) {
   const raw = String(value || '').trim();
@@ -1149,9 +1249,12 @@ function nhLinksBySubId(realityBases) {
   for (let i = 1; i <= count; i += 1) {
     const n = String(i).padStart(2, '0');
     const subId = `${prefix}-${n}`;
+    const profile = profilesBySubId.get(subId) || {};
     const links = [];
-    const nUser = naive.find(u => String(u.username || '') === `${prefix}-naive-${n}`);
-    const hUser = hy2.find(u => String(u.username || '') === `${prefix}-hy2-${n}`);
+    const nUser = naive.find(u => String(u.username || '') === String(profile.naiveUsername || ''))
+      || naive.find(u => String(u.username || '') === `${prefix}-naive-${n}`);
+    const hUser = hy2.find(u => String(u.username || '') === String(profile.hy2Username || ''))
+      || hy2.find(u => String(u.username || '') === `${prefix}-hy2-${n}`);
     const baseName = realityBases.get(subId) || subId;
     if (nUser) links.push(`naive+https://${encode(nUser.username)}:${encode(nUser.password)}@${domain}:443#${encode(`naive-${baseName}`)}`);
     if (hUser) links.push(`hysteria2://${encode(hUser.username)}:${encode(hUser.password)}@${domain}:443?sni=${domain}&insecure=0#${encode(`hy2-${baseName}`)}`);
@@ -1163,8 +1266,8 @@ function nhLinksBySubId(realityBases) {
 const rows = xuiRows();
 const realityBases = xuiRealityBaseBySubId(rows);
 const bySubId = new Map();
-for (let i = 1; i <= count; i += 1) {
-  bySubId.set(`${prefix}-${String(i).padStart(2, '0')}`, []);
+for (const profile of profileMap.profiles) {
+  bySubId.set(String(profile.subId), []);
 }
 
 for (const row of rows) {
@@ -1185,6 +1288,8 @@ const stableXrayAll = [];
 fs.mkdirSync(subDir, { recursive: true, mode: 0o755 });
 
 for (const [subId, links] of bySubId) {
+  const profile = profilesBySubId.get(subId) || {};
+  const subscriptionId = String(profile.subscriptionId || subId);
   const officialXuiText = fetchXuiSubscription(subId);
   const officialXuiLinks = officialXuiText ? officialXuiText.split(/\n/).filter(Boolean) : [];
   const xuiLinks = renameXuiLinks(officialXuiLinks.length ? officialXuiLinks : links, subId, realityBases);
@@ -1206,12 +1311,22 @@ for (const [subId, links] of bySubId) {
     }
   }
   const stableText = stableLinks.join('\n');
-  fs.writeFileSync(path.join(subDir, `${subId}.txt`), text + (text ? '\n' : ''), { mode: 0o644 });
-  fs.writeFileSync(path.join(subDir, `${subId}.b64`), b64(text), { mode: 0o644 });
-  fs.writeFileSync(path.join(subDir, `${subId}-v2rayn.txt`), b64(xrayText) + '\n', { mode: 0o644 });
-  fs.writeFileSync(path.join(subDir, `${subId}-v2rayn.b64`), b64(xrayText), { mode: 0o644 });
-  fs.writeFileSync(path.join(subDir, `${subId}-v2rayn-raw.txt`), xrayText + (xrayText ? '\n' : ''), { mode: 0o644 });
-  fs.writeFileSync(path.join(subDir, `${subId}-v2rayn-stable.txt`), b64(stableText) + '\n', { mode: 0o644 });
+  for (const legacyName of [
+    `${subId}.txt`,
+    `${subId}.b64`,
+    `${subId}-v2rayn.txt`,
+    `${subId}-v2rayn.b64`,
+    `${subId}-v2rayn-raw.txt`,
+    `${subId}-v2rayn-stable.txt`
+  ]) {
+    try { fs.unlinkSync(path.join(subDir, legacyName)); } catch (_) {}
+  }
+  fs.writeFileSync(path.join(subDir, `${subscriptionId}.txt`), text + (text ? '\n' : ''), { mode: 0o644 });
+  fs.writeFileSync(path.join(subDir, `${subscriptionId}.b64`), b64(text), { mode: 0o644 });
+  fs.writeFileSync(path.join(subDir, `${subscriptionId}-v2rayn.txt`), b64(xrayText) + '\n', { mode: 0o644 });
+  fs.writeFileSync(path.join(subDir, `${subscriptionId}-v2rayn.b64`), b64(xrayText), { mode: 0o644 });
+  fs.writeFileSync(path.join(subDir, `${subscriptionId}-v2rayn-raw.txt`), xrayText + (xrayText ? '\n' : ''), { mode: 0o644 });
+  fs.writeFileSync(path.join(subDir, `${subscriptionId}-v2rayn-stable.txt`), b64(stableText) + '\n', { mode: 0o644 });
   combinedAll.push(...combined);
   xrayAll.push(...links);
   stableXrayAll.push(...stableLinks);
@@ -1239,7 +1354,7 @@ NODE
       find "$sub_dir" -type f -exec chmod 0644 {} + 2>/dev/null || true
     fi
   fi
-  ok "Combined x-ui + NHM subscriptions saved: ${NH_SUBSCRIPTION_DIR%/}/$NH_SUBSCRIPTION_TOKEN/${PREFIX}-01.txt ... ${PREFIX}-${COUNT}.txt"
+  ok "Combined x-ui + NHM subscriptions saved with random per-client names from $NH_PROFILE_MAP"
   ok "v2rayN-safe x-ui subscription saved: ${NH_SUBSCRIPTION_DIR%/}/$NH_SUBSCRIPTION_TOKEN/v2rayn.txt"
 }
 
@@ -1380,8 +1495,9 @@ NHM:
   NaiveProxy profiles: ${COUNT}
   Hysteria2 profiles: ${COUNT}
   links: /opt/panel-naive-hy2/generated-profiles.txt
+  random profile map: ${NH_PROFILE_MAP}
   subscriptions: ${NH_SUBSCRIPTION_DIR%/}/${NH_SUBSCRIPTION_TOKEN:-TOKEN_NOT_SET}
-  combined x-ui+NHM: ${NH_SUBSCRIPTION_DIR%/}/${NH_SUBSCRIPTION_TOKEN:-TOKEN_NOT_SET}/${PREFIX}-01.txt ... ${PREFIX}-${COUNT}.txt
+  combined x-ui+NHM: random per-client names from ${NH_PROFILE_MAP}
   combined all: ${NH_SUBSCRIPTION_DIR%/}/${NH_SUBSCRIPTION_TOKEN:-TOKEN_NOT_SET}/combined.txt
 
 Backup:

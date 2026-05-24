@@ -201,8 +201,8 @@ x-ui:
   no WARP routing unless explicitly enabled
 
 NHM:
-  15 NaiveProxy profiles
-  15 Hysteria2 profiles
+  15 NaiveProxy profiles with random usernames
+  15 Hysteria2 profiles with random usernames
   token-protected subscription files
 ```
 
@@ -253,8 +253,8 @@ NHM subscription files:
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/naive.txt
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/hy2.txt
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/all.txt
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/auto-01.txt
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/auto-01.b64
+/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/RANDOM_SUBSCRIPTION_ID.txt
+/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/RANDOM_SUBSCRIPTION_ID.b64
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/combined.txt
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/combined.b64
 /opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/v2rayn.txt
@@ -266,7 +266,7 @@ NHM subscription files:
 
 Combined per-client subscriptions first pull the matching 3x-ui subscription, then normalize visible names from the Reality profile name and append NaiveProxy and Hysteria2 links. The NHM username/password in NaiveProxy and Hysteria2 links is unchanged.
 
-Generated profile names use the Reality client name as the base. For example, if the Reality profile base is `user01`, generated links are named `reality-user01`, `ws-user01`, `xhttp-user01`, `trojan-grpc-user01`, `naive-user01`, and `hy2-user01`.
+Generated x-ui link names use the Reality client name as the base. NHM account usernames and per-client subscription filenames are random and stored in `/etc/nh-panel/generated-profile-map.json`, so reruns keep existing names stable.
 
 Refresh combined subscriptions after changing names in 3x-ui:
 
@@ -288,8 +288,8 @@ When NHM Panel is exposed on `8081`, subscription URLs look like:
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/naive.txt
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/hy2.txt
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/all.txt
-http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/auto-01.txt
-http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/auto-01.b64
+http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/RANDOM_SUBSCRIPTION_ID.txt
+http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/RANDOM_SUBSCRIPTION_ID.b64
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/combined.txt
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/v2rayn-stable.txt
 http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/v2rayn.txt

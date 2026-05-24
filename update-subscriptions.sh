@@ -17,7 +17,7 @@ Usage:
 Refreshes only subscription files:
   - pulls current x-ui subscription for each generated subId;
   - appends existing NaiveProxy and Hysteria2 links;
-  - writes auto-XX.txt, combined.txt, v2rayn*.txt files.
+  - writes random per-client subscription files, combined.txt, v2rayn*.txt files.
 
 Does not edit x-ui clients, NHM users, inbounds, routing, or passwords.
 EOF
