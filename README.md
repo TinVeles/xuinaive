@@ -192,6 +192,8 @@ By default this creates 15 x-ui clients per preset inbound, 15 NaiveProxy profil
 
 3x-ui `3.1.0` compatibility is handled during generation. The script keeps legacy `inbounds.settings.clients` updated and also syncs the new `clients` / `client_inbounds` tables used by the separate Clients tab. This keeps x-ui subscriptions, the Clients tab, and generated Xray config aligned.
 
+By default only local-panel inbounds are generated. For 3x-ui nodes, use `--xui-node-id ID` for one node or `--xui-node-id all` for local plus node inbounds. If an older run left invalid `clients.enable` values, the next generation repairs them before writing profiles.
+
 Default output:
 
 ```text
@@ -212,6 +214,14 @@ Custom count and prefix:
 sudo bash generate-profiles.sh \
   --count 15 \
   --prefix auto \
+  --yes
+```
+
+Generate for 3x-ui node inbounds:
+
+```bash
+sudo bash generate-profiles.sh \
+  --xui-node-id all \
   --yes
 ```
 

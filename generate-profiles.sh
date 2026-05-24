@@ -38,6 +38,7 @@ XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-0}"
 XUI_CLEANUP_WARP_TEMPLATE="${XUI_CLEANUP_WARP_TEMPLATE:-0}"
 XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-0}"
 XUI_REPLACE_CLIENTS="${XUI_REPLACE_CLIENTS:-1}"
+XUI_NODE_ID="${XUI_NODE_ID:-local}"
 CREATE_XUI="${CREATE_XUI:-1}"
 CREATE_NH="${CREATE_NH:-1}"
 COMBINED_ONLY="${COMBINED_ONLY:-0}"
@@ -88,6 +89,9 @@ WARP routing:
 x-ui selection:
   default: every preset vless/trojan inbound
   --xui-inbound-id ID: only one inbound
+  --xui-node-id local: only local panel inbounds (default)
+  --xui-node-id all: include all local and node inbounds
+  --xui-node-id ID: only inbounds attached to one 3x-ui node
   default subId mode: per-client (auto-01 contains all protocol variants for auto-01)
   --xui-sub-id-mode common: one subscription contains all generated clients
   default replace mode: selected inbound clients become exactly COUNT
@@ -112,6 +116,7 @@ while [[ $# -gt 0 ]]; do
     --warp-inbound-tag) WARP_INBOUND_TAG="${2:-}"; shift 2 ;;
     --warp-ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
     --xui-inbound-id) XUI_INBOUND_ID="${2:-}"; shift 2 ;;
+    --xui-node-id) XUI_NODE_ID="${2:-}"; shift 2 ;;
     --xui-common-sub-id) XUI_COMMON_SUB_ID="${2:-}"; shift 2 ;;
     --xui-sub-id-mode) XUI_SUB_ID_MODE="${2:-}"; shift 2 ;;
     --install-warp) XUI_ENABLE_WARP_ROUTING=1; XUI_AUTO_INSTALL_WARP=1; shift ;;
@@ -141,6 +146,7 @@ done
 [[ "$WARP_PROXY_PORT" =~ ^[0-9]+$ ]] || die "--warp-port must be numeric"
 [[ "$PREFIX" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--prefix may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
 [[ -z "$XUI_INBOUND_ID" || "$XUI_INBOUND_ID" =~ ^[0-9]+$ ]] || die "--xui-inbound-id must be numeric"
+[[ "$XUI_NODE_ID" == "local" || "$XUI_NODE_ID" == "all" || "$XUI_NODE_ID" =~ ^[0-9]+$ ]] || die "--xui-node-id must be local, all, or numeric"
 [[ "$XUI_COMMON_SUB_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--xui-common-sub-id may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
 [[ "$XUI_SUB_ID_MODE" == "per-client" || "$XUI_SUB_ID_MODE" == "common" ]] || die "--xui-sub-id-mode must be per-client or common"
 if [[ "$XUI_CREATE_DIRECT" != "1" ]]; then
@@ -228,8 +234,23 @@ xui_table_exists() {
   [[ "$(sqlite3 -readonly "$XUI_DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=$(sql_quote "$table");" 2>/dev/null || printf '0')" == "1" ]]
 }
 
+xui_column_exists() {
+  local table="$1" column="$2"
+  [[ -f "$XUI_DB" ]] || return 1
+  [[ "$(sqlite3 -readonly "$XUI_DB" "SELECT COUNT(*) FROM pragma_table_info($(sql_quote "$table")) WHERE name=$(sql_quote "$column");" 2>/dev/null || printf '0')" == "1" ]]
+}
+
 xui_has_client_tables() {
   xui_table_exists clients && xui_table_exists client_inbounds
+}
+
+xui_node_filter_sql() {
+  xui_column_exists inbounds node_id || return 0
+  case "$XUI_NODE_ID" in
+    all) return 0 ;;
+    local) printf '%s\n' "       AND node_id IS NULL" ;;
+    *) printf '%s\n' "       AND node_id=$XUI_NODE_ID" ;;
+  esac
 }
 
 xui_strip_reality_label() {
@@ -253,6 +274,7 @@ xui_reality_client_base() {
         AND json_extract(i.stream_settings,'$.security')='reality'
         AND c.sub_id=$(sql_quote "$sub_id")
         AND c.enable=1
+        $(xui_node_filter_sql | sed 's/node_id/i.node_id/g')
       ORDER BY i.id, c.id
       LIMIT 1;
     " 2>/dev/null || true)"
@@ -266,6 +288,7 @@ xui_reality_client_base() {
       AND json_valid(settings)=1
       AND json_valid(stream_settings)=1
       AND json_extract(stream_settings,'$.security')='reality'
+$(xui_node_filter_sql)
     ORDER BY id;
   " 2>/dev/null | jq -r --arg sub_id "$sub_id" '
     (.clients // [])[]
@@ -366,7 +389,7 @@ xui_normalize_inbound_settings() {
 
 xui_sync_client_tables() {
   local inbound_id="$1" clients_json="$2" report_file="$3" detach_scope="${4:-$XUI_REPLACE_CLIENTS}"
-  local old_client_ids client_rows email sub_id uuid password auth flow security limit_ip total_gb expiry_time enable tg_id comment reset created_at updated_at client_id
+  local old_client_ids client_rows client_b64 client_obj email sub_id uuid password auth flow security limit_ip total_gb expiry_time enable tg_id comment reset created_at updated_at client_id
   xui_has_client_tables || return 0
 
   if [[ "$detach_scope" == "1" || "$detach_scope" == "all" ]]; then
@@ -396,32 +419,28 @@ xui_sync_client_tables() {
     sqlite3 "$XUI_DB" "DELETE FROM clients WHERE id=$client_id AND NOT EXISTS (SELECT 1 FROM client_inbounds WHERE client_id=$client_id);" 2>/dev/null || true
   done <<<"$old_client_ids"
 
-  client_rows="$(jq -r '
-    def text(v): (v // "" | tostring);
-    def num(v): (v // 0 | tostring | if . == "" then "0" else . end);
-    .[]
-    | [
-        text(.email),
-        text(.subId),
-        text(.id),
-        text(.password),
-        text(.auth),
-        text(.flow),
-        text(.security),
-        num(.limitIp),
-        num(.totalGB),
-        num(.expiryTime),
-        (if (.enable // true) then "1" else "0" end),
-        num(.tgId),
-        text(.comment),
-        num(.reset),
-        num(.created_at),
-        num(.updated_at)
-      ]
-    | @tsv
-  ' <<<"$clients_json" 2>/dev/null || true)"
+  client_rows="$(jq -r '.[] | @base64' <<<"$clients_json" 2>/dev/null || true)"
 
-  while IFS=$'\t' read -r email sub_id uuid password auth flow security limit_ip total_gb expiry_time enable tg_id comment reset created_at updated_at; do
+  while IFS= read -r client_b64; do
+    [[ -n "$client_b64" ]] || continue
+    client_obj="$(printf '%s' "$client_b64" | base64 -d 2>/dev/null || true)"
+    [[ -n "$client_obj" ]] || continue
+    email="$(jq -r '.email // ""' <<<"$client_obj")"
+    sub_id="$(jq -r '.subId // ""' <<<"$client_obj")"
+    uuid="$(jq -r '.id // ""' <<<"$client_obj")"
+    password="$(jq -r '.password // ""' <<<"$client_obj")"
+    auth="$(jq -r '.auth // ""' <<<"$client_obj")"
+    flow="$(jq -r '.flow // ""' <<<"$client_obj")"
+    security="$(jq -r '.security // ""' <<<"$client_obj")"
+    limit_ip="$(jq -r '(.limitIp // 0) | if . == "" then 0 else . end' <<<"$client_obj")"
+    total_gb="$(jq -r '(.totalGB // 0) | if . == "" then 0 else . end' <<<"$client_obj")"
+    expiry_time="$(jq -r '(.expiryTime // 0) | if . == "" then 0 else . end' <<<"$client_obj")"
+    enable="$(jq -r 'if (.enable // true) then 1 else 0 end' <<<"$client_obj")"
+    tg_id="$(jq -r '(.tgId // 0) | if . == "" then 0 else . end' <<<"$client_obj")"
+    comment="$(jq -r '.comment // ""' <<<"$client_obj")"
+    reset="$(jq -r '(.reset // 0) | if . == "" then 0 else . end' <<<"$client_obj")"
+    created_at="$(jq -r '(.created_at // 0) | if . == "" then 0 else . end' <<<"$client_obj")"
+    updated_at="$(jq -r '(.updated_at // 0) | if . == "" then 0 else . end' <<<"$client_obj")"
     [[ -n "$email" ]] || continue
     [[ -n "$created_at" && "$created_at" != "0" ]] || created_at="$(date +%s)000"
     [[ -n "$updated_at" && "$updated_at" != "0" ]] || updated_at="$created_at"
@@ -498,6 +517,36 @@ xui_repair_invalid_inbound_json() {
        OR stream_settings=''
        OR json_valid(stream_settings)=0;
   "
+}
+
+xui_repair_client_table_rows() {
+  [[ -f "$XUI_DB" ]] || return 0
+  xui_table_exists clients || return 0
+  sqlite3 "$XUI_DB" "
+    UPDATE clients
+    SET expiry_time = CASE
+          WHEN CAST(COALESCE(enable, 1) AS INTEGER) NOT IN (0, 1)
+           AND CAST(COALESCE(expiry_time, 0) AS INTEGER) IN (0, 1)
+          THEN CAST(enable AS INTEGER)
+          ELSE COALESCE(expiry_time, 0)
+        END,
+        enable = CASE
+          WHEN CAST(COALESCE(enable, 1) AS INTEGER) IN (0, 1)
+          THEN CAST(enable AS INTEGER)
+          ELSE 1
+        END,
+        limit_ip = COALESCE(limit_ip, 0),
+        total_gb = COALESCE(total_gb, 0),
+        tg_id = COALESCE(tg_id, 0),
+        reset = COALESCE(reset, 0)
+    WHERE enable IS NULL
+       OR CAST(enable AS INTEGER) NOT IN (0, 1)
+       OR limit_ip IS NULL
+       OR total_gb IS NULL
+       OR expiry_time IS NULL
+       OR tg_id IS NULL
+       OR reset IS NULL;
+  " 2>/dev/null || true
 }
 
 xui_sanitize_inbound_tags() {
@@ -612,6 +661,7 @@ xui_add_clients() {
   mkdir -p "$(dirname "$report_file")"
   : > "$report_file"
   xui_repair_invalid_inbound_json
+  xui_repair_client_table_rows
   xui_sanitize_inbound_tags
   xui_enable_preset_xhttp
   xui_enable_preset_domain_sniffing
@@ -621,6 +671,7 @@ xui_add_clients() {
      WHERE protocol IN ('vless','trojan')
        AND COALESCE(tag,'') NOT LIKE '%-warp'
        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+$(xui_node_filter_sql)
 $(xui_preset_inbound_filter_sql)"
   if [[ -n "$XUI_INBOUND_ID" ]]; then
     query="$query AND id=$XUI_INBOUND_ID"
@@ -1578,6 +1629,7 @@ x-ui:
   standard generated clients: ${XUI_CREATE_DIRECT} (${COUNT} per selected preset inbound when enabled)
   subId mode: ${XUI_SUB_ID_MODE}
   common subId (only common mode): ${XUI_COMMON_SUB_ID}
+  node filter: ${XUI_NODE_ID}
   replace existing clients: ${XUI_REPLACE_CLIENTS}
   WARP routing: ${XUI_ENABLE_WARP_ROUTING}
   WARP auto-install: ${XUI_AUTO_INSTALL_WARP}
