@@ -188,17 +188,17 @@ Generate or refresh profiles after installation:
 sudo bash generate-profiles.sh --yes
 ```
 
-By default this creates 15 x-ui clients per preset inbound, 15 NaiveProxy profiles, and 15 Hysteria2 profiles. It does not install WARP and does not write WARP routing.
+By default this creates 15 x-ui subscription clients, 15 NaiveProxy profiles, and 15 Hysteria2 profiles. It does not install WARP and does not write WARP routing.
 
-3x-ui `3.1.0` compatibility is handled during generation. The script keeps legacy `inbounds.settings.clients` updated and also syncs the new `clients` / `client_inbounds` tables used by the separate Clients tab. This keeps x-ui subscriptions, the Clients tab, and generated Xray config aligned.
+3x-ui `3.1.0` compatibility is handled during generation. The script keeps legacy `inbounds.settings.clients` updated and also syncs the new `clients` / `client_inbounds` tables used by the separate Clients tab. In 3x-ui `3.1.0`, one generated client record is attached to all selected protocol inbounds, so the Clients tab shows 15 clients total, not 15 per protocol.
 
-By default only local-panel inbounds are generated. For 3x-ui nodes, use `--xui-node-id ID` for one node or `--xui-node-id all` for local plus node inbounds. If an older run left invalid `clients.enable` values, the next generation repairs them before writing profiles.
+By default local and node inbounds are generated. Use `--xui-node-id local` for only local-panel inbounds, or `--xui-node-id ID` for one 3x-ui node. If an older run left invalid `clients.enable` values, the next generation repairs them before writing profiles.
 
 Default output:
 
 ```text
 x-ui:
-  15 standard clients on each preset inbound
+  15 generated clients attached to selected preset inbounds
   one x-ui subscription subId per client index
   no WARP routing unless explicitly enabled
 

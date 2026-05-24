@@ -38,7 +38,7 @@ XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-0}"
 XUI_CLEANUP_WARP_TEMPLATE="${XUI_CLEANUP_WARP_TEMPLATE:-0}"
 XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-0}"
 XUI_REPLACE_CLIENTS="${XUI_REPLACE_CLIENTS:-1}"
-XUI_NODE_ID="${XUI_NODE_ID:-local}"
+XUI_NODE_ID="${XUI_NODE_ID:-all}"
 CREATE_XUI="${CREATE_XUI:-1}"
 CREATE_NH="${CREATE_NH:-1}"
 COMBINED_ONLY="${COMBINED_ONLY:-0}"
@@ -69,7 +69,7 @@ Usage:
   sudo bash generate-profiles.sh --install-warp --yes
 
 Creates:
-  x-ui:  COUNT standard clients on every selected preset inbound.
+  x-ui:  COUNT subscription clients attached to every selected preset inbound.
          Default subscriptions: one subId per client index.
   NHM:   COUNT NaiveProxy profiles and COUNT Hysteria2 profiles.
          Subscription files are written to ${NH_SUBSCRIPTION_DIR}.
@@ -89,8 +89,8 @@ WARP routing:
 x-ui selection:
   default: every preset vless/trojan inbound
   --xui-inbound-id ID: only one inbound
-  --xui-node-id local: only local panel inbounds (default)
-  --xui-node-id all: include all local and node inbounds
+  --xui-node-id all: include all local and node inbounds (default)
+  --xui-node-id local: only local panel inbounds
   --xui-node-id ID: only inbounds attached to one 3x-ui node
   default subId mode: per-client (auto-01 contains all protocol variants for auto-01)
   --xui-sub-id-mode common: one subscription contains all generated clients
@@ -305,6 +305,10 @@ $(xui_node_filter_sql)
 xui_client_email() {
   local index="$1" mode="$2" label="$3" base="${4:-}"
   [[ -n "$base" ]] || base="${PREFIX}-${index}"
+  if xui_has_client_tables; then
+    printf '%s\n' "$base"
+    return 0
+  fi
   if [[ "$mode" == "direct" || "$mode" == "standard" ]]; then
     printf '%s-%s\n' "$label" "$base"
   else
@@ -339,7 +343,6 @@ xui_client_json() {
           expiryTime:($o.expiryTime // 0),
           limitIp:($o.limitIp // 0),
           password:$p,
-          id:$p,
           reset:($o.reset // 0),
           subId:$subId,
           tgId:($o.tgId // 0),
@@ -455,14 +458,14 @@ xui_sync_client_tables() {
       INSERT OR IGNORE INTO clients
         (email, sub_id, uuid, password, auth, flow, security, reverse, limit_ip, total_gb, expiry_time, enable, tg_id, comment, reset, created_at, updated_at)
       VALUES
-        ($(sql_quote "$email"), $(sql_quote "$sub_id"), $(sql_quote "$uuid"), $(sql_quote "$password"), $(sql_quote "$auth"), $(sql_quote "$flow"), $(sql_quote "$security"), '', $limit_ip, $total_gb, $expiry_time, $enable, $tg_id, $(sql_quote "$comment"), $reset, $created_at, $updated_at);
+        ($(sql_quote "$email"), $(sql_quote "$sub_id"), $(sql_quote "$uuid"), $(sql_quote "$password"), $(sql_quote "$auth"), '', $(sql_quote "$security"), '', $limit_ip, $total_gb, $expiry_time, $enable, $tg_id, $(sql_quote "$comment"), $reset, $created_at, $updated_at);
       UPDATE clients
       SET sub_id=$(sql_quote "$sub_id"),
-          uuid=$(sql_quote "$uuid"),
-          password=$(sql_quote "$password"),
-          auth=$(sql_quote "$auth"),
-          flow=$(sql_quote "$flow"),
-          security=$(sql_quote "$security"),
+          uuid=CASE WHEN $(sql_quote "$uuid") != '' THEN $(sql_quote "$uuid") ELSE uuid END,
+          password=CASE WHEN $(sql_quote "$password") != '' THEN $(sql_quote "$password") ELSE password END,
+          auth=CASE WHEN $(sql_quote "$auth") != '' THEN $(sql_quote "$auth") ELSE auth END,
+          flow='',
+          security=CASE WHEN $(sql_quote "$security") != '' THEN $(sql_quote "$security") ELSE security END,
           limit_ip=$limit_ip,
           total_gb=$total_gb,
           expiry_time=$expiry_time,
@@ -1626,7 +1629,7 @@ cat <<EOF
 Profile generation complete
 ---------------------------
 x-ui:
-  standard generated clients: ${XUI_CREATE_DIRECT} (${COUNT} per selected preset inbound when enabled)
+  standard generated clients: ${XUI_CREATE_DIRECT} (${COUNT} subscription clients attached to selected inbounds when enabled)
   subId mode: ${XUI_SUB_ID_MODE}
   common subId (only common mode): ${XUI_COMMON_SUB_ID}
   node filter: ${XUI_NODE_ID}
