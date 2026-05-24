@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SOURCE_PATH="${BASH_SOURCE[0]}"
+if [[ "$SOURCE_PATH" == /dev/fd/* || "$SOURCE_PATH" == /proc/* || ! -f "$SOURCE_PATH" ]]; then
+  SCRIPT_DIR="$(pwd)"
+else
+  SCRIPT_DIR="$(cd "$(dirname "$SOURCE_PATH")" && pwd)"
+fi
+LIB_DIR="$SCRIPT_DIR/lib"
+# shellcheck disable=SC1091
+source "$LIB_DIR/common.sh"
+
+XUI_DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
+DOMAIN="${XUI_SUB_DOMAIN:-}"
+SUB_PORT="${XUI_SUB_PORT:-57145}"
+SUB_PATH="${XUI_SUB_PATH:-/gtsubsync55/}"
+SUB_ID="${XUI_SUB_ID:-Tin}"
+BACKEND_PORT="${XUI_SUB_BACKEND_PORT:-9444}"
+STREAM_CONF="${NGINX_STREAM_CONF:-/etc/nginx/stream-enabled/stream.conf}"
+SITES_DIR="${NGINX_SITES_DIR:-/etc/nginx/sites-enabled}"
+ASSUME_YES=0
+
+usage() {
+  cat <<EOF
+Usage:
+  sudo bash configure-xui-subscription.sh --domain sub.example.com --path /gtsubsync55/ --sub-id Tin --yes
+
+What it does:
+  - updates x-ui subscription settings: subPort, subPath, subURI
+  - creates a dedicated nginx HTTPS backend on 127.0.0.1:${BACKEND_PORT}
+  - maps the public subscription SNI/domain in nginx stream to that backend
+  - reloads nginx and x-ui
+
+Options:
+  --domain DOMAIN          public subscription domain, for example sub.example.com
+  --port PORT              x-ui subscription port, default: ${SUB_PORT}
+  --path /PATH/            x-ui subscription path, default: ${SUB_PATH}
+  --sub-id ID              test subscription id, default: ${SUB_ID}
+  --backend-port PORT      local nginx HTTPS backend port, default: ${BACKEND_PORT}
+  --xui-db PATH            x-ui sqlite DB, default: ${XUI_DB}
+  --yes                    apply changes
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --domain) DOMAIN="${2:-}"; shift 2 ;;
+    --port) SUB_PORT="${2:-}"; shift 2 ;;
+    --path) SUB_PATH="${2:-}"; shift 2 ;;
+    --sub-id) SUB_ID="${2:-}"; shift 2 ;;
+    --backend-port) BACKEND_PORT="${2:-}"; shift 2 ;;
+    --xui-db) XUI_DB="${2:-}"; shift 2 ;;
+    --yes) ASSUME_YES=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "Unknown argument: $1" ;;
+  esac
+done
+
+[[ "${EUID:-$(id -u)}" -eq 0 ]] || die "Run as root"
+[[ "$ASSUME_YES" == "1" ]] || die "Add --yes after reading what this script changes"
+[[ -n "$DOMAIN" ]] || die "--domain is required"
+[[ "$DOMAIN" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$ ]] || die "Invalid domain: $DOMAIN"
+[[ "$SUB_PORT" =~ ^[0-9]+$ ]] || die "--port must be numeric"
+[[ "$BACKEND_PORT" =~ ^[0-9]+$ ]] || die "--backend-port must be numeric"
+[[ "$SUB_PATH" == /*/ ]] || die "--path must start and end with /"
+[[ "$SUB_PATH" != *"'"* ]] || die "--path must not contain single quote"
+[[ "$SUB_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--sub-id may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
+command_exists sqlite3 || die "sqlite3 is required"
+command_exists nginx || die "nginx is required"
+[[ -f "$XUI_DB" ]] || die "x-ui database not found: $XUI_DB"
+
+CERT_FILE="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+CERT_KEY="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+[[ -f "$CERT_FILE" && -f "$CERT_KEY" ]] || die "TLS cert for $DOMAIN not found in /etc/letsencrypt/live/$DOMAIN"
+
+mkdir -p /opt/unified-proxy-manager/backups
+BACKUP_DIR="/opt/unified-proxy-manager/backups/xui-subscription-$(date '+%Y-%m-%d-%H-%M-%S')"
+mkdir -p "$BACKUP_DIR"
+for path in "$XUI_DB" "$STREAM_CONF" "$SITES_DIR"; do
+  [[ -e "$path" || -L "$path" ]] || continue
+  mkdir -p "$BACKUP_DIR$(dirname "$path")"
+  cp -a "$path" "$BACKUP_DIR$(dirname "$path")/"
+done
+
+safe_name="$(printf '%s' "$DOMAIN" | tr -c 'A-Za-z0-9' '_')"
+upstream_name="upm_${safe_name}_sub"
+backend_conf="$SITES_DIR/upm-xui-subscription-$DOMAIN.conf"
+sub_uri="https://$DOMAIN$SUB_PATH"
+public_url="${sub_uri}${SUB_ID}"
+local_url="https://127.0.0.1:${SUB_PORT}${SUB_PATH}${SUB_ID}"
+
+info "Updating x-ui subscription settings"
+sqlite3 "$XUI_DB" "
+  INSERT INTO settings (key, value) VALUES ('subPort', $(sql_quote "$SUB_PORT"))
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+  INSERT INTO settings (key, value) VALUES ('subPath', $(sql_quote "$SUB_PATH"))
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+  INSERT INTO settings (key, value) VALUES ('subURI', $(sql_quote "$sub_uri"))
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+  INSERT INTO settings (key, value) VALUES ('subEnable', 'true')
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+" 2>/dev/null || sqlite3 "$XUI_DB" "
+  UPDATE settings SET value=$(sql_quote "$SUB_PORT") WHERE key='subPort';
+  UPDATE settings SET value=$(sql_quote "$SUB_PATH") WHERE key='subPath';
+  UPDATE settings SET value=$(sql_quote "$sub_uri") WHERE key='subURI';
+  UPDATE settings SET value='true' WHERE key='subEnable';
+"
+
+info "Writing nginx subscription backend: $backend_conf"
+cat > "$backend_conf" <<EOF
+server {
+    server_tokens off;
+    server_name $DOMAIN;
+
+    listen $BACKEND_PORT ssl http2 proxy_protocol;
+    listen [::]:$BACKEND_PORT ssl http2 proxy_protocol;
+
+    set_real_ip_from 127.0.0.1;
+    real_ip_header proxy_protocol;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_certificate $CERT_FILE;
+    ssl_certificate_key $CERT_KEY;
+
+    location $SUB_PATH {
+        proxy_pass https://127.0.0.1:$SUB_PORT$SUB_PATH;
+        proxy_ssl_verify off;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location / {
+        return 404;
+    }
+}
+EOF
+
+mkdir -p "$(dirname "$STREAM_CONF")"
+if [[ ! -f "$STREAM_CONF" ]]; then
+  cat > "$STREAM_CONF" <<EOF
+map \$ssl_preread_server_name \$sni_name {
+    hostnames;
+    $DOMAIN $upstream_name;
+    default xray;
+}
+
+upstream xray {
+    server 127.0.0.1:8443;
+}
+
+server {
+    proxy_protocol on;
+    set_real_ip_from unix:;
+    listen 443;
+    listen [::]:443;
+    proxy_pass \$sni_name;
+    ssl_preread on;
+}
+EOF
+fi
+
+info "Updating nginx stream route for $DOMAIN -> $upstream_name"
+tmp_stream="$(mktemp)"
+awk -v domain="$DOMAIN" -v upstream="$upstream_name" '
+  BEGIN { in_map = 0; done = 0 }
+  $0 ~ /^[[:space:]]*map[[:space:]]+\$ssl_preread_server_name[[:space:]]+\$sni_name[[:space:]]*\{/ {
+    in_map = 1
+    print
+    next
+  }
+  in_map && $0 ~ /^[[:space:]]*hostnames;[[:space:]]*$/ {
+    print
+    if (!done) {
+      printf "    %-32s %s;\n", domain, upstream
+      done = 1
+    }
+    next
+  }
+  in_map && $0 ~ /^[[:space:]]*\}/ {
+    if (!done) {
+      printf "    %-32s %s;\n", domain, upstream
+      done = 1
+    }
+    in_map = 0
+    print
+    next
+  }
+  in_map {
+    line = $0
+    sub(/#.*/, "", line)
+    split(line, parts, /[[:space:]]+/)
+    candidate = parts[2]
+    if (candidate == "") candidate = parts[1]
+    if (candidate == domain) next
+  }
+  { print }
+' "$STREAM_CONF" > "$tmp_stream"
+cat "$tmp_stream" > "$STREAM_CONF"
+rm -f "$tmp_stream"
+
+tmp_stream="$(mktemp)"
+perl -0pe "s/\\nupstream\\s+$upstream_name\\s*\\{.*?\\n\\}\\n//sg" "$STREAM_CONF" > "$tmp_stream"
+cat "$tmp_stream" > "$STREAM_CONF"
+rm -f "$tmp_stream"
+cat >> "$STREAM_CONF" <<EOF
+
+upstream $upstream_name {
+    server 127.0.0.1:$BACKEND_PORT;
+}
+EOF
+
+info "Validating nginx"
+nginx -t
+
+if command_exists systemctl; then
+  systemctl reload nginx 2>/dev/null || systemctl restart nginx
+  systemctl restart x-ui 2>/dev/null || true
+fi
+
+ok "x-ui subscription URL configured: $public_url"
+printf 'Backup: %s\n' "$BACKUP_DIR"
+printf 'Local test:  curl -k -i %s\n' "$local_url"
+printf 'Public test: curl -i %s\n' "$public_url"
+
+if curl -k -fsS "$local_url" >/dev/null 2>&1; then
+  ok "Local x-ui subscription test passed"
+else
+  warn "Local x-ui subscription test failed; check that subId exists: $SUB_ID"
+fi
+
+if curl -fsS "$public_url" >/dev/null 2>&1; then
+  ok "Public subscription test passed"
+else
+  warn "Public subscription test failed; run: curl -i $public_url"
+fi
