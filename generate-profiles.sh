@@ -222,6 +222,16 @@ profile_indices() {
   done
 }
 
+xui_table_exists() {
+  local table="$1"
+  [[ -f "$XUI_DB" ]] || return 1
+  [[ "$(sqlite3 -readonly "$XUI_DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=$(sql_quote "$table");" 2>/dev/null || printf '0')" == "1" ]]
+}
+
+xui_has_client_tables() {
+  xui_table_exists clients && xui_table_exists client_inbounds
+}
+
 xui_strip_reality_label() {
   local email="$1"
   email="${email#reality-}"
@@ -231,6 +241,23 @@ xui_strip_reality_label() {
 
 xui_reality_client_base() {
   local sub_id="$1" email base
+  if xui_has_client_tables; then
+    email="$(sqlite3 -readonly "$XUI_DB" "
+      SELECT c.email
+      FROM clients c
+      JOIN client_inbounds ci ON ci.client_id = c.id
+      JOIN inbounds i ON i.id = ci.inbound_id
+      WHERE i.enable=1
+        AND i.protocol='vless'
+        AND json_valid(i.stream_settings)=1
+        AND json_extract(i.stream_settings,'$.security')='reality'
+        AND c.sub_id=$(sql_quote "$sub_id")
+        AND c.enable=1
+      ORDER BY i.id, c.id
+      LIMIT 1;
+    " 2>/dev/null || true)"
+  fi
+  [[ -n "${email:-}" ]] || \
   email="$(sqlite3 -readonly "$XUI_DB" "
     SELECT settings
     FROM inbounds
@@ -337,6 +364,112 @@ xui_normalize_inbound_settings() {
   fi
 }
 
+xui_sync_client_tables() {
+  local inbound_id="$1" clients_json="$2" report_file="$3" detach_scope="${4:-$XUI_REPLACE_CLIENTS}"
+  local old_client_ids client_rows email sub_id uuid password auth flow security limit_ip total_gb expiry_time enable tg_id comment reset created_at updated_at client_id
+  xui_has_client_tables || return 0
+
+  if [[ "$detach_scope" == "1" || "$detach_scope" == "all" ]]; then
+    old_client_ids="$(sqlite3 -readonly "$XUI_DB" "SELECT client_id FROM client_inbounds WHERE inbound_id=$inbound_id;" 2>/dev/null || true)"
+    sqlite3 "$XUI_DB" "DELETE FROM client_inbounds WHERE inbound_id=$inbound_id;" 2>/dev/null || true
+  else
+    old_client_ids="$(sqlite3 -readonly "$XUI_DB" "
+      SELECT ci.client_id
+      FROM client_inbounds ci
+      JOIN clients c ON c.id = ci.client_id
+      WHERE ci.inbound_id=$inbound_id
+        AND (c.sub_id GLOB $(sql_quote "${PREFIX}-[0-9]*") OR c.email GLOB $(sql_quote "${PREFIX}-[0-9]*"));
+    " 2>/dev/null || true)"
+    sqlite3 "$XUI_DB" "
+      DELETE FROM client_inbounds
+      WHERE inbound_id=$inbound_id
+        AND client_id IN (
+          SELECT id FROM clients
+          WHERE sub_id GLOB $(sql_quote "${PREFIX}-[0-9]*")
+             OR email GLOB $(sql_quote "${PREFIX}-[0-9]*")
+        );
+    " 2>/dev/null || true
+  fi
+
+  while IFS= read -r client_id; do
+    [[ -n "$client_id" ]] || continue
+    sqlite3 "$XUI_DB" "DELETE FROM clients WHERE id=$client_id AND NOT EXISTS (SELECT 1 FROM client_inbounds WHERE client_id=$client_id);" 2>/dev/null || true
+  done <<<"$old_client_ids"
+
+  client_rows="$(jq -r '
+    def text(v): (v // "" | tostring);
+    def num(v): (v // 0 | tostring | if . == "" then "0" else . end);
+    .[]
+    | [
+        text(.email),
+        text(.subId),
+        text(.id),
+        text(.password),
+        text(.auth),
+        text(.flow),
+        text(.security),
+        num(.limitIp),
+        num(.totalGB),
+        num(.expiryTime),
+        (if (.enable // true) then "1" else "0" end),
+        num(.tgId),
+        text(.comment),
+        num(.reset),
+        num(.created_at),
+        num(.updated_at)
+      ]
+    | @tsv
+  ' <<<"$clients_json" 2>/dev/null || true)"
+
+  while IFS=$'\t' read -r email sub_id uuid password auth flow security limit_ip total_gb expiry_time enable tg_id comment reset created_at updated_at; do
+    [[ -n "$email" ]] || continue
+    [[ -n "$created_at" && "$created_at" != "0" ]] || created_at="$(date +%s)000"
+    [[ -n "$updated_at" && "$updated_at" != "0" ]] || updated_at="$created_at"
+    [[ -n "$enable" ]] || enable=1
+    [[ -n "$limit_ip" ]] || limit_ip=0
+    [[ -n "$total_gb" ]] || total_gb=0
+    [[ -n "$expiry_time" ]] || expiry_time=0
+    [[ -n "$tg_id" ]] || tg_id=0
+    [[ -n "$reset" ]] || reset=0
+
+    sqlite3 "$XUI_DB" "
+      INSERT OR IGNORE INTO clients
+        (email, sub_id, uuid, password, auth, flow, security, reverse, limit_ip, total_gb, expiry_time, enable, tg_id, comment, reset, created_at, updated_at)
+      VALUES
+        ($(sql_quote "$email"), $(sql_quote "$sub_id"), $(sql_quote "$uuid"), $(sql_quote "$password"), $(sql_quote "$auth"), $(sql_quote "$flow"), $(sql_quote "$security"), '', $limit_ip, $total_gb, $expiry_time, $enable, $tg_id, $(sql_quote "$comment"), $reset, $created_at, $updated_at);
+      UPDATE clients
+      SET sub_id=$(sql_quote "$sub_id"),
+          uuid=$(sql_quote "$uuid"),
+          password=$(sql_quote "$password"),
+          auth=$(sql_quote "$auth"),
+          flow=$(sql_quote "$flow"),
+          security=$(sql_quote "$security"),
+          limit_ip=$limit_ip,
+          total_gb=$total_gb,
+          expiry_time=$expiry_time,
+          enable=$enable,
+          tg_id=$tg_id,
+          comment=$(sql_quote "$comment"),
+          reset=$reset,
+          updated_at=$updated_at
+      WHERE email=$(sql_quote "$email");
+    " 2>/dev/null || {
+      printf 'WARN clients-table sync failed inbound=%s email=%s\n' "$inbound_id" "$email" >> "$report_file"
+      continue
+    }
+
+    client_id="$(sqlite3 -readonly "$XUI_DB" "SELECT id FROM clients WHERE email=$(sql_quote "$email") LIMIT 1;" 2>/dev/null || true)"
+    [[ -n "$client_id" ]] || continue
+    sqlite3 "$XUI_DB" "
+      INSERT OR IGNORE INTO client_inbounds (client_id, inbound_id, flow_override, created_at)
+      VALUES ($client_id, $inbound_id, $(sql_quote "$flow"), $created_at);
+      UPDATE client_inbounds
+      SET flow_override=$(sql_quote "$flow")
+      WHERE client_id=$client_id AND inbound_id=$inbound_id;
+    " 2>/dev/null || printf 'WARN client_inbounds sync failed inbound=%s email=%s\n' "$inbound_id" "$email" >> "$report_file"
+  done <<<"$client_rows"
+}
+
 xui_repair_invalid_inbound_settings() {
   sqlite3 "$XUI_DB" "
     UPDATE inbounds
@@ -424,7 +557,8 @@ xui_replace_generated_clients() {
     new_settings="$(jq -c --arg prefix "$PREFIX" --argjson clients "$clients_json" '
       def generated_email:
         ((.email // "") | tostring) as $email
-        | ($email | startswith($prefix + "-"));
+        | ((.subId // "") | tostring) as $subId
+        | (($email | startswith($prefix + "-")) or ($subId | startswith($prefix + "-")));
       .clients = ((.clients // [])
         | map(select(generated_email | not))
         + $clients)
@@ -432,6 +566,7 @@ xui_replace_generated_clients() {
   fi
 
   sqlite3 "$XUI_DB" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
+  xui_sync_client_tables "$inbound_id" "$clients_json" "$report_file" "$XUI_REPLACE_CLIENTS"
   if [[ "$XUI_REPLACE_CLIENTS" == "1" ]]; then
     sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id;"
   else
@@ -459,10 +594,12 @@ xui_prune_generated_clients() {
   new_settings="$(jq -c --arg prefix "$PREFIX" '
     def generated_email:
       ((.email // "") | tostring) as $email
-      | ($email | startswith($prefix + "-"));
+      | ((.subId // "") | tostring) as $subId
+      | (($email | startswith($prefix + "-")) or ($subId | startswith($prefix + "-")));
     .clients = ((.clients // []) | map(select(generated_email | not)))
   ' <<<"$settings" | xui_normalize_inbound_settings "$protocol")"
   sqlite3 "$XUI_DB" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
+  xui_sync_client_tables "$inbound_id" "[]" "$report_file" "generated"
   sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND email GLOB $(sql_quote "${PREFIX}-[0-9]*");"
   printf 'inbound=%s mode=direct action=pruned-generated prefix=%s\n' "$inbound_id" "$PREFIX" >> "$report_file"
 }
@@ -604,6 +741,19 @@ xui_repair_client_traffic_rows() {
       fi
     done <<<"$client_rows"
   done <<<"$rows"
+  if xui_has_client_tables; then
+    rows="$(sqlite3 -readonly -separator $'\t' "$XUI_DB" "
+      SELECT ci.inbound_id, c.email, COALESCE(c.enable, 1)
+      FROM clients c
+      JOIN client_inbounds ci ON ci.client_id = c.id
+      WHERE COALESCE(c.email, '') != '';
+    " 2>/dev/null || true)"
+    while IFS=$'\t' read -r inbound_id email enable; do
+      [[ -n "$inbound_id" && -n "$email" ]] || continue
+      sqlite3 "$XUI_DB" "INSERT OR IGNORE INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset) VALUES ($inbound_id, ${enable:-1}, $(sql_quote "$email"), 0, 0, 0, 0, 0);" 2>/dev/null || true
+      sqlite3 "$XUI_DB" "UPDATE client_traffics SET enable=${enable:-1} WHERE email=$(sql_quote "$email");" 2>/dev/null || true
+    done <<<"$rows"
+  fi
   ok "x-ui client traffic rows repaired"
 }
 
@@ -901,7 +1051,7 @@ function cleanHost(value) {
 
 function firstEnabledClient(settings, wantedSubId) {
   const clients = Array.isArray(settings.clients) ? settings.clients : [];
-  return clients.filter(c => c && c.enable !== false && String(c.subId || '') === wantedSubId);
+  return clients.filter(c => c && c.enable !== false && c.enable !== 0 && c.enable !== '0' && String(c.subId || '') === wantedSubId);
 }
 
 function endpoint(stream, inboundPort) {
@@ -1023,6 +1173,70 @@ function xuiRows() {
   return JSON.parse(out || '[]');
 }
 
+function tableExists(name) {
+  try {
+    const out = cp.execFileSync('sqlite3', ['-readonly', xuiDb, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='${String(name).replace(/'/g, "''")}';`], { encoding: 'utf8' });
+    return String(out || '').trim() === '1';
+  } catch (_) {
+    return false;
+  }
+}
+
+function clientsByInbound() {
+  if (!tableExists('clients') || !tableExists('client_inbounds')) return new Map();
+  const sql = `
+    SELECT COALESCE(json_group_array(json_object(
+      'inbound_id', inbound_id,
+      'email', email,
+      'subId', COALESCE(sub_id, ''),
+      'id', COALESCE(uuid, ''),
+      'password', COALESCE(password, ''),
+      'auth', COALESCE(auth, ''),
+      'flow', COALESCE(NULLIF(flow_override, ''), flow, ''),
+      'security', COALESCE(security, ''),
+      'limitIp', COALESCE(limit_ip, 0),
+      'totalGB', COALESCE(total_gb, 0),
+      'expiryTime', COALESCE(expiry_time, 0),
+      'enable', COALESCE(enable, 1),
+      'tgId', COALESCE(tg_id, 0),
+      'comment', COALESCE(comment, ''),
+      'reset', COALESCE(reset, 0)
+    )), '[]')
+    FROM (
+      SELECT ci.inbound_id, c.email, c.sub_id, c.uuid, c.password, c.auth, c.flow, c.security,
+             c.limit_ip, c.total_gb, c.expiry_time, c.enable, c.tg_id, c.comment, c.reset, ci.flow_override, c.id
+      FROM clients c
+      JOIN client_inbounds ci ON ci.client_id = c.id
+      ORDER BY ci.inbound_id, c.id
+    );
+  `;
+  const out = cp.execFileSync('sqlite3', ['-readonly', xuiDb, sql], { encoding: 'utf8' });
+  const records = JSON.parse(out || '[]');
+  const byInbound = new Map();
+  for (const record of records) {
+    const inboundId = Number(record.inbound_id || 0);
+    if (!inboundId || !record.email) continue;
+    const client = { ...record, enable: Number(record.enable) !== 0 };
+    delete client.inbound_id;
+    if (!byInbound.has(inboundId)) byInbound.set(inboundId, []);
+    byInbound.get(inboundId).push(client);
+  }
+  return byInbound;
+}
+
+function mergeTableClients(rows) {
+  const byInbound = clientsByInbound();
+  if (!byInbound.size) return rows;
+  return rows.map(row => {
+    const clients = byInbound.get(Number(row.id));
+    if (!clients || !clients.length) return row;
+    let settings = {};
+    try { settings = JSON.parse(row.settings || '{}'); } catch (_) {}
+    settings.clients = clients;
+    return { ...row, settings: JSON.stringify(settings) };
+  });
+}
+
 let cachedXuiSettings = null;
 function xuiSettings() {
   if (cachedXuiSettings) return cachedXuiSettings;
@@ -1125,7 +1339,7 @@ function xuiRealityBaseBySubId(rows) {
     const isReality = String(stream.security || '') === 'reality';
     const clients = Array.isArray(settings.clients) ? settings.clients : [];
     for (const client of clients) {
-      if (!client || client.enable === false) continue;
+      if (!client || client.enable === false || client.enable === 0 || client.enable === '0') continue;
       const subId = String(client.subId || '');
       const email = String(client.email || '').trim();
       if (!subId || !email) continue;
@@ -1160,7 +1374,7 @@ function nhLinksBySubId(realityBases) {
   return bySubId;
 }
 
-const rows = xuiRows();
+const rows = mergeTableClients(xuiRows());
 const realityBases = xuiRealityBaseBySubId(rows);
 const bySubId = new Map();
 for (let i = 1; i <= count; i += 1) {

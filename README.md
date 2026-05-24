@@ -190,6 +190,8 @@ sudo bash generate-profiles.sh --yes
 
 By default this creates 15 x-ui clients per preset inbound, 15 NaiveProxy profiles, and 15 Hysteria2 profiles. It does not install WARP and does not write WARP routing.
 
+3x-ui `3.1.0` compatibility is handled during generation. The script keeps legacy `inbounds.settings.clients` updated and also syncs the new `clients` / `client_inbounds` tables used by the separate Clients tab. This keeps x-ui subscriptions, the Clients tab, and generated Xray config aligned.
+
 Default output:
 
 ```text
