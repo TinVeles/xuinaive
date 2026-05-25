@@ -115,6 +115,7 @@ function goToPage(page) {
 
   if (page === 'dashboard') loadDashboard();
   if (page === 'users') loadUsers();
+  if (page === 'subscriptions') loadFullSubscriptions();
   if (page === 'tuning') loadTuning();
   if (page === 'diag') loadDiagPorts();
   if (page === 'bypass') {
@@ -465,6 +466,88 @@ async function serviceAction(kind, action) {
     setTimeout(loadDashboard, 2000);
   } catch {
     showToast('Ошибка соединения', 'error');
+  }
+}
+
+// ─── FULL SUBSCRIPTIONS ─────────────────────────────────
+async function loadFullSubscriptions() {
+  const baseEl = document.getElementById('subscriptionsBaseUrl');
+  const tokenEl = document.getElementById('subscriptionsToken');
+  const countEl = document.getElementById('subscriptionsCount');
+  const globalList = document.getElementById('subscriptionsGlobalList');
+  const globalEmpty = document.getElementById('subscriptionsGlobalEmpty');
+  const emptyEl = document.getElementById('subscriptionsEmpty');
+  const table = document.getElementById('subscriptionsTable');
+  const tbody = document.getElementById('subscriptionsTableBody');
+
+  if (!globalList || !tbody) return;
+  baseEl.textContent = 'Загружаю...';
+  tokenEl.textContent = '—';
+  countEl.textContent = '0';
+  globalList.innerHTML = '';
+  tbody.innerHTML = '';
+  emptyEl.classList.add('hidden');
+  table.style.display = 'table';
+
+  try {
+    const res = await fetch('/api/subscriptions');
+    const subs = await res.json();
+    if (!subs.available) {
+      baseEl.textContent = subs.reason || 'Подписки не найдены';
+      globalEmpty.classList.remove('hidden');
+      emptyEl.classList.remove('hidden');
+      table.style.display = 'none';
+      return;
+    }
+
+    baseEl.textContent = subs.baseUrl || '—';
+    tokenEl.textContent = subs.token || '—';
+
+    const globals = [
+      { label: 'combined', url: subs.combined?.txt },
+      { label: 'combined b64', url: subs.combined?.b64 },
+      { label: 'v2rayN stable', url: subs.v2rayn?.stable },
+      { label: 'v2rayN', url: subs.v2rayn?.txt },
+      { label: 'v2rayN raw', url: subs.v2rayn?.raw },
+      { label: 'sing-box', url: subs.singBox }
+    ].filter(item => item.url);
+
+    globalList.innerHTML = globals.map(item => `
+      <div class="quick-link-item">
+        <span class="ql-type sub-tag">Sub</span>
+        <span class="ql-user">${escapeHtml(item.label)}</span>
+        <span class="ql-url">${escapeHtml(item.url)}</span>
+        <button class="quick-link-copy" data-copy="${escapeHtml(item.url)}">Копировать</button>
+      </div>
+    `).join('');
+    globalEmpty.classList.toggle('hidden', globals.length > 0);
+
+    const users = Array.isArray(subs.users) ? subs.users : [];
+    countEl.textContent = users.length;
+    if (!users.length) {
+      emptyEl.classList.remove('hidden');
+      table.style.display = 'none';
+      return;
+    }
+
+    tbody.innerHTML = users.map((sub, idx) => `
+      <tr>
+        <td>${idx + 1}</td>
+        <td class="td-login">${escapeHtml(sub.name || `user-${idx + 1}`)}</td>
+        <td class="td-link" title="${escapeHtml(sub.txt || '')}">${escapeHtml(sub.txt || '—')}</td>
+        <td class="td-link" title="${escapeHtml(sub.b64 || '')}">${escapeHtml(sub.b64 || '—')}</td>
+        <td class="td-actions">
+          ${sub.txt ? `<button class="quick-link-copy" data-copy="${escapeHtml(sub.txt)}">TXT</button>` : ''}
+          ${sub.b64 ? `<button class="quick-link-copy" data-copy="${escapeHtml(sub.b64)}">B64</button>` : ''}
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    baseEl.textContent = 'Ошибка загрузки';
+    globalEmpty.classList.remove('hidden');
+    emptyEl.classList.remove('hidden');
+    table.style.display = 'none';
+    showToast('Ошибка загрузки подписок', 'error');
   }
 }
 

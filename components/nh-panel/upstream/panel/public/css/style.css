@@ -347,6 +347,14 @@ body {
 .stat-label { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; }
 .stat-value { font-size: 1rem; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 7px; }
 .mono { font-family: var(--font-mono); font-size: 0.85rem; }
+.page-subtitle {
+  margin-top: 6px;
+  color: var(--text-muted);
+  max-width: min(760px, calc(100vw - var(--sidebar-w) - 80px));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .dot-green  { background: var(--success); box-shadow: 0 0 6px var(--success); animation: pulse 2s infinite; }
@@ -658,6 +666,14 @@ body {
 .empty-state { text-align: center; padding: 50px 20px; color: var(--text-muted); }
 .empty-state svg { opacity: 0.25; margin-bottom: 16px; }
 .empty-state p { margin-bottom: 20px; }
+
+/* ════════════════ SUBSCRIPTIONS PAGE ════════════════ */
+.subscriptions-summary-row {
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.5fr);
+}
+.subscriptions-summary-row .quick-link-item {
+  margin-bottom: 8px;
+}
 
 /* ════════════════ TUNING PAGE ════════════════ */
 .tuning-action-card { margin-top: 16px; }

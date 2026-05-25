@@ -110,6 +110,10 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         <span>Пользователи</span>
       </a>
+      <a href="#" class="nav-item" data-page="subscriptions">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.07 0l3.54-3.54a5 5 0 0 0-7.07-7.07L11.5 4.43"/><path d="M14 11a5 5 0 0 0-7.07 0L3.39 14.54a5 5 0 0 0 7.07 7.07l2.04-2.04"/></svg>
+        <span>Подписки x-ui + NHM</span>
+      </a>
       <a href="#" class="nav-item" data-page="tuning">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
         <span>Тюнинг</span>
@@ -593,6 +597,70 @@
                 </tr>
               </thead>
               <tbody id="usersTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ────── SUBSCRIPTIONS PAGE ────── -->
+    <div class="page" id="subscriptionsPage">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Подписки x-ui + NHM</h1>
+          <div class="page-subtitle mono" id="subscriptionsBaseUrl">—</div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="loadFullSubscriptions()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Обновить
+        </button>
+      </div>
+
+      <div class="cards-row subscriptions-summary-row">
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Общие подписки</h3>
+          </div>
+          <div class="card-body">
+            <div id="subscriptionsGlobalList"></div>
+            <div class="quick-link-empty hidden" id="subscriptionsGlobalEmpty">Общие подписки не найдены</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Сводка</h3>
+          </div>
+          <div class="card-body">
+            <div class="info-rows">
+              <div class="info-row"><span class="info-key">Token</span><span class="info-val mono" id="subscriptionsToken">—</span></div>
+              <div class="info-row"><span class="info-key">Полных user-подписок</span><span class="info-val" id="subscriptionsCount">0</span></div>
+              <div class="info-row"><span class="info-key">Формат</span><span class="info-val">x-ui + Naive + Hy2</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">Подписка на каждого пользователя</h3>
+        </div>
+        <div class="card-body">
+          <div class="empty-state hidden" id="subscriptionsEmpty">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 13a5 5 0 0 0 7.07 0l3.54-3.54a5 5 0 0 0-7.07-7.07L11.5 4.43"/><path d="M14 11a5 5 0 0 0-7.07 0L3.39 14.54a5 5 0 0 0 7.07 7.07l2.04-2.04"/></svg>
+            <p>Полные подписки не найдены</p>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="subscriptionsTable">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Пользователь</th>
+                  <th>Full subscription</th>
+                  <th>Base64</th>
+                  <th>Действия</th>
+                </tr>
+              </thead>
+              <tbody id="subscriptionsTableBody"></tbody>
             </table>
           </div>
         </div>
