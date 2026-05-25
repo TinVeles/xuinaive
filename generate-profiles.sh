@@ -664,16 +664,18 @@ function saveProfileMap(map) {
   try { fs.chmodSync(profileMapPath, 0o600); } catch (_) {}
 }
 
-function ensureProfileMap(map) {
+function ensureProfileMap(map, discoveredSubIds = []) {
   const byIndex = new Map(map.profiles.map(p => [Number(p.index), p]));
+  const bySubId = new Map(map.profiles.map(p => [String(p.subId || ''), p]).filter(([subId]) => subId));
   const profiles = [];
   for (let i = 1; i <= count; i += 1) {
     const n = String(i).padStart(2, '0');
-    const existing = byIndex.get(i) || {};
+    const discoveredSubId = String(discoveredSubIds[i - 1] || '').trim();
+    const existing = (discoveredSubId && bySubId.get(discoveredSubId)) || byIndex.get(i) || {};
     profiles.push({
       ...existing,
       index: i,
-      subId: existing.subId || `${prefix}-${n}`,
+      subId: discoveredSubId || existing.subId || `${prefix}-${n}`,
       subscriptionId: existing.subscriptionId || `sub-${token(14)}`,
       naiveUsername: existing.naiveUsername || `naive-${token(10)}`,
       hy2Username: existing.hy2Username || `hy2-${token(10)}`
@@ -966,16 +968,18 @@ function saveProfileMap(map) {
   try { fs.chmodSync(profileMapPath, 0o600); } catch (_) {}
 }
 
-function ensureProfileMap(map) {
+function ensureProfileMap(map, discoveredSubIds = []) {
   const byIndex = new Map(map.profiles.map(p => [Number(p.index), p]));
+  const bySubId = new Map(map.profiles.map(p => [String(p.subId || ''), p]).filter(([subId]) => subId));
   const profiles = [];
   for (let i = 1; i <= count; i += 1) {
     const n = String(i).padStart(2, '0');
-    const existing = byIndex.get(i) || {};
+    const discoveredSubId = String(discoveredSubIds[i - 1] || '').trim();
+    const existing = (discoveredSubId && bySubId.get(discoveredSubId)) || byIndex.get(i) || {};
     profiles.push({
       ...existing,
       index: i,
-      subId: existing.subId || `${prefix}-${n}`,
+      subId: discoveredSubId || existing.subId || `${prefix}-${n}`,
       subscriptionId: existing.subscriptionId || `sub-${token(14)}`,
       naiveUsername: existing.naiveUsername || `naive-${token(10)}`,
       hy2Username: existing.hy2Username || `hy2-${token(10)}`
@@ -986,9 +990,6 @@ function ensureProfileMap(map) {
   saveProfileMap(map);
   return map;
 }
-
-const profileMap = ensureProfileMap(loadProfileMap());
-const profilesBySubId = new Map(profileMap.profiles.map(p => [String(p.subId), p]));
 
 function cleanHost(value) {
   const raw = String(value || '').trim();
@@ -1123,6 +1124,31 @@ function xuiRows() {
   return JSON.parse(out || '[]');
 }
 
+function discoverXuiSubIds(rows) {
+  const lists = [];
+  for (const row of rows) {
+    let settings;
+    try { settings = JSON.parse(row.settings || '{}'); } catch (_) { continue; }
+    const clients = Array.isArray(settings.clients) ? settings.clients : [];
+    const seen = new Set();
+    const ordered = [];
+    for (const client of clients) {
+      if (!client || client.enable === false) continue;
+      const subId = String(client.subId || '').trim();
+      if (!subId || seen.has(subId)) continue;
+      seen.add(subId);
+      ordered.push(subId);
+    }
+    if (ordered.length) lists.push(ordered);
+  }
+  lists.sort((a, b) => {
+    const aFull = a.length >= count ? 1 : 0;
+    const bFull = b.length >= count ? 1 : 0;
+    return bFull - aFull || b.length - a.length;
+  });
+  return (lists[0] || []).slice(0, count);
+}
+
 let cachedXuiSettings = null;
 function xuiSettings() {
   if (cachedXuiSettings) return cachedXuiSettings;
@@ -1246,10 +1272,11 @@ function nhLinksBySubId(realityBases) {
   const naive = Array.isArray(cfg.naiveUsers) ? cfg.naiveUsers : [];
   const hy2 = Array.isArray(cfg.hy2Users) ? cfg.hy2Users : [];
 
-  for (let i = 1; i <= count; i += 1) {
+  for (const profile of profileMap.profiles) {
+    const i = Number(profile.index) || 0;
+    if (!i) continue;
     const n = String(i).padStart(2, '0');
-    const subId = `${prefix}-${n}`;
-    const profile = profilesBySubId.get(subId) || {};
+    const subId = String(profile.subId || `${prefix}-${n}`);
     const links = [];
     const nUser = naive.find(u => String(u.username || '') === String(profile.naiveUsername || ''))
       || naive.find(u => String(u.username || '') === `${prefix}-naive-${n}`);
@@ -1264,6 +1291,9 @@ function nhLinksBySubId(realityBases) {
 }
 
 const rows = xuiRows();
+const discoveredSubIds = discoverXuiSubIds(rows);
+const profileMap = ensureProfileMap(loadProfileMap(), discoveredSubIds);
+const profilesBySubId = new Map(profileMap.profiles.map(p => [String(p.subId), p]));
 const realityBases = xuiRealityBaseBySubId(rows);
 const bySubId = new Map();
 for (const profile of profileMap.profiles) {
