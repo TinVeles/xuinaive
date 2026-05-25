@@ -54,6 +54,7 @@ const SECRET_FILE = path.join(DATA_DIR, '.session_secret');
 const SESSION_DIR = path.join(DATA_DIR, 'sessions');
 const SUBSCRIPTION_TOKEN_FILE = process.env.NH_SUBSCRIPTION_TOKEN_FILE || '/etc/nh-panel/subscription-token';
 const SUBSCRIPTION_DIR = process.env.NH_SUBSCRIPTION_DIR || '/opt/panel-naive-hy2/subscriptions';
+const PROFILE_MAP_FILE = process.env.NH_PROFILE_MAP || '/etc/nh-panel/generated-profile-map.json';
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true, mode: 0o700 });
@@ -638,10 +639,28 @@ app.get('/api/subscriptions', requireAuth, (req, res) => {
   const url = name => `${baseUrl}/${name}`;
   const users = [];
 
+  const addedUsers = new Set();
+  try {
+    const profileMap = JSON.parse(fs.readFileSync(PROFILE_MAP_FILE, 'utf8'));
+    const profiles = Array.isArray(profileMap.profiles) ? profileMap.profiles : [];
+    for (const profile of profiles) {
+      const name = String(profile.subId || '').trim();
+      const subscriptionId = String(profile.subscriptionId || '').trim();
+      if (!name || !subscriptionId || addedUsers.has(name) || !has(`${subscriptionId}.txt`)) continue;
+      addedUsers.add(name);
+      users.push({
+        name,
+        txt: url(`${subscriptionId}.txt`),
+        b64: has(`${subscriptionId}.b64`) ? url(`${subscriptionId}.b64`) : ''
+      });
+    }
+  } catch (_) {}
+
   for (const file of files) {
     const m = file.match(/^(auto-\d+)\.txt$/);
-    if (!m) continue;
+    if (!m || addedUsers.has(m[1])) continue;
     const name = m[1];
+    addedUsers.add(name);
     users.push({
       name,
       txt: url(`${name}.txt`),
