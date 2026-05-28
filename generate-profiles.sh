@@ -28,13 +28,14 @@ NH_SUBSCRIPTION_NGINX="${NH_SUBSCRIPTION_NGINX:-1}"
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
-WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-all}"
+WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-generated}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
 XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
 XUI_INBOUND_ID="${XUI_INBOUND_ID:-}"
 XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-$PREFIX}"
 XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
+XUI_CREATE_WARP_INBOUNDS="${XUI_CREATE_WARP_INBOUNDS:-1}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-0}"
 XUI_CLEANUP_WARP_TEMPLATE="${XUI_CLEANUP_WARP_TEMPLATE:-0}"
 XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-0}"
@@ -74,13 +75,13 @@ Creates:
   NHM:   COUNT NaiveProxy profiles and COUNT Hysteria2 profiles.
          Subscription files are written to ${NH_SUBSCRIPTION_DIR}.
 
-WARP routing:
+  WARP routing:
   outbound tag: ${WARP_OUTBOUND_TAG}
   local proxy:  ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}
   inbound filter: ${WARP_INBOUND_TAG} (all = no inboundTag in routing rule)
   AI domains:   ${WARP_AI_DOMAINS}
-  disabled by default; enable routing with --xui-warp-routing or install+route with --install-warp.
-  generated clients use standard preset inbounds by default.
+  disabled by default; enable routing manually with --xui-warp-routing.
+  WARP mirror inbounds are created by default, but they do not route through WARP until routing is applied.
   AI-domain WARP routing is written to /etc/x-ui/warp-generated-routing.json when enabled.
   auto-installs Cloudflare WARP local proxy only with --install-warp or --auto-install-warp.
   use --apply-xui-warp-template to also write warp-cli outbound/rules into x-ui settings.
@@ -93,6 +94,7 @@ x-ui selection:
   --xui-sub-id-mode common: one subscription contains all generated clients
   default replace mode: selected inbound clients become exactly COUNT
   --xui-keep-existing: keep existing non-generated clients
+  --no-xui-warp-inbounds: do not create/use WARP mirror inbounds
   --combined-only: refresh combined subscription files only; do not edit x-ui or NHM users
 EOF
 }
@@ -125,6 +127,8 @@ while [[ $# -gt 0 ]]; do
     --auto-install-warp) XUI_AUTO_INSTALL_WARP=1; shift ;;
     --xui-direct-clients) XUI_CREATE_DIRECT=1; shift ;;
     --no-xui-direct-clients) XUI_CREATE_DIRECT=0; shift ;;
+    --xui-warp-inbounds) XUI_CREATE_WARP_INBOUNDS=1; shift ;;
+    --no-xui-warp-inbounds) XUI_CREATE_WARP_INBOUNDS=0; shift ;;
     --xui-keep-existing) XUI_REPLACE_CLIENTS=0; shift ;;
     --xui-only) CREATE_XUI=1; CREATE_NH=0; shift ;;
     --nh-only) CREATE_XUI=0; CREATE_NH=1; shift ;;
@@ -144,6 +148,7 @@ done
 [[ -z "$XUI_INBOUND_ID" || "$XUI_INBOUND_ID" =~ ^[0-9]+$ ]] || die "--xui-inbound-id must be numeric"
 [[ "$XUI_COMMON_SUB_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--xui-common-sub-id may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
 [[ "$XUI_SUB_ID_MODE" == "per-client" || "$XUI_SUB_ID_MODE" == "common" ]] || die "--xui-sub-id-mode must be per-client or common"
+[[ "$XUI_CREATE_WARP_INBOUNDS" == "0" || "$XUI_CREATE_WARP_INBOUNDS" == "1" ]] || die "XUI_CREATE_WARP_INBOUNDS must be 0 or 1"
 if [[ "$XUI_CREATE_DIRECT" != "1" ]]; then
   warn "Standard clients are disabled; enabling them because clone inbounds are no longer supported."
   XUI_CREATE_DIRECT=1
@@ -426,11 +431,14 @@ xui_replace_generated_clients() {
     new_settings="$(jq -c --argjson clients "$clients_json" '.clients = $clients' <<<"$settings" | xui_normalize_inbound_settings "$protocol")"
   else
     new_settings="$(jq -c --arg prefix "$PREFIX" --argjson clients "$clients_json" '
-      def generated_email:
+      def generated_client:
         ((.email // "") | tostring) as $email
-        | ($email | startswith($prefix + "-"));
+        | ((.subId // "") | tostring) as $sub
+        | ($sub | startswith($prefix + "-"))
+          or ($email | startswith($prefix + "-"))
+          or ($email | contains("-" + $prefix + "-"));
       .clients = ((.clients // [])
-        | map(select(generated_email | not))
+        | map(select(generated_client | not))
         + $clients)
     ' <<<"$settings" | xui_normalize_inbound_settings "$protocol")"
   fi
@@ -440,6 +448,7 @@ xui_replace_generated_clients() {
     sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id;"
   else
     sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND email GLOB $(sql_quote "${PREFIX}-[0-9]*");"
+    sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND email GLOB $(sql_quote "*-${PREFIX}-[0-9]*");"
   fi
   for index in $(profile_indices "$COUNT"); do
     if [[ "$XUI_SUB_ID_MODE" == "common" ]]; then
@@ -462,19 +471,23 @@ xui_prune_generated_clients() {
   [[ "$inbound_id" =~ ^[0-9]+$ ]] || die "xui_prune_generated_clients: invalid inbound_id: $inbound_id"
   settings="$(sqlite3 -readonly "$XUI_DB" "SELECT settings FROM inbounds WHERE id=$inbound_id;")"
   new_settings="$(jq -c --arg prefix "$PREFIX" '
-    def generated_email:
+    def generated_client:
       ((.email // "") | tostring) as $email
-      | ($email | startswith($prefix + "-"));
-    .clients = ((.clients // []) | map(select(generated_email | not)))
+      | ((.subId // "") | tostring) as $sub
+      | ($sub | startswith($prefix + "-"))
+        or ($email | startswith($prefix + "-"))
+        or ($email | contains("-" + $prefix + "-"));
+    .clients = ((.clients // []) | map(select(generated_client | not)))
   ' <<<"$settings" | xui_normalize_inbound_settings "$protocol")"
   sqlite3 "$XUI_DB" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
   sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND email GLOB $(sql_quote "${PREFIX}-[0-9]*");"
+  sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id AND email GLOB $(sql_quote "*-${PREFIX}-[0-9]*");"
   printf 'inbound=%s mode=direct action=pruned-generated prefix=%s\n' "$inbound_id" "$PREFIX" >> "$report_file"
 }
 
 xui_add_clients() {
   info "Creating x-ui clients in $XUI_DB"
-  local inbound_rows inbound_id protocol tag remark port enable report_file warp_tags_file query
+  local inbound_rows inbound_id protocol tag remark port enable report_file warp_tags_file query mirror_row mirror_id mirror_protocol mirror_tag routing_tag
   report_file="/etc/x-ui/generated-clients.txt"
   warp_tags_file="$(mktemp)"
   mkdir -p "$(dirname "$report_file")"
@@ -483,6 +496,7 @@ xui_add_clients() {
   xui_sanitize_inbound_tags
   xui_enable_preset_xhttp
   xui_enable_preset_domain_sniffing
+  xui_ensure_warp_mirror_inbounds "$report_file"
 
   query="SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
      FROM inbounds
@@ -502,7 +516,17 @@ $(xui_preset_inbound_filter_sql)"
 
     if [[ "$XUI_CREATE_DIRECT" == "1" ]]; then
       xui_replace_generated_clients "$inbound_id" "$protocol" "direct" "$tag" "$report_file"
-      [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && -n "$tag" ]] && printf '%s\n' "$tag" >> "$warp_tags_file"
+      routing_tag="$tag"
+      if [[ "$XUI_CREATE_WARP_INBOUNDS" == "1" && -n "$tag" ]]; then
+        mirror_row="$(sqlite3 -separator $'\t' "$XUI_DB" "SELECT id, protocol, COALESCE(tag,'') FROM inbounds WHERE tag=$(sql_quote "${tag}-warp") LIMIT 1;" 2>/dev/null || true)"
+        if [[ -n "$mirror_row" ]]; then
+          IFS=$'\t' read -r mirror_id mirror_protocol mirror_tag <<<"$mirror_row"
+          xui_replace_generated_clients "$mirror_id" "$mirror_protocol" "warp" "$mirror_tag" "$report_file"
+          routing_tag="$mirror_tag"
+          ok "x-ui WARP mirror inbound ${mirror_id}: $COUNT clients, subId mode=$XUI_SUB_ID_MODE"
+        fi
+      fi
+      [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && -n "$routing_tag" ]] && printf '%s\n' "$routing_tag" >> "$warp_tags_file"
     else
       xui_prune_generated_clients "$inbound_id" "$protocol" "$report_file"
     fi
@@ -1549,6 +1573,7 @@ Profile generation complete
 ---------------------------
 x-ui:
   standard generated clients: ${XUI_CREATE_DIRECT} (${COUNT} per selected preset inbound when enabled)
+  WARP mirror inbounds: ${XUI_CREATE_WARP_INBOUNDS} (${COUNT} clients per mirror; routing manual)
   subId mode: ${XUI_SUB_ID_MODE}
   common subId (only common mode): ${XUI_COMMON_SUB_ID}
   replace existing clients: ${XUI_REPLACE_CLIENTS}
