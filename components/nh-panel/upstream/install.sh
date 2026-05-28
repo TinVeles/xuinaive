@@ -29,6 +29,15 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; PURPLE='\033[0;35m'; CYAN='\033[0;36m'
 BOLD='\033[1m'; RESET='\033[0m'
 
+uri_encode() {
+  node -e 'process.stdout.write(encodeURIComponent(process.argv[1] || ""))' "${1:-}"
+}
+
+naive_uri() {
+  local username="$1" password="$2" domain="$3"
+  printf 'naive+https://%s:%s@%s:443\n' "$(uri_encode "$username")" "$(uri_encode "$password")" "$domain"
+}
+
 header() {
   clear
   echo ""
@@ -1437,7 +1446,7 @@ echo -e "${PURPLE}${BOLD}║   👤  admin / admin  (⚠ СМЕНИТЕ В НА�
 echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"
 
 if [[ $INSTALL_NAIVE -eq 1 ]]; then
-  NAIVE_LINK="naive+https://${NAIVE_LOGIN}:${NAIVE_PASS}@${PROXY_DOMAIN}:443"
+  NAIVE_LINK="$(naive_uri "$NAIVE_LOGIN" "$NAIVE_PASS" "$PROXY_DOMAIN")"
   echo -e "${PURPLE}${BOLD}║   🔒  NaiveProxy                                              ║${RESET}"
   echo -e "${PURPLE}${BOLD}║   Домен:  ${PROXY_DOMAIN}${RESET}"
   echo -e "${PURPLE}${BOLD}║   Логин:  ${NAIVE_LOGIN}${RESET}"

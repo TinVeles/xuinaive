@@ -27,6 +27,15 @@ reset_terminal_style() {
 trap reset_terminal_style EXIT
 reset_terminal_style
 
+uri_encode() {
+  node -e 'process.stdout.write(encodeURIComponent(process.argv[1] || ""))' "${1:-}"
+}
+
+naive_uri() {
+  local username="$1" password="$2" domain="$3"
+  printf 'naive+https://%s:%s@%s:443\n' "$(uri_encode "$username")" "$(uri_encode "$password")" "$domain"
+}
+
 config_value() {
   local key="$1"
   local file value
@@ -368,7 +377,7 @@ persist_nh_naive_access() {
   [[ "$password" == "null" ]] && password=""
   [[ -n "$domain" && -n "$login" && -n "$password" ]] || return 0
 
-  link="naive+https://${login}:${password}@${domain}:443"
+  link="$(naive_uri "$login" "$password" "$domain")"
   config_set_file "$CONFIG_FILE" NH_PROXY_DOMAIN "$domain"
   config_set_file "$CONFIG_FILE" NAIVE_DOMAIN "$domain"
   config_set_file "$CONFIG_FILE" NH_NAIVE_LOGIN "$login"

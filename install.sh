@@ -679,6 +679,7 @@ EOF
     XUI_AUTO_INSTALL_WARP="$xui_auto_install_warp" \
     XUI_APPLY_WARP_TEMPLATE="$xui_apply_warp_template" \
     XUI_CREATE_DIRECT_CLIENTS="$XUI_CREATE_DIRECT" \
+    UPM_ALLOW_DESTROY_EXISTING="$ALLOW_DESTROY_EXISTING" \
     WARP_INBOUND_TAG="$WARP_INBOUND_TAG" \
     bash "$xui_installer" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
 

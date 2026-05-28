@@ -388,7 +388,7 @@ async function renderQuickLinks(status) {
       const { users } = await r.json();
       users.slice(0, 3).forEach(u => {
         hasAny = true;
-        const link = `naive+https://${u.username}:${u.password}@${status.domain}:443`;
+        const link = naiveLink(u.username, u.password, status.domain);
         listEl.innerHTML += `
           <div class="quick-link-item">
             <span class="ql-type naive-tag">Naive</span>
@@ -820,7 +820,7 @@ async function loadUsers() {
       let link = '';
       if (status.installed) {
         if (currentUsersTab === 'naive' && status.domain) {
-          link = `naive+https://${u.username}:${u.password}@${status.domain}:443`;
+          link = naiveLink(u.username, u.password, status.domain);
         } else if (currentUsersTab === 'hy2' && status.domain) {
           link = `hysteria2://${encodeURIComponent(u.username)}:${encodeURIComponent(u.password)}@${status.domain}:443?sni=${status.domain}&insecure=0#${encodeURIComponent(u.username)}`;
         } else if (currentUsersTab === 'mieru') {
@@ -1295,4 +1295,9 @@ function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function naiveLink(username, password, domain, name = '') {
+  const fragment = name ? `#${encodeURIComponent(name)}` : '';
+  return `naive+https://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${domain}:443${fragment}`;
 }

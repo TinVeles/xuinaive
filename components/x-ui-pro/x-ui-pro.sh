@@ -46,6 +46,7 @@ verify_sha256_if_set() {
 }
 
 cleanup_existing() {
+  confirm_destructive "x-ui-pro cleanup_existing (removes x-ui and nginx site state)"
   systemctl stop x-ui 2>/dev/null || true
   rm -rf /etc/systemd/system/x-ui.service
   rm -rf /usr/local/x-ui
@@ -595,6 +596,7 @@ validate_option_index "clash" "$CLASH" 3
 
 ##############################Uninstall#################################################################
 UNINSTALL_XUI(){
+	confirm_destructive "x-ui-pro uninstall (removes x-ui and nginx state)"
 	printf 'y\n' | x-ui uninstall
 	rm -rf "/etc/x-ui/" "/usr/local/x-ui/" "/usr/bin/x-ui/"
 	$Pak -y remove nginx nginx-common nginx-core nginx-full python3-certbot-nginx

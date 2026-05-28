@@ -256,7 +256,6 @@ if [[ "$ENABLE_PROBE_RESISTANCE" -eq 1 ]]; then
   fi
 fi
 
-run ufw allow "${SSH_PORT}/tcp"
 run ufw --force reset
 run ufw default deny incoming
 run ufw default allow outgoing

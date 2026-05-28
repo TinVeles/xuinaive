@@ -101,7 +101,7 @@ xui_apply_warp_template() {
       )
     ' <<<"$current")"
 
-    sqlite3 "$db" "INSERT INTO settings (key, value) VALUES ($(sql_quote "$key"), $(sql_quote "$updated")) ON CONFLICT(key) DO UPDATE SET value=excluded.value;"
+    upm_sqlite_setting_set "$db" "$key" "$updated"
 
     current="$updated"
     updated="$(jq -c \

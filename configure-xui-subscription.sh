@@ -130,21 +130,10 @@ for stale_conf in \
 done
 
 info "Updating x-ui subscription settings"
-sqlite3 "$XUI_DB" "
-  INSERT INTO settings (key, value) VALUES ('subPort', $(sql_quote "$SUB_PORT"))
-    ON CONFLICT(key) DO UPDATE SET value=excluded.value;
-  INSERT INTO settings (key, value) VALUES ('subPath', $(sql_quote "$SUB_PATH"))
-    ON CONFLICT(key) DO UPDATE SET value=excluded.value;
-  INSERT INTO settings (key, value) VALUES ('subURI', $(sql_quote "$sub_uri"))
-    ON CONFLICT(key) DO UPDATE SET value=excluded.value;
-  INSERT INTO settings (key, value) VALUES ('subEnable', 'true')
-    ON CONFLICT(key) DO UPDATE SET value=excluded.value;
-" 2>/dev/null || sqlite3 "$XUI_DB" "
-  UPDATE settings SET value=$(sql_quote "$SUB_PORT") WHERE key='subPort';
-  UPDATE settings SET value=$(sql_quote "$SUB_PATH") WHERE key='subPath';
-  UPDATE settings SET value=$(sql_quote "$sub_uri") WHERE key='subURI';
-  UPDATE settings SET value='true' WHERE key='subEnable';
-"
+upm_sqlite_setting_set "$XUI_DB" "subPort" "$SUB_PORT"
+upm_sqlite_setting_set "$XUI_DB" "subPath" "$SUB_PATH"
+upm_sqlite_setting_set "$XUI_DB" "subURI" "$sub_uri"
+upm_sqlite_setting_set "$XUI_DB" "subEnable" "true"
 
 info "Writing nginx subscription backend: $backend_conf"
 cat > "$backend_conf" <<EOF

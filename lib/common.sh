@@ -53,6 +53,29 @@ sql_quote() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"
 }
 
+uri_encode() {
+  local value="${1:-}"
+  node -e 'process.stdout.write(encodeURIComponent(process.argv[1] || ""))' "$value"
+}
+
+naive_uri() {
+  local username="$1" password="$2" domain="$3" name="${4:-}"
+  local user_enc pass_enc name_part=""
+  user_enc="$(uri_encode "$username")"
+  pass_enc="$(uri_encode "$password")"
+  [[ -n "$name" ]] && name_part="#$(uri_encode "$name")"
+  printf 'naive+https://%s:%s@%s:443%s\n' "$user_enc" "$pass_enc" "$domain" "$name_part"
+}
+
+upm_sqlite_setting_set() {
+  local db="$1" key="$2" value="$3" changes
+  changes="$(sqlite3 "$db" "UPDATE settings SET value=$(sql_quote "$value") WHERE key=$(sql_quote "$key"); SELECT changes();" | tail -n 1)"
+  [[ "$changes" =~ ^[0-9]+$ ]] || return 1
+  if [[ "$changes" == "0" ]]; then
+    sqlite3 "$db" "INSERT INTO settings (key, value) VALUES ($(sql_quote "$key"), $(sql_quote "$value"));"
+  fi
+}
+
 confirm_destructive() {
   local context="${1:-destructive operation}"
   local allow_flag="${UPM_ALLOW_DESTROY_EXISTING:-0}"

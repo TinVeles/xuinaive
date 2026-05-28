@@ -32,6 +32,15 @@ reset_terminal_style() {
 trap reset_terminal_style EXIT
 reset_terminal_style
 
+uri_encode() {
+  node -e 'process.stdout.write(encodeURIComponent(process.argv[1] || ""))' "${1:-}"
+}
+
+naive_uri() {
+  local username="$1" password="$2" domain="$3"
+  printf 'naive+https://%s:%s@%s:443\n' "$(uri_encode "$username")" "$(uri_encode "$password")" "$domain"
+}
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -743,7 +752,7 @@ NH_PANEL_LOGIN="${PANEL_LOGIN}"
 NH_PANEL_PASSWORD="${PANEL_PASSWORD}"
 NH_NAIVE_LOGIN="${NAIVE_LOGIN}"
 NH_NAIVE_PASSWORD="${NAIVE_PASS}"
-NH_NAIVE_LINK="naive+https://${NAIVE_LOGIN}:${NAIVE_PASS}@${DOMAIN}:443"
+NH_NAIVE_LINK="$(naive_uri "$NAIVE_LOGIN" "$NAIVE_PASS" "$DOMAIN")"
 NH_HY2_USER="default"
 NH_HY2_PASSWORD="${HY2_PASS}"
 NH_HY2_LINK="hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#NHM"
@@ -774,7 +783,7 @@ Panel:
   Pass:  ${PANEL_PASSWORD}
 
 Links:
-  Naive: naive+https://${NAIVE_LOGIN}:${NAIVE_PASS}@${DOMAIN}:443
+  Naive: ${NH_NAIVE_LINK}
   Hy2:   hysteria2://default:${HY2_PASS}@${DOMAIN}:443?sni=${DOMAIN}&insecure=0#NHM
 
 Services:

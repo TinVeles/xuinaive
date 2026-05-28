@@ -193,6 +193,11 @@ function hy2Link(username, password, domain, name = username) {
   return `hysteria2://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${domain}:443?sni=${domain}&insecure=0#${encodeURIComponent(name)}`;
 }
 
+function naiveLink(username, password, domain, name = '') {
+  const fragment = name ? `#${encodeURIComponent(name)}` : '';
+  return `naive+https://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${domain}:443${fragment}`;
+}
+
 function mieruServerHost(cfg) {
   if (isValidDomain(cfg.domain)) return { key: 'domainName', value: cfg.domain };
   return { key: 'ipAddress', value: cfg.serverIp || 'SERVER_IP' };
@@ -936,7 +941,7 @@ app.post('/api/naive/users', requireAuth, async (req, res) => {
 
   res.json({
     success: true,
-    link: cfg.domain ? `naive+https://${username}:${password}@${cfg.domain}:443` : null,
+    link: cfg.domain ? naiveLink(username, password, cfg.domain) : null,
     reloaded
   });
 });
@@ -2013,7 +2018,7 @@ function handleInstallNaive(ws, data) {
       ws.send(JSON.stringify({
         type: 'install_done',
         links: {
-          naive: `naive+https://${login}:${password}@${domain}:443`
+          naive: naiveLink(login, password, domain)
         }
       }));
     } else {
@@ -2159,7 +2164,7 @@ function handleInstallBoth(ws, data) {
         ws.send(JSON.stringify({
           type: 'install_done',
           links: {
-            naive: `naive+https://${naiveLogin}:${naivePassword}@${domain}:443`,
+            naive: naiveLink(naiveLogin, naivePassword, domain),
             hy2:   hy2Link('default', hy2Password, domain, 'NHM')
           }
         }));

@@ -801,7 +801,7 @@ fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), { mode: 0o600 });
 try { fs.chmodSync(cfgPath, 0o600); } catch (_) {}
 
 const domain = cfg.domain || 'DOMAIN_NOT_SET';
-const generatedNaiveLinks = generatedNaive.map(u => `naive+https://${u.username}:${u.password}@${domain}:443#${encodeURIComponent(u.username)}`);
+const generatedNaiveLinks = generatedNaive.map(u => `naive+https://${encodeURIComponent(u.username)}:${encodeURIComponent(u.password)}@${domain}:443#${encodeURIComponent(u.username)}`);
 const hy2UserpassAuth = u => `${encodeURIComponent(u.username)}:${encodeURIComponent(u.password)}`;
 const generatedHy2Links = generatedHy2.map(u => `hysteria2://${hy2UserpassAuth(u)}@${domain}:443?sni=${domain}&insecure=0#${encodeURIComponent(u.username)}`);
 const naiveLinks = generatedNaiveLinks;
@@ -1140,28 +1140,51 @@ function xuiRows() {
 }
 
 function discoverXuiSubIds(rows) {
-  const lists = [];
-  for (const row of rows) {
+  const observed = new Map();
+  for (const [rowIndex, row] of rows.entries()) {
     let settings;
     try { settings = JSON.parse(row.settings || '{}'); } catch (_) { continue; }
     const clients = Array.isArray(settings.clients) ? settings.clients : [];
     const seen = new Set();
-    const ordered = [];
+    let position = 0;
     for (const client of clients) {
       if (!client || client.enable === false) continue;
       const subId = String(client.subId || '').trim();
       if (!subId || seen.has(subId)) continue;
       seen.add(subId);
-      ordered.push(subId);
+      const item = observed.get(subId) || { subId, rows: 0, positions: [], firstRow: rowIndex };
+      item.rows += 1;
+      item.positions.push(position);
+      item.firstRow = Math.min(item.firstRow, rowIndex);
+      observed.set(subId, item);
+      position += 1;
     }
-    if (ordered.length) lists.push(ordered);
   }
-  lists.sort((a, b) => {
-    const aFull = a.length >= count ? 1 : 0;
-    const bFull = b.length >= count ? 1 : 0;
-    return bFull - aFull || b.length - a.length;
-  });
-  return (lists[0] || []).slice(0, count);
+  const entries = Array.from(observed.values()).map(item => ({
+    ...item,
+    avgPosition: item.positions.reduce((sum, pos) => sum + pos, 0) / item.positions.length
+  }));
+  if (!entries.length) return [];
+  const maxRows = Math.max(...entries.map(item => item.rows));
+  const primary = entries.filter(item => item.rows === maxRows);
+  const secondary = entries.filter(item => item.rows !== maxRows);
+  const byOrder = (a, b) => (
+    a.avgPosition - b.avgPosition
+    || b.rows - a.rows
+    || a.firstRow - b.firstRow
+    || a.subId.localeCompare(b.subId)
+  );
+  primary.sort(byOrder);
+  secondary.sort(byOrder);
+  const discovered = [...primary, ...secondary].slice(0, count).map(item => item.subId);
+  if (discovered.length < count) {
+    console.error(`WARN: discovered only ${discovered.length}/${count} x-ui subId values for combined subscriptions`);
+  }
+  const weak = discovered.filter(subId => (observed.get(subId)?.rows || 0) < maxRows);
+  if (weak.length) {
+    console.error(`WARN: some combined subscription subIds are not present on every selected inbound: ${weak.join(', ')}`);
+  }
+  return discovered;
 }
 
 let cachedXuiSettings = null;
