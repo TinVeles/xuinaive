@@ -86,11 +86,11 @@ verify_or_seed() {
   if [[ -n "$expected" ]]; then
     [[ "$actual" == "$expected" ]] \
       || die "SHA256 mismatch for $label: expected=$expected actual=$actual file=$file"
-    upm_log_ok "$label SHA256 verified: $actual"
+    upm_log_ok "$label SHA256 verified: $actual" >&2
   else
     [[ "$TOFU_DEFAULT" == "1" ]] \
       || die "$label has no pinned SHA256 and --strict was requested"
-    upm_log_warn "$label SHA256 not pinned; recording TOFU value: $actual"
+    upm_log_warn "$label SHA256 not pinned; recording TOFU value: $actual" >&2
     printf '%s\n' "$actual"
   fi
 }
