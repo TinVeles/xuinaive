@@ -17,17 +17,21 @@ XUI_DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
 DOMAIN="${XUI_SUB_DOMAIN:-}"
 SUB_PORT="${XUI_SUB_PORT:-}"
 SUB_PATH="${XUI_SUB_PATH:-}"
+SUB_URI="${XUI_SUB_URI:-}"
 SUB_ID="${XUI_SUB_ID:-}"
 BACKEND_PORT="${XUI_SUB_BACKEND_PORT:-9444}"
 STREAM_CONF="${NGINX_STREAM_CONF:-/etc/nginx/stream-enabled/stream.conf}"
 SITES_DIR="${NGINX_SITES_DIR:-/etc/nginx/sites-enabled}"
 ASSUME_YES=0
 ALLOW_REALITY_SNI_CONFLICT="${XUI_SUB_ALLOW_REALITY_SNI_CONFLICT:-0}"
+REALITY_SNI="${XUI_REALITY_SNI:-}"
+REALITY_TARGET="${XUI_REALITY_TARGET:-}"
 
 usage() {
   cat <<EOF
 Usage:
   sudo bash configure-xui-subscription.sh --domain SUB_DOMAIN --port SUB_PORT --path /SUB_PATH/ --sub-id SUB_ID --yes
+  sudo bash configure-xui-subscription.sh --sub-port SUB_PORT --sub-path /SUB_PATH/ --sub-uri https://SUB_DOMAIN/SUB_PATH/ --sub-id SUB_ID --yes
 
 What it does:
   - updates x-ui subscription settings: subPort, subPath, subURI
@@ -43,9 +47,16 @@ Options:
   --domain DOMAIN          public subscription domain
   --port PORT              x-ui subscription port
   --path /PATH/            x-ui subscription path
+  --uri URL                public subscription base URI, for example https://sub.example.com/path/
+  --sub-port PORT          alias for --port
+  --sub-path /PATH/        alias for --path
+  --sub-uri URL            alias for --uri
   --sub-id ID              test subscription id
   --backend-port PORT      local nginx HTTPS backend port, default: ${BACKEND_PORT}
   --xui-db PATH            x-ui sqlite DB, default: ${XUI_DB}
+  --reality-sni DOMAIN     move non-WARP Reality serverNames to DOMAIN before configuring subscription
+  --reality-target HOST:PORT
+                           Reality target when --reality-sni is used; default DOMAIN:443
   --allow-reality-sni-conflict
                            allow DOMAIN to appear in Reality serverNames anyway
   --yes                    apply changes
@@ -57,9 +68,15 @@ while [[ $# -gt 0 ]]; do
     --domain) DOMAIN="${2:-}"; shift 2 ;;
     --port) SUB_PORT="${2:-}"; shift 2 ;;
     --path) SUB_PATH="${2:-}"; shift 2 ;;
+    --uri) SUB_URI="${2:-}"; shift 2 ;;
+    --sub-port) SUB_PORT="${2:-}"; shift 2 ;;
+    --sub-path) SUB_PATH="${2:-}"; shift 2 ;;
+    --sub-uri) SUB_URI="${2:-}"; shift 2 ;;
     --sub-id) SUB_ID="${2:-}"; shift 2 ;;
     --backend-port) BACKEND_PORT="${2:-}"; shift 2 ;;
     --xui-db) XUI_DB="${2:-}"; shift 2 ;;
+    --reality-sni) REALITY_SNI="${2:-}"; shift 2 ;;
+    --reality-target) REALITY_TARGET="${2:-}"; shift 2 ;;
     --allow-reality-sni-conflict) ALLOW_REALITY_SNI_CONFLICT=1; shift ;;
     --yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -69,7 +86,17 @@ done
 
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "Run as root"
 [[ "$ASSUME_YES" == "1" ]] || die "Add --yes after reading what this script changes"
-[[ -n "$DOMAIN" ]] || die "--domain is required"
+
+if [[ -n "$SUB_URI" ]]; then
+  [[ "$SUB_URI" =~ ^https://[^/]+/.+ ]] || die "--uri/--sub-uri must look like https://domain/path/"
+  uri_rest="${SUB_URI#https://}"
+  uri_domain="${uri_rest%%/*}"
+  uri_path="/${uri_rest#*/}"
+  [[ -n "$DOMAIN" ]] || DOMAIN="$uri_domain"
+  [[ -n "$SUB_PATH" ]] || SUB_PATH="$uri_path"
+fi
+
+[[ -n "$DOMAIN" ]] || die "--domain is required, or provide --sub-uri"
 [[ "$DOMAIN" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$ ]] || die "Invalid domain: $DOMAIN"
 [[ -n "$SUB_PORT" ]] || die "--port is required"
 [[ "$SUB_PORT" =~ ^[0-9]+$ ]] || die "--port must be numeric"
@@ -82,11 +109,39 @@ esac
 [[ -n "$SUB_PATH" ]] || die "--path is required"
 [[ "$SUB_PATH" == /*/ ]] || die "--path must start and end with /"
 [[ "$SUB_PATH" != *"'"* ]] || die "--path must not contain single quote"
+[[ -n "$SUB_URI" ]] || SUB_URI="https://$DOMAIN$SUB_PATH"
+[[ "$SUB_URI" == */ ]] || die "--uri/--sub-uri must end with /"
+[[ "$SUB_URI" == "https://$DOMAIN"* ]] || die "--uri/--sub-uri domain must match --domain"
+[[ "$SUB_URI" == "https://$DOMAIN$SUB_PATH" ]] || die "--uri/--sub-uri must equal https://DOMAIN/PATH/ from --domain and --path"
 [[ -n "$SUB_ID" ]] || die "--sub-id is required for the post-change test"
 [[ "$SUB_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--sub-id may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
 command_exists sqlite3 || die "sqlite3 is required"
 command_exists nginx || die "nginx is required"
 [[ -f "$XUI_DB" ]] || die "x-ui database not found: $XUI_DB"
+
+if [[ -n "$REALITY_SNI" ]]; then
+  [[ "$REALITY_SNI" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$ ]] || die "Invalid --reality-sni: $REALITY_SNI"
+  [[ -n "$REALITY_TARGET" ]] || REALITY_TARGET="$REALITY_SNI:443"
+  info "Moving non-WARP Reality SNI to $REALITY_SNI"
+  sqlite3 "$XUI_DB" "
+    UPDATE inbounds
+    SET stream_settings = json_set(
+      stream_settings,
+      '$.realitySettings.serverNames',
+      json_array($(sql_quote "$REALITY_SNI")),
+      '$.realitySettings.target',
+      $(sql_quote "$REALITY_TARGET"),
+      '$.realitySettings.settings.serverName',
+      ''
+    )
+    WHERE protocol='vless'
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='tcp'
+      AND json_extract(stream_settings,'$.security')='reality'
+      AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
+  "
+fi
 
 reality_sni_conflicts="$(sqlite3 -readonly "$XUI_DB" "
   SELECT COUNT(*)
@@ -123,8 +178,8 @@ done
 safe_name="$(printf '%s' "$DOMAIN" | tr -c 'A-Za-z0-9' '_')"
 upstream_name="upm_${safe_name}_sub"
 backend_conf="$SITES_DIR/upm-xui-subscription-$DOMAIN.conf"
-sub_uri="https://$DOMAIN$SUB_PATH"
-public_url="${sub_uri}${SUB_ID}"
+sub_uri="$SUB_URI"
+public_url="${SUB_URI}${SUB_ID}"
 local_url="https://127.0.0.1:${SUB_PORT}${SUB_PATH}${SUB_ID}"
 
 info "Removing stale manual subscription nginx configs"
