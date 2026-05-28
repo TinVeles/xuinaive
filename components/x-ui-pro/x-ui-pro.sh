@@ -991,16 +991,18 @@ cat > "/etc/nginx/snippets/includes.conf" << EOF
 		proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 		#proxy_set_header CF-IPCountry \$http_cf_ipcountry;
 		#proxy_set_header CF-IP \$realip_remote_addr;
-		if (\$content_type ~* "GRPC") {
-			grpc_pass grpc://127.0.0.1:\$fwdport\$is_args\$args;
+		# strip dynamic port prefix before upstream
+		rewrite ^/\\d+/(.*)\$ /\$1 break;
+		if (\$http_content_type ~* "grpc") {
+			grpc_pass grpc://127.0.0.1:\$fwdport;
 			break;
 		}
 		if (\$http_upgrade ~* "(WEBSOCKET|WS)") {
-			proxy_pass http://127.0.0.1:\$fwdport\$is_args\$args;
+			proxy_pass http://127.0.0.1:\$fwdport/\$fwdpath\$is_args\$args;
 			break;
 	        }
 		if (\$request_method ~* ^(PUT|POST|GET)\$) {
-			proxy_pass http://127.0.0.1:\$fwdport\$is_args\$args;
+			proxy_pass http://127.0.0.1:\$fwdport/\$fwdpath\$is_args\$args;
 			break;
 		}
 	}
