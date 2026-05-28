@@ -28,10 +28,73 @@ Recommended install order:
 
 ```
 1. install.sh / install-unified.sh       (install stack)
-2. network-hardening.sh --apply --yes    (DNS + sysctl + IPv6)
-3. security-hardening.sh --apply --yes   (fail2ban, ssh, UFW)
-4. doctor.sh                             (verify no leaks)
+2. network-hardening.sh --apply --yes    (DNS + sysctl + IPv6 + journald + ulimit)
+3. service-stability.sh --apply --yes    (systemd dropins: Restart/LimitNOFILE/OOM)
+4. install-warp-watchdog.sh --yes        (if WARP enabled, recover from silent hangs)
+5. security-hardening.sh --apply --yes   (fail2ban, ssh, UFW)
+6. doctor.sh                             (verify no leaks / unstable settings)
 ```
+
+### `service-stability.sh`
+
+Writes drop-in `/etc/systemd/system/<svc>.service.d/upm-stability.conf` to:
+`x-ui`, `nginx`, `caddy-nh`, `hysteria-server`, `panel-naive-hy2`, `warp-svc`.
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| `Restart` | `on-failure` | auto-recovery without infinite loops on bad config |
+| `RestartSec` | `10s` | back off briefly before retry |
+| `StartLimitIntervalSec` | `300s` | within 5 min window |
+| `StartLimitBurst` | `10` | max 10 restarts before systemd gives up |
+| `LimitNOFILE` | `1048576` | high-fanout proxies need many fds |
+| `LimitNPROC` | `65536` | room for per-connection threads (Node.js / Caddy) |
+| `TasksMax` | `infinity` | systemd default 512 is too low for proxies |
+| `OOMScoreAdjust` | `-500` | proxy daemons less likely to be killed under memory pressure |
+| `TimeoutStopSec` | `15s` | allow graceful drain of active connections |
+
+Drop-ins are preserved across upstream unit-file updates. Remove with
+`service-stability.sh --remove --yes`.
+
+### `install-warp-watchdog.sh`
+
+Cloudflare WARP daemon (`warp-svc`) has a known silent-hang failure mode:
+systemctl reports active, but the SOCKS endpoint on `127.0.0.1:40000` stops
+responding. Restart manually is the only fix.
+
+The watchdog installs a systemd timer that probes the SOCKS endpoint every
+60 seconds via `curl --socks5-hostname`. On two consecutive failures it
+restarts `warp-svc` and reconnects via `warp-cli connect`. State persists at
+`/var/lib/upm-warp-watchdog.state`.
+
+```sh
+sudo bash install-warp-watchdog.sh --yes
+systemctl list-timers upm-warp-watchdog.timer
+journalctl -u upm-warp-watchdog -n 50
+```
+
+Uninstall: `sudo bash install-warp-watchdog.sh --uninstall --yes`.
+
+### Extended sysctl tuning (network-hardening.sh)
+
+Beyond the leak-prevention defaults documented above, the script applies:
+
+| Sysctl | Value | Effect |
+|--------|-------|--------|
+| `net.ipv4.tcp_mtu_probing` | `1` | recover from PMTU blackholes (mobile / VPN-over-VPN) |
+| `net.ipv4.tcp_base_mss` | `1024` | conservative MSS floor for probing |
+| `net.core.optmem_max` | `65536` | larger ancillary buffer for socket options |
+| `net.ipv4.tcp_notsent_lowat` | `131072` | bound unsent buffer per socket |
+| `net.netfilter.nf_conntrack_buckets` | `262144` | hash size for 1M conntrack entries |
+| `nf_conntrack_tcp_timeout_close_wait` | `30s` | quickly release half-closed proxy sessions |
+| `nf_conntrack_tcp_timeout_fin_wait` | `30s` | free FIN-WAIT slots faster |
+| `fs.file-max` / `fs.nr_open` | `2097152` | system-wide fd ceiling |
+
+Plus `/etc/security/limits.d/99-upm-network.conf` raises per-process
+`nofile` to 1M and `nproc` to 64k (matches systemd dropins).
+
+Plus `/etc/systemd/journald.conf.d/upm-stability.conf` raises the journald
+rate-limit to `10000 messages / 30s` and caps storage at 500MB so log floods
+during traffic spikes don't suppress actual error events.
 
 ### DNS-over-TLS for system queries
 

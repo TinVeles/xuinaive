@@ -152,10 +152,22 @@ net.ipv4.tcp_max_syn_backlog = 8192
 net.core.somaxconn = 8192
 net.core.netdev_max_backlog = 16384
 
+# MTU probing: handle PMTU blackholes on mobile / VPN-over-VPN paths
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_base_mss = 1024
+
+# Memory: ancillary buffer + auto-tuning
+net.core.optmem_max = 65536
+net.ipv4.tcp_notsent_lowat = 131072
+net.core.default_qdisc = fq
+
 # Conntrack capacity (matches upstream nh-panel tuning)
 net.netfilter.nf_conntrack_max = 1048576
+net.netfilter.nf_conntrack_buckets = 262144
 net.netfilter.nf_conntrack_tcp_timeout_established = 3600
 net.netfilter.nf_conntrack_tcp_timeout_time_wait = 30
+net.netfilter.nf_conntrack_tcp_timeout_close_wait = 30
+net.netfilter.nf_conntrack_tcp_timeout_fin_wait = 30
 
 # QUIC / Hysteria2: avoid ICMP rate-limit choking PMTUD
 net.ipv4.icmp_ratelimit = 100
@@ -164,9 +176,38 @@ net.ipv4.icmp_ratemask = 0
 # Reverse-path filter: loose so multi-homed proxies work
 net.ipv4.conf.all.rp_filter = 2
 net.ipv4.conf.default.rp_filter = 2
+
+# File descriptor headroom for high-fanout proxies
+fs.file-max = 2097152
+fs.nr_open = 2097152
 "
   write_file /etc/sysctl.d/99-upm-network.conf 0644 "$TCP_TUNE_CONFIG"
   run sysctl --system
+
+  info "Raising ulimit nofile / nproc system-wide"
+  ULIMIT_CONFIG="# unified-proxy-manager ulimit hardening
+# Applied by network-hardening.sh
+*       soft    nofile  1048576
+*       hard    nofile  1048576
+*       soft    nproc   65536
+*       hard    nproc   65536
+root    soft    nofile  1048576
+root    hard    nofile  1048576
+"
+  write_file /etc/security/limits.d/99-upm-network.conf 0644 "$ULIMIT_CONFIG"
+
+  info "Tuning journald to avoid log-loss during traffic spikes"
+  install -d -m 0755 /etc/systemd/journald.conf.d 2>/dev/null || true
+  JOURNALD_CONFIG="[Journal]
+# Avoid rate-limit drops that hide proxy errors during traffic bursts.
+RateLimitIntervalSec=30s
+RateLimitBurst=10000
+SystemMaxUse=500M
+SystemMaxFileSize=50M
+MaxRetentionSec=14day
+"
+  write_file /etc/systemd/journald.conf.d/upm-stability.conf 0644 "$JOURNALD_CONFIG"
+  run systemctl restart systemd-journald
 fi
 
 # 3. IPv6 mode

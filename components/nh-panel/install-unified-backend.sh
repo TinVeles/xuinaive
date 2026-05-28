@@ -461,6 +461,8 @@ cat > "/etc/systemd/system/${CADDY_SERVICE}.service" <<EOF
 Description=Caddy NHM NaiveProxy Backend
 After=network.target network-online.target
 Requires=network-online.target
+StartLimitIntervalSec=300s
+StartLimitBurst=10
 
 [Service]
 Type=notify
@@ -468,9 +470,11 @@ User=root
 Group=root
 ExecStart=${CADDY_BIN} run --environ --config ${CADDY_DIR}/Caddyfile
 ExecReload=${CADDY_BIN} reload --config ${CADDY_DIR}/Caddyfile --force
-TimeoutStopSec=5s
+TimeoutStopSec=15s
 LimitNOFILE=1048576
-LimitNPROC=512
+LimitNPROC=65536
+TasksMax=infinity
+OOMScoreAdjust=-500
 PrivateTmp=true
 ProtectSystem=full
 AmbientCapabilities=CAP_NET_BIND_SERVICE
@@ -560,6 +564,8 @@ Description=Hysteria2 Server (NHM unified)
 After=network.target network-online.target caddy-nh.service
 Wants=caddy-nh.service
 Requires=network-online.target
+StartLimitIntervalSec=300s
+StartLimitBurst=10
 
 [Service]
 Type=simple
@@ -568,7 +574,10 @@ Group=root
 ExecStart=/usr/local/bin/hysteria server --config /etc/hysteria/config.yaml
 WorkingDirectory=/etc/hysteria
 LimitNOFILE=1048576
-LimitNPROC=512
+LimitNPROC=65536
+TasksMax=infinity
+OOMScoreAdjust=-500
+TimeoutStopSec=15s
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 Restart=on-failure
 RestartSec=10s
@@ -641,6 +650,8 @@ cat > /etc/systemd/system/panel-naive-hy2.service <<EOF
 [Unit]
 Description=NHM Panel Naive + Hysteria2
 After=network.target ${CADDY_SERVICE}.service hysteria-server.service
+StartLimitIntervalSec=300s
+StartLimitBurst=10
 
 [Service]
 Type=simple
@@ -668,6 +679,11 @@ UMask=0077
 ExecStart=/usr/bin/node server/index.js
 Restart=always
 RestartSec=5
+LimitNOFILE=1048576
+LimitNPROC=65536
+TasksMax=infinity
+OOMScoreAdjust=-500
+TimeoutStopSec=15s
 
 [Install]
 WantedBy=multi-user.target
