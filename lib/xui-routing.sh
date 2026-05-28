@@ -42,10 +42,131 @@ xui_enable_warp_domain_sniffing() {
 xui_next_free_inbound_port() {
   local db="$1" candidate="$2"
   [[ "$candidate" =~ ^[0-9]+$ && "$candidate" -gt 0 ]] || candidate=30000
-  while [[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE port=$candidate;" 2>/dev/null || echo 0)" != "0" ]]; do
-    candidate=$((candidate + 1))
+  while :; do
+    case "$candidate" in
+      22|25|53|80|110|143|443|465|587|993|995|2053|2083|2087|2096|3000|54321|7443|8080|8081|8443|9443|9445)
+        candidate=$((candidate + 1))
+        continue
+        ;;
+    esac
+    if [[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE port=$candidate;" 2>/dev/null || echo 0)" != "0" ]]; then
+      candidate=$((candidate + 1))
+      continue
+    fi
+    if command -v ss >/dev/null 2>&1 && ss -H -ltn "sport = :$candidate" 2>/dev/null | grep -q .; then
+      candidate=$((candidate + 1))
+      continue
+    fi
+    break
   done
   printf '%s\n' "$candidate"
+}
+
+xui_normalize_xhttp_tcp_inbounds() {
+  local db rows inbound_id port listen stream_settings new_port new_stream
+  db="$(xui_db_path)"
+  [[ -f "$db" ]] || return 0
+  rows="$(sqlite3 -separator $'\t' "$db" "
+    SELECT id, COALESCE(port,0), COALESCE(listen,''), stream_settings
+    FROM inbounds
+    WHERE protocol IN ('vless','trojan')
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='xhttp'
+    ORDER BY id;
+  " 2>/dev/null || true)"
+
+  while IFS=$'\t' read -r inbound_id port listen stream_settings; do
+    [[ -n "$inbound_id" ]] || continue
+    if [[ "$port" =~ ^[0-9]+$ && "$port" -gt 0 && "$listen" != /* ]]; then
+      continue
+    fi
+    new_port="$(xui_next_free_inbound_port "$db" 30000)"
+    new_stream="$(jq -c --argjson oldPort "${port:-0}" --argjson newPort "$new_port" '
+      def clean_path($path):
+        (($path // "") | tostring) as $p
+        | if $p == "" then "xhttp"
+          elif ($oldPort > 0 and ($p | startswith("/" + ($oldPort|tostring) + "/"))) then
+            ($p | sub("^/" + ($oldPort|tostring) + "/"; ""))
+          else
+            ($p | sub("^/+"; ""))
+          end;
+      .xhttpSettings = (.xhttpSettings // {})
+      | .xhttpSettings.path = "/" + ($newPort|tostring) + "/" + clean_path(.xhttpSettings.path)
+    ' <<<"$stream_settings")"
+    sqlite3 "$db" "
+      UPDATE inbounds
+      SET listen='', port=$new_port, stream_settings=$(sql_quote "$new_stream")
+      WHERE id=$inbound_id;
+    "
+  done <<<"$rows"
+}
+
+xui_ensure_nginx_dynamic_proxy() {
+  local snippet="/etc/nginx/snippets/includes.conf"
+  [[ -f "$snippet" ]] || return 0
+  grep -q '(?<fwdport>' "$snippet" 2>/dev/null && return 0
+  cat >> "$snippet" <<'EOF'
+
+# unified-proxy-manager dynamic x-ui path proxy
+location ~ ^/(?<fwdport>\d+)/(?<fwdpath>.*)$ {
+  if ($hack = 1) { return 404; }
+  client_max_body_size 0;
+  client_body_timeout 1d;
+  grpc_read_timeout 1d;
+  grpc_socket_keepalive on;
+  proxy_read_timeout 1d;
+  proxy_http_version 1.1;
+  proxy_buffering off;
+  proxy_request_buffering off;
+  proxy_socket_keepalive on;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection "upgrade";
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  if ($content_type ~* "GRPC") {
+    grpc_pass grpc://127.0.0.1:$fwdport$is_args$args;
+    break;
+  }
+  if ($http_upgrade ~* "(WEBSOCKET|WS)") {
+    proxy_pass http://127.0.0.1:$fwdport$is_args$args;
+    break;
+  }
+  if ($request_method ~* ^(PUT|POST|GET)$) {
+    proxy_pass http://127.0.0.1:$fwdport$is_args$args;
+    break;
+  }
+}
+EOF
+  if command -v nginx >/dev/null 2>&1; then
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null || true
+  fi
+}
+
+xui_allow_public_inbound_port() {
+  local port="$1"
+  [[ "$port" =~ ^[0-9]+$ && "$port" -gt 0 ]] || return 0
+  command -v ufw >/dev/null 2>&1 || return 0
+  ufw allow "${port}/tcp" >/dev/null 2>&1 || true
+}
+
+xui_open_warp_reality_ports() {
+  local db rows port
+  db="$(xui_db_path)"
+  [[ -f "$db" ]] || return 0
+  rows="$(sqlite3 -readonly "$db" "
+    SELECT port
+    FROM inbounds
+    WHERE enable=1
+      AND protocol='vless'
+      AND (COALESCE(tag,'') LIKE '%-warp' OR lower(COALESCE(remark,'')) LIKE '%warp%')
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='tcp'
+      AND json_extract(stream_settings,'$.security')='reality';
+  " 2>/dev/null || true)"
+  while IFS= read -r port; do
+    xui_allow_public_inbound_port "$port"
+  done <<<"$rows"
 }
 
 xui_warp_mirror_stream_settings() {
@@ -72,6 +193,8 @@ xui_warp_mirror_stream_settings() {
 
     if ((.network // "tcp") == "tcp" and (.security // "") == "reality") then
       mirror_external
+      | .tcpSettings = (.tcpSettings // {})
+      | .tcpSettings.acceptProxyProtocol = false
     elif (.network // "") == "ws" then
       .wsSettings = (.wsSettings // {})
       | .wsSettings.path = mirror_path(.wsSettings.path)

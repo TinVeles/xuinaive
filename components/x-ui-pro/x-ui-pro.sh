@@ -307,6 +307,8 @@ xui_post_update_db() {
   xui_repair_invalid_inbound_json
   xui_sanitize_inbound_tags
   xui_enable_preset_xhttp
+  xui_normalize_xhttp_tcp_inbounds
+  xui_ensure_nginx_dynamic_proxy
   xui_enable_preset_domain_sniffing
   xui_fix_all_vless_decryption
   xui_validate_inbound_json
@@ -1435,6 +1437,7 @@ if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && "$XUI_AUTO_INSTALL_WARP" == "1" ]]; t
   ensure_warp_local_proxy "$UPM_ROOT_DIR"
 fi
 xui_seed_bulk_profiles
+xui_open_warp_reality_ports
 xui_repair_client_traffic_rows
 xui_disable_duplicate_xhttp_unix_listeners
 xui_install_uds_cleanup_dropin
