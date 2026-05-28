@@ -76,8 +76,25 @@ net.core.wmem_max=16777216
 net.core.rmem_default=2500000
 net.core.wmem_default=2500000
 net.ipv4.tcp_fastopen=3
+net.ipv4.tcp_keepalive_time=120
+net.ipv4.tcp_keepalive_intvl=30
+net.ipv4.tcp_keepalive_probes=4
+net.ipv4.tcp_fin_timeout=15
+net.ipv4.tcp_tw_reuse=1
+net.core.somaxconn=8192
+net.core.netdev_max_backlog=250000
+net.ipv4.ip_local_port_range=1024 65535
+net.netfilter.nf_conntrack_max=1048576
+net.netfilter.nf_conntrack_tcp_timeout_established=3600
+net.netfilter.nf_conntrack_tcp_timeout_time_wait=30
+net.ipv4.ip_no_pmtu_disc=0
+net.ipv4.icmp_echo_ignore_all=0
+net.ipv4.icmp_echo_ignore_broadcasts=1
+net.ipv4.conf.all.rp_filter=2
+net.ipv4.conf.default.rp_filter=2
 SYSCTLEOF
 sysctl --system >/dev/null 2>&1 || true
+sysctl -p /etc/sysctl.d/99-nh-tune.conf >/dev/null 2>&1 || true
 
 log "✅ BBR включён"
 

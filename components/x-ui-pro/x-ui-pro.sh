@@ -1587,18 +1587,38 @@ fi
 
 ######################enable bbr and tune system########################################################
 apt-get install -yqq --no-install-recommends ca-certificates
-echo "net.core.default_qdisc=fq" | tee -a /etc/sysctl.conf
-echo "net.ipv4.tcp_congestion_control=bbr" | tee -a /etc/sysctl.conf
-echo "fs.file-max=2097152" | tee -a /etc/sysctl.conf
-echo "net.ipv4.tcp_timestamps = 1" | tee -a /etc/sysctl.conf
-echo "net.ipv4.tcp_sack = 1" | tee -a /etc/sysctl.conf
-echo "net.ipv4.tcp_window_scaling = 1" | tee -a /etc/sysctl.conf
-echo "net.core.rmem_max = 16777216" | tee -a /etc/sysctl.conf
-echo "net.core.wmem_max = 16777216" | tee -a /etc/sysctl.conf
-echo "net.ipv4.tcp_rmem = 4096 87380 16777216" | tee -a /etc/sysctl.conf
-echo "net.ipv4.tcp_wmem = 4096 65536 16777216" | tee -a /etc/sysctl.conf
+cat > /etc/sysctl.d/99-upm-xui-network.conf << 'SYSCTLEOF'
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+fs.file-max=2097152
+net.ipv4.tcp_timestamps=1
+net.ipv4.tcp_sack=1
+net.ipv4.tcp_window_scaling=1
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.ipv4.tcp_rmem=4096 87380 16777216
+net.ipv4.tcp_wmem=4096 65536 16777216
+net.ipv4.tcp_fastopen=3
+net.ipv4.tcp_keepalive_time=120
+net.ipv4.tcp_keepalive_intvl=30
+net.ipv4.tcp_keepalive_probes=4
+net.ipv4.tcp_fin_timeout=15
+net.ipv4.tcp_tw_reuse=1
+net.core.somaxconn=8192
+net.core.netdev_max_backlog=250000
+net.ipv4.ip_local_port_range=1024 65535
+net.netfilter.nf_conntrack_max=1048576
+net.netfilter.nf_conntrack_tcp_timeout_established=3600
+net.netfilter.nf_conntrack_tcp_timeout_time_wait=30
+net.ipv4.ip_no_pmtu_disc=0
+net.ipv4.icmp_echo_ignore_all=0
+net.ipv4.icmp_echo_ignore_broadcasts=1
+net.ipv4.conf.all.rp_filter=2
+net.ipv4.conf.default.rp_filter=2
+SYSCTLEOF
 
-sysctl -p
+sysctl --system
+sysctl -p /etc/sysctl.d/99-upm-xui-network.conf
 
 
 ######################install_sub2sing-box#################################################################

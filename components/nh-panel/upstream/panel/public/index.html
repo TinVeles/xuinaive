@@ -698,7 +698,10 @@
               об этом при старте, если буфер маленький.</li>
             <li><strong>TCP Fast Open</strong> (<code>net.ipv4.tcp_fastopen=3</code>) — ускоряет повторные подключения
               NaiveProxy к тому же серверу (на ~1 RTT быстрее).</li>
-            <li><strong>conntrack 1M</strong> — повышает лимит одновременных соединений (для 100+ пользователей).</li>
+            <li><strong>TCP keepalive</strong> — быстрее чистит мёртвые долгие подключения, чтобы клиенты не зависали
+              после смены сети, сна ноутбука или обрыва мобильного интернета.</li>
+            <li><strong>conntrack 1M</strong> — повышает лимит одновременных соединений и уменьшает риск отказов
+              при большом числе клиентов или частых переподключениях.</li>
           </ul>
           <p style="color:var(--text-muted);font-size:13px;margin:10px 0 0 0">
             Параметры сохраняются в <code>/etc/sysctl.d/99-nh-tune.conf</code> и применяются мгновенно,
@@ -746,6 +749,27 @@
             <div class="info-rows">
               <div class="info-row"><span class="info-key">rmem_max</span><span class="info-val mono" id="rmemVal">—</span></div>
               <div class="info-row"><span class="info-key">wmem_max</span><span class="info-val mono" id="wmemVal">—</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title-wrap">
+              <div class="service-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h5l2-7 4 14 2-7h3"/></svg>
+              </div>
+              <div>
+                <h3 class="card-title">Стабильность</h3>
+                <div class="card-subtitle">keepalive / conntrack</div>
+              </div>
+            </div>
+            <div class="service-status" id="stableBadge"><span class="dot dot-gray"></span> —</div>
+          </div>
+          <div class="card-body">
+            <div class="info-rows">
+              <div class="info-row"><span class="info-key">tcp_keepalive_time</span><span class="info-val mono" id="keepaliveVal">—</span></div>
+              <div class="info-row"><span class="info-key">conntrack_max</span><span class="info-val mono" id="conntrackVal">—</span></div>
             </div>
           </div>
         </div>

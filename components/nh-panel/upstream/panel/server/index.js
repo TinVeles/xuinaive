@@ -1831,7 +1831,9 @@ app.get('/api/tuning/status', requireAuth, (req, res) => {
     'echo cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo unknown); ' +
     'echo qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null || echo unknown); ' +
     'echo rmem_max=$(sysctl -n net.core.rmem_max 2>/dev/null || echo unknown); ' +
-    'echo wmem_max=$(sysctl -n net.core.wmem_max 2>/dev/null || echo unknown)'
+    'echo wmem_max=$(sysctl -n net.core.wmem_max 2>/dev/null || echo unknown); ' +
+    'echo tcp_keepalive_time=$(sysctl -n net.ipv4.tcp_keepalive_time 2>/dev/null || echo unknown); ' +
+    'echo conntrack_max=$(sysctl -n net.netfilter.nf_conntrack_max 2>/dev/null || echo unknown)'
   ]);
   let out = '';
   p.stdout.on('data', d => out += d.toString());
@@ -1846,8 +1848,12 @@ app.get('/api/tuning/status', requireAuth, (req, res) => {
       qdisc: parsed.qdisc || 'unknown',
       rmem_max: parsed.rmem_max || 'unknown',
       wmem_max: parsed.wmem_max || 'unknown',
+      tcp_keepalive_time: parsed.tcp_keepalive_time || 'unknown',
+      conntrack_max: parsed.conntrack_max || 'unknown',
       bbrOn: parsed.cc === 'bbr' && parsed.qdisc === 'fq',
-      udpBufOk: Number(parsed.rmem_max || 0) >= 16777216
+      udpBufOk: Number(parsed.rmem_max || 0) >= 16777216,
+      keepaliveOk: Number(parsed.tcp_keepalive_time || 0) > 0 && Number(parsed.tcp_keepalive_time || 0) <= 300,
+      conntrackOk: Number(parsed.conntrack_max || 0) >= 1048576
     });
   });
   p.on('error', () => res.json({ error: 'sysctl недоступен' }));

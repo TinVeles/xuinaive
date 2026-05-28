@@ -1,5 +1,135 @@
 # Security Notes for unified-proxy-manager
 
+## Network stability and leak prevention
+
+### `network-hardening.sh`
+
+One-shot opt-in script that applies all network-layer hardening at once.
+Default mode is dry-run; pass `--apply --yes` to make changes.
+
+```sh
+sudo bash network-hardening.sh                     # dry-run preview
+sudo bash network-hardening.sh --apply --yes       # apply everything
+sudo bash network-hardening.sh --apply --yes --ipv6 disable   # also kill IPv6
+```
+
+Applied configuration:
+
+| File | Purpose |
+|------|---------|
+| `/etc/systemd/resolved.conf.d/upm-dot.conf` | systemd-resolved DoT via Cloudflare 1.1.1.1#cloudflare-dns.com + Quad9 fallback |
+| `/etc/sysctl.d/99-upm-network.conf` | TCP keepalive 120s, conntrack 1M entries, ICMP relax for QUIC PMTUD, rp_filter loose |
+| `/etc/sysctl.d/99-upm-ipv6.conf` | IPv6 disable (only if `--ipv6 disable`) |
+
+The script verifies BBR is active and warns if a public IPv6 address exists
+without IPv6 listeners — a classic leak vector when proxies bind IPv4 only.
+
+Recommended install order:
+
+```
+1. install.sh / install-unified.sh       (install stack)
+2. network-hardening.sh --apply --yes    (DNS + sysctl + IPv6)
+3. security-hardening.sh --apply --yes   (fail2ban, ssh, UFW)
+4. doctor.sh                             (verify no leaks)
+```
+
+### DNS-over-TLS for system queries
+
+Without DoT, the install process leaks the VPS↔domain association into the
+upstream resolver's logs (typically the VPS provider). `network-hardening.sh`
+configures systemd-resolved with DoT mode:
+
+```
+[Resolve]
+DNS=1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com
+FallbackDNS=9.9.9.9#dns.quad9.net
+DNSOverTLS=yes
+DNSSEC=allow-downgrade
+```
+
+Verify after applying:
+
+```sh
+resolvectl status | grep -E 'DNS|DNSOverTLS'
+# expect: +DNSOverTLS=yes  or  DNS over TLS: yes
+```
+
+Pre-set `PUBLIC_IP` in `config.env` before running installers to also avoid
+calls to `ipv4.icanhazip.com` / `api.ipify.org`:
+
+```sh
+echo 'PUBLIC_IP="203.0.113.10"' >> config.env
+```
+
+### IPv6 leak prevention
+
+If the VPS has a public IPv6 address but your proxy listeners bind IPv4 only
+(default for most x-ui REALITY/Naive setups), IPv6-capable clients may bypass
+the stack entirely. `doctor.sh` reports the situation, and
+`network-hardening.sh --ipv6 disable` blocks the leak vector.
+
+Alternative: leave IPv6 enabled and reconfigure nginx/Caddy/Hysteria2 to bind
+both stacks (`listen [::]:443` etc). Either approach is acceptable.
+
+### WARP kill-switch (#11 extension)
+
+Xray routing rules use first-match semantics. AI-domain requests are matched
+by the WARP routing rule (added by `lib/xui-routing.sh` and *prepended* to the
+rule list since unified-proxy-manager v2). When the WARP local proxy
+(`127.0.0.1:40000`) is unreachable:
+
+1. Xray attempts to connect to the WARP socks outbound.
+2. Socks handshake fails.
+3. Xray drops the client request with a proxy error.
+
+Xray does NOT fall back to the `direct` outbound on socks failure, so AI
+traffic cannot leak to the ISP when WARP is down. This is the implicit
+kill-switch behavior — DO NOT add a fallback rule (`outboundTag: direct`) for
+AI domains.
+
+DNS for AI domains is routed through DoH (`https://1.1.1.1/dns-query`) at the
+Xray DNS layer (`lib/xui-routing.sh` and `lib/warp.sh`). If WARP socks fails,
+the DoH connection also fails (it travels through the same socks). No DNS
+leak.
+
+To verify the kill-switch in production:
+
+```sh
+systemctl stop warp-svc
+curl -i --max-time 10 --connect-timeout 5 \
+  -x socks5h://127.0.0.1:40000 https://api.openai.com  # expect: fails immediately
+systemctl start warp-svc
+```
+
+### Long-session stability
+
+The TCP keepalive defaults installed by `network-hardening.sh`:
+
+```
+net.ipv4.tcp_keepalive_time = 120     # send first probe after 120s idle
+net.ipv4.tcp_keepalive_intvl = 30     # 30s between probes
+net.ipv4.tcp_keepalive_probes = 4     # 4 missed probes before drop
+```
+
+Reaches "this connection is dead" verdict in ~240s instead of the kernel
+default ~2h. This prevents NAT-rebind ghost connections that pile up on
+the proxy and starve conntrack slots over time.
+
+### Connection tracking capacity
+
+`nf_conntrack_max=1048576` is applied (matches upstream nh-panel tuning).
+Combined with `tcp_keepalive_time=120` this supports a sustained ~10k
+active proxy sessions without conntrack pressure.
+
+Monitor:
+
+```sh
+cat /proc/sys/net/netfilter/nf_conntrack_count   # current
+cat /proc/sys/net/netfilter/nf_conntrack_max     # ceiling
+```
+
+If `count / max > 0.7`, raise `nf_conntrack_max` further.
+
 ## Network-level metadata leaks
 
 ### Public-IP probing during install (#10)

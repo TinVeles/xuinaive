@@ -1007,9 +1007,12 @@ async function loadTuning() {
     document.getElementById('qdiscVal').textContent = d.qdisc || '—';
     document.getElementById('rmemVal').textContent = formatBytes(d.rmem_max);
     document.getElementById('wmemVal').textContent = formatBytes(d.wmem_max);
+    document.getElementById('keepaliveVal').textContent = d.tcp_keepalive_time || '—';
+    document.getElementById('conntrackVal').textContent = d.conntrack_max || '—';
 
     setBadge('bbrBadge', d.bbrOn, d.bbrOn ? 'BBR активен' : 'BBR выключен');
     setBadge('udpBadge', d.udpBufOk, d.udpBufOk ? 'буферы 16MB+' : 'буферы мало');
+    setBadge('stableBadge', d.keepaliveOk && d.conntrackOk, (d.keepaliveOk && d.conntrackOk) ? 'норма' : 'нужен тюнинг');
   } catch {
     showToast('Ошибка загрузки тюнинга', 'error');
   }
