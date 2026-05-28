@@ -998,11 +998,11 @@ cat > "/etc/nginx/snippets/includes.conf" << EOF
 			break;
 		}
 		if (\$http_upgrade ~* "(WEBSOCKET|WS)") {
-			proxy_pass http://127.0.0.1:\$fwdport/\$fwdpath\$is_args\$args;
+			proxy_pass http://127.0.0.1:\$fwdport;
 			break;
 	        }
 		if (\$request_method ~* ^(PUT|POST|GET)\$) {
-			proxy_pass http://127.0.0.1:\$fwdport/\$fwdpath\$is_args\$args;
+			proxy_pass http://127.0.0.1:\$fwdport;
 			break;
 		}
 	}

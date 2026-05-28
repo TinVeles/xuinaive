@@ -179,7 +179,7 @@ fi
 
 backup_dir="/opt/unified-proxy-manager/backups/profiles-$(date '+%Y-%m-%d-%H-%M-%S')"
 mkdir -p "$backup_dir"
-for path in "$XUI_DB" "$NH_CONFIG" "$CADDYFILE" "$HYSTERIA_CONFIG" "$NH_PROFILE_MAP" /etc/nginx/snippets/nh-subscriptions.conf; do
+for path in "$XUI_DB" "$NH_CONFIG" "$CADDYFILE" "$HYSTERIA_CONFIG" "$NH_PROFILE_MAP" /etc/nginx/snippets/nh-subscriptions.conf /etc/nginx/snippets/includes.conf; do
   if [[ -e "$path" || -L "$path" ]]; then
     mkdir -p "$backup_dir$(dirname "$path")"
     cp -a "$path" "$backup_dir$(dirname "$path")/"

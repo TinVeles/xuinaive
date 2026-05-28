@@ -105,22 +105,26 @@ xui_normalize_xhttp_tcp_inbounds() {
 }
 
 xui_ensure_nginx_dynamic_proxy() {
-  local snippet="/etc/nginx/snippets/includes.conf"
+  local snippet="/etc/nginx/snippets/includes.conf" backup had_dynamic=0
   [[ -f "$snippet" ]] || return 0
+  backup="$(mktemp)"
+  cp -a "$snippet" "$backup" 2>/dev/null || backup=""
+  grep -q '(?<fwdport>' "$snippet" 2>/dev/null && had_dynamic=1
   sed -i \
     -e 's/\$content_type[[:space:]]*~\*[[:space:]]*"GRPC"/$http_content_type ~* "grpc"/g' \
     -e 's/\$content_type[[:space:]]*~\*[[:space:]]*"grpc"/$http_content_type ~* "grpc"/g' \
     -e 's#grpc_pass grpc://127\.0\.0\.1:\$fwdport\$is_args\$args;#grpc_pass grpc://127.0.0.1:$fwdport;#g' \
     -e 's#proxy_pass http://127\.0\.0\.1:\$fwdport\$is_args\$args;#proxy_pass http://127.0.0.1:$fwdport$request_uri;#g' \
-    -e 's#proxy_pass http://127\.0\.0\.1:\$fwdport\$request_uri;#proxy_pass http://127.0.0.1:$fwdport/$fwdpath$is_args$args;#g' \
+    -e 's#proxy_pass http://127\.0\.0\.1:\$fwdport\$request_uri;#proxy_pass http://127.0.0.1:$fwdport;#g' \
+    -e 's#proxy_pass http://127\.0\.0\.1:\$fwdport/\$fwdpath\$is_args\$args;#proxy_pass http://127.0.0.1:$fwdport;#g' \
     "$snippet" 2>/dev/null || true
   if grep -q '(?<fwdport>' "$snippet" 2>/dev/null && ! grep -q 'strip dynamic port prefix before upstream' "$snippet" 2>/dev/null; then
     sed -i '/if (\$http_content_type ~\* "grpc") {/i\
   # strip dynamic port prefix before upstream\
   rewrite ^/\\d+/(.*)$ /$1 break;' "$snippet" 2>/dev/null || true
   fi
-  grep -q '(?<fwdport>' "$snippet" 2>/dev/null && return 0
-  cat >> "$snippet" <<'EOF'
+  if [[ "$had_dynamic" != "1" ]]; then
+    cat >> "$snippet" <<'EOF'
 
 # unified-proxy-manager dynamic x-ui path proxy
 location ~ ^/(?<fwdport>\d+)/(?<fwdpath>.*)$ {
@@ -146,18 +150,27 @@ location ~ ^/(?<fwdport>\d+)/(?<fwdpath>.*)$ {
     break;
   }
   if ($http_upgrade ~* "(WEBSOCKET|WS)") {
-    proxy_pass http://127.0.0.1:$fwdport/$fwdpath$is_args$args;
+    proxy_pass http://127.0.0.1:$fwdport;
     break;
   }
   if ($request_method ~* ^(PUT|POST|GET)$) {
-    proxy_pass http://127.0.0.1:$fwdport/$fwdpath$is_args$args;
+    proxy_pass http://127.0.0.1:$fwdport;
     break;
   }
 }
 EOF
-  if command -v nginx >/dev/null 2>&1; then
-    nginx -t >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null || true
   fi
+  if command -v nginx >/dev/null 2>&1; then
+    if nginx -t >/dev/null 2>&1; then
+      systemctl reload nginx 2>/dev/null || true
+    else
+      [[ -n "$backup" && -f "$backup" ]] && cp -a "$backup" "$snippet" 2>/dev/null || true
+      warn "nginx dynamic x-ui proxy update failed validation; restored $snippet"
+      [[ -n "$backup" && -f "$backup" ]] && rm -f "$backup"
+      return 1
+    fi
+  fi
+  [[ -n "$backup" && -f "$backup" ]] && rm -f "$backup"
 }
 
 xui_allow_public_inbound_port() {
