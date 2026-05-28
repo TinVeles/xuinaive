@@ -103,15 +103,29 @@ confirm_destructive() {
     upm_log_warn "Proceeding with $context (UPM_ALLOW_DESTROY_EXISTING=1)"
     return 0
   fi
-  if [[ ! -t 0 ]]; then
+  local tty_ok=0
+  if [[ -t 0 ]]; then
+    tty_ok=1
+  elif { exec 3</dev/tty; } 2>/dev/null; then
+    tty_ok=2
+  fi
+  if [[ "$tty_ok" -eq 0 ]]; then
     upm_die "$context requires --allow-destroy-existing or interactive confirmation"
   fi
   printf '\n!!! %s WILL DESTROY EXISTING STATE.\n' "$context" >&2
   printf '!!! Pass --allow-destroy-existing to skip this prompt next time.\n' >&2
   printf 'Type DESTROY to proceed: ' >&2
-  local reply
-  IFS= read -r reply || reply=""
-  [[ "$reply" == "DESTROY" ]] || upm_die "$context cancelled"
+  local reply=""
+  if [[ "$tty_ok" -eq 2 ]]; then
+    IFS= read -r reply <&3 || reply=""
+    exec 3<&-
+  else
+    IFS= read -r reply || reply=""
+  fi
+  reply="${reply//$'\r'/}"
+  reply="${reply#"${reply%%[![:space:]]*}"}"
+  reply="${reply%"${reply##*[![:space:]]}"}"
+  [[ "$reply" == "DESTROY" ]] || upm_die "$context cancelled (got: '$reply'). Pass --allow-destroy-existing to bypass prompt."
 }
 
 upm_config_set_many() {
