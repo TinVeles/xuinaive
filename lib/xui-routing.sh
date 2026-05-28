@@ -182,9 +182,21 @@ xui_ensure_nginx_reality_sni_routes() {
       in_map = 0
       inserted = 0
     }
+    function map_key(line,    cleaned, parts) {
+      cleaned = line
+      sub(/#.*/, "", cleaned)
+      gsub(/;/, "", cleaned)
+      sub(/^[[:space:]]+/, "", cleaned)
+      sub(/[[:space:]]+$/, "", cleaned)
+      split(cleaned, parts, /[[:space:]]+/)
+      return parts[1]
+    }
     function print_routes(    name) {
       if (inserted) return
-      for (name in route) printf "    %-32s xray;\n", name
+      for (name in route) {
+        printf "    %-32s xray;\n", name
+        seen[name] = 1
+      }
       inserted = 1
     }
     $0 ~ /^[[:space:]]*map[[:space:]]+\$ssl_preread_server_name[[:space:]]+\$sni_name[[:space:]]*\{/ {
@@ -204,13 +216,9 @@ xui_ensure_nginx_reality_sni_routes() {
       next
     }
     in_map {
-      line = $0
-      sub(/#.*/, "", line)
-      gsub(/;/, "", line)
-      split(line, parts, /[[:space:]]+/)
-      candidate = parts[1]
-      if (candidate == "") candidate = parts[2]
+      candidate = map_key($0)
       if (candidate in route) next
+      if (candidate != "" && seen[candidate]++) next
     }
     { print }
   ' "$stream_conf" > "$tmp_stream" || {
