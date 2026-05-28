@@ -72,6 +72,11 @@ done
 [[ -n "$SUB_PORT" ]] || die "--port is required"
 [[ "$SUB_PORT" =~ ^[0-9]+$ ]] || die "--port must be numeric"
 [[ "$BACKEND_PORT" =~ ^[0-9]+$ ]] || die "--backend-port must be numeric"
+case "$BACKEND_PORT" in
+  443|7443|8443|9443|9445)
+    die "--backend-port $BACKEND_PORT conflicts with x-ui/nginx ingress ports; use an unused local backend port, for example 9444"
+    ;;
+esac
 [[ -n "$SUB_PATH" ]] || die "--path is required"
 [[ "$SUB_PATH" == /*/ ]] || die "--path must start and end with /"
 [[ "$SUB_PATH" != *"'"* ]] || die "--path must not contain single quote"

@@ -115,14 +115,10 @@ xui_ensure_nginx_dynamic_proxy() {
     -e 's/\$content_type[[:space:]]*~\*[[:space:]]*"grpc"/$http_content_type ~* "grpc"/g' \
     -e 's#grpc_pass grpc://127\.0\.0\.1:\$fwdport\$is_args\$args;#grpc_pass grpc://127.0.0.1:$fwdport;#g' \
     -e 's#proxy_pass http://127\.0\.0\.1:\$fwdport\$is_args\$args;#proxy_pass http://127.0.0.1:$fwdport$request_uri;#g' \
-    -e 's#proxy_pass http://127\.0\.0\.1:\$fwdport\$request_uri;#proxy_pass http://127.0.0.1:$fwdport;#g' \
-    -e 's#proxy_pass http://127\.0\.0\.1:\$fwdport/\$fwdpath\$is_args\$args;#proxy_pass http://127.0.0.1:$fwdport;#g' \
+    -e 's#proxy_pass http://127\.0\.0\.1:\$fwdport;#proxy_pass http://127.0.0.1:$fwdport$request_uri;#g' \
+    -e 's#proxy_pass http://127\.0\.0\.1:\$fwdport/\$fwdpath\$is_args\$args;#proxy_pass http://127.0.0.1:$fwdport$request_uri;#g' \
     "$snippet" 2>/dev/null || true
-  if grep -q '(?<fwdport>' "$snippet" 2>/dev/null && ! grep -q 'strip dynamic port prefix before upstream' "$snippet" 2>/dev/null; then
-    sed -i '/if (\$http_content_type ~\* "grpc") {/i\
-  # strip dynamic port prefix before upstream\
-  rewrite ^/\\d+/(.*)$ /$1 break;' "$snippet" 2>/dev/null || true
-  fi
+  sed -i '/strip dynamic port prefix before upstream/d; /^[[:space:]]*rewrite[[:space:]]\+\^\/\\d\+\/(.*)\$[[:space:]]\+\/\$1[[:space:]]\+break;[[:space:]]*$/d' "$snippet" 2>/dev/null || true
   if [[ "$had_dynamic" != "1" ]]; then
     cat >> "$snippet" <<'EOF'
 
@@ -143,18 +139,16 @@ location ~ ^/(?<fwdport>\d+)/(?<fwdpath>.*)$ {
   proxy_set_header Host $host;
   proxy_set_header X-Real-IP $remote_addr;
   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-  # strip dynamic port prefix before upstream
-  rewrite ^/\d+/(.*)$ /$1 break;
   if ($http_content_type ~* "grpc") {
     grpc_pass grpc://127.0.0.1:$fwdport;
     break;
   }
   if ($http_upgrade ~* "(WEBSOCKET|WS)") {
-    proxy_pass http://127.0.0.1:$fwdport;
+    proxy_pass http://127.0.0.1:$fwdport$request_uri;
     break;
   }
   if ($request_method ~* ^(PUT|POST|GET)$) {
-    proxy_pass http://127.0.0.1:$fwdport;
+    proxy_pass http://127.0.0.1:$fwdport$request_uri;
     break;
   }
 }
