@@ -499,9 +499,11 @@ xui_add_clients() {
   : > "$report_file"
   xui_repair_invalid_inbound_json
   xui_sanitize_inbound_tags
+  xui_disable_nginx_enabled_backup_configs
   xui_enable_preset_xhttp
   xui_normalize_xhttp_tcp_inbounds
   xui_ensure_nginx_dynamic_proxy
+  xui_ensure_nginx_reality_sni_routes
   xui_enable_preset_domain_sniffing
   xui_ensure_warp_mirror_inbounds "$report_file"
   xui_open_warp_reality_ports

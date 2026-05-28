@@ -10,6 +10,8 @@ fi
 LIB_DIR="$SCRIPT_DIR/lib"
 # shellcheck disable=SC1091
 source "$LIB_DIR/common.sh"
+# shellcheck disable=SC1091
+source "$LIB_DIR/xui-routing.sh"
 
 XUI_DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
 DOMAIN="${XUI_SUB_DOMAIN:-}"
@@ -132,11 +134,17 @@ for stale_dir in /etc/nginx/conf.d /etc/nginx/sites-enabled /etc/nginx/sites-ava
     "$stale_dir/xui-subscription.conf" \
     "$stale_dir/upm-xui-subscription-$DOMAIN.conf" \
     "$stale_dir/00-subscription-$DOMAIN.conf" \
-    "$stale_dir/00-subscription-sub.$DOMAIN.conf"; do
+    "$stale_dir/00-subscription-sub.$DOMAIN.conf" \
+    "$stale_dir/$DOMAIN.bak" \
+    "$stale_dir/$DOMAIN.old" \
+    "$stale_dir/$DOMAIN.orig" \
+    "$stale_dir/$DOMAIN.save" \
+    "$stale_dir/$DOMAIN.disabled"; do
     [[ -e "$stale_conf" || -L "$stale_conf" ]] || continue
     rm -f -- "$stale_conf"
   done
 done
+xui_disable_nginx_enabled_backup_configs
 
 info "Updating x-ui subscription settings"
 upm_sqlite_setting_set "$XUI_DB" "subPort" "$SUB_PORT"
@@ -247,6 +255,7 @@ upstream $upstream_name {
     server 127.0.0.1:$BACKEND_PORT;
 }
 EOF
+xui_ensure_nginx_reality_sni_routes
 
 info "Validating nginx"
 nginx -t

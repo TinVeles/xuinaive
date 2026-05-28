@@ -104,6 +104,117 @@ xui_normalize_xhttp_tcp_inbounds() {
   done <<<"$rows"
 }
 
+xui_disable_nginx_enabled_backup_configs() {
+  local enabled_dir="${NGINX_SITES_ENABLED_DIR:-/etc/nginx/sites-enabled}" disabled_dir file base stamp
+  [[ -d "$enabled_dir" ]] || return 0
+  disabled_dir="/etc/nginx/sites-disabled-upm-backups"
+  stamp="$(date '+%Y%m%d%H%M%S' 2>/dev/null || printf 'now')"
+  mkdir -p "$disabled_dir" 2>/dev/null || return 0
+  shopt -s nullglob
+  for file in "$enabled_dir"/*.bak "$enabled_dir"/*.old "$enabled_dir"/*.orig "$enabled_dir"/*.save "$enabled_dir"/*.disabled; do
+    [[ -e "$file" || -L "$file" ]] || continue
+    base="$(basename "$file")"
+    mv -f -- "$file" "$disabled_dir/${base}.${stamp}" 2>/dev/null || rm -f -- "$file" 2>/dev/null || true
+    warn "disabled nginx backup config from sites-enabled: $file"
+  done
+  shopt -u nullglob
+}
+
+xui_ensure_nginx_reality_sni_routes() {
+  local db stream_conf backup tmp_stream sni_list
+  db="$(xui_db_path)"
+  stream_conf="${NGINX_STREAM_CONF:-/etc/nginx/stream-enabled/stream.conf}"
+  [[ -f "$db" && -f "$stream_conf" ]] || return 0
+  command -v sqlite3 >/dev/null 2>&1 || return 0
+
+  sni_list="$(sqlite3 -readonly "$db" "
+    WITH reality_inbounds AS (
+      SELECT stream_settings
+      FROM inbounds
+      WHERE enable=1
+        AND protocol='vless'
+        AND json_valid(stream_settings)=1
+        AND json_extract(stream_settings,'$.network')='tcp'
+        AND json_extract(stream_settings,'$.security')='reality'
+    ),
+    names AS (
+      SELECT json_extract(stream_settings,'$.realitySettings.settings.serverName') AS name
+      FROM reality_inbounds
+      UNION
+      SELECT value AS name
+      FROM reality_inbounds,
+           json_each(COALESCE(json_extract(stream_settings,'$.realitySettings.serverNames'),'[]'))
+    )
+    SELECT DISTINCT trim(name)
+    FROM names
+    WHERE trim(COALESCE(name,'')) <> '';
+  " 2>/dev/null || true)"
+  [[ -n "$sni_list" ]] || return 0
+  grep -q 'map[[:space:]]\+\$ssl_preread_server_name[[:space:]]\+\$sni_name' "$stream_conf" 2>/dev/null || return 0
+
+  backup="$(mktemp)"
+  cp -a "$stream_conf" "$backup" 2>/dev/null || backup=""
+  tmp_stream="$(mktemp)"
+  awk -v snis="$sni_list" '
+    BEGIN {
+      n = split(snis, raw, "\n")
+      for (i = 1; i <= n; i++) {
+        if (raw[i] != "") route[raw[i]] = 1
+      }
+      in_map = 0
+      inserted = 0
+    }
+    function print_routes(    name) {
+      if (inserted) return
+      for (name in route) printf "    %-32s xray;\n", name
+      inserted = 1
+    }
+    $0 ~ /^[[:space:]]*map[[:space:]]+\$ssl_preread_server_name[[:space:]]+\$sni_name[[:space:]]*\{/ {
+      in_map = 1
+      print
+      next
+    }
+    in_map && $0 ~ /^[[:space:]]*hostnames;[[:space:]]*$/ {
+      print
+      print_routes()
+      next
+    }
+    in_map && $0 ~ /^[[:space:]]*\}/ {
+      print_routes()
+      in_map = 0
+      print
+      next
+    }
+    in_map {
+      line = $0
+      sub(/#.*/, "", line)
+      gsub(/;/, "", line)
+      split(line, parts, /[[:space:]]+/)
+      candidate = parts[1]
+      if (candidate == "") candidate = parts[2]
+      if (candidate in route) next
+    }
+    { print }
+  ' "$stream_conf" > "$tmp_stream" || {
+    rm -f "$tmp_stream"
+    [[ -n "$backup" && -f "$backup" ]] && rm -f "$backup"
+    return 1
+  }
+  mv -f "$tmp_stream" "$stream_conf"
+
+  if command -v nginx >/dev/null 2>&1; then
+    if nginx -t >/dev/null 2>&1; then
+      systemctl reload nginx 2>/dev/null || true
+    else
+      [[ -n "$backup" && -f "$backup" ]] && cp -a "$backup" "$stream_conf" 2>/dev/null || true
+      warn "nginx Reality SNI stream route update failed validation; restored $stream_conf"
+      [[ -n "$backup" && -f "$backup" ]] && rm -f "$backup"
+      return 1
+    fi
+  fi
+  [[ -n "$backup" && -f "$backup" ]] && rm -f "$backup"
+}
+
 xui_ensure_nginx_dynamic_proxy() {
   local snippet="/etc/nginx/snippets/includes.conf" backup had_dynamic=0
   [[ -f "$snippet" ]] || return 0
