@@ -35,7 +35,7 @@ XUI_INBOUND_ID="${XUI_INBOUND_ID:-}"
 XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-$PREFIX}"
 XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
-XUI_CREATE_WARP_INBOUNDS="${XUI_CREATE_WARP_INBOUNDS:-1}"
+XUI_CREATE_WARP_INBOUNDS="${XUI_CREATE_WARP_INBOUNDS:-0}"
 XUI_WARP_INBOUNDS_ENABLE="${XUI_WARP_INBOUNDS_ENABLE:-0}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-0}"
 XUI_CLEANUP_WARP_TEMPLATE="${XUI_CLEANUP_WARP_TEMPLATE:-0}"
@@ -82,7 +82,7 @@ Creates:
   inbound filter: ${WARP_INBOUND_TAG} (all = no inboundTag in routing rule)
   AI domains:   ${WARP_AI_DOMAINS}
   disabled by default; enable routing manually with --xui-warp-routing.
-  WARP mirror inbounds are created by default, but they do not route through WARP until routing is applied.
+  WARP mirror inbounds are disabled by default. Add --xui-warp-inbounds only for advanced mirror profiles.
   AI-domain WARP routing is written to /etc/x-ui/warp-generated-routing.json when enabled.
   auto-installs Cloudflare WARP local proxy only with --install-warp or --auto-install-warp.
   use --apply-xui-warp-template to also write warp-cli outbound/rules into x-ui settings.

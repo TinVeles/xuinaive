@@ -380,7 +380,7 @@ xui_ensure_warp_mirror_inbounds() {
   db="$(xui_db_path)"
   report_file="${1:-}"
   [[ -f "$db" ]] || return 0
-  [[ "${XUI_CREATE_WARP_INBOUNDS:-1}" == "1" ]] || return 0
+  [[ "${XUI_CREATE_WARP_INBOUNDS:-0}" == "1" ]] || return 0
 
   rows="$(sqlite3 -separator $'\t' "$db" "
     SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), COALESCE(port,0), enable
