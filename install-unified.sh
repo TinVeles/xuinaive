@@ -34,6 +34,7 @@ XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
 PRINT_ACCESS_INFO=1
 NH_ENABLE_MIERU=0
+ALLOW_DESTROY_EXISTING="${UPM_ALLOW_DESTROY_EXISTING:-0}"
 
 usage() {
   cat <<'EOF'
@@ -47,6 +48,7 @@ Usage:
     [--with-mieru] \
     [--install-warp] \
     [--no-install-warp] \
+    [--allow-destroy-existing] \
     --yes
 
 This is the explicit real installer. It runs vendored component scripts.
@@ -209,6 +211,7 @@ while [[ $# -gt 0 ]]; do
     --with-mieru|--enable-mieru) NH_ENABLE_MIERU=1; shift ;;
     --no-access-info) PRINT_ACCESS_INFO=0; shift ;;
     --yes) ASSUME_YES=1; shift ;;
+    --allow-destroy-existing) ALLOW_DESTROY_EXISTING=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
@@ -287,6 +290,8 @@ for path in /etc/nginx /etc/x-ui /usr/local/x-ui /etc/caddy-nh /etc/hysteria /op
   fi
 done
 ok "Backup directory: $backup_dir"
+
+UPM_ALLOW_DESTROY_EXISTING="$ALLOW_DESTROY_EXISTING" confirm_destructive "x-ui-pro upstream installer (will rm /usr/local/x-ui /etc/x-ui and kill 80/443 listeners)"
 
 info "Running x-ui-pro installer"
 XUI_PRINT_ACCESS_INFO=0 \

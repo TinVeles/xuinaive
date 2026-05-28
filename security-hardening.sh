@@ -232,9 +232,20 @@ if [[ "$ENABLE_PROBE_RESISTANCE" -eq 1 ]]; then
     if grep -q 'probe_resistance' /etc/caddy-nh/Caddyfile; then
       ok "probe_resistance is already present in /etc/caddy-nh/Caddyfile"
     else
+      caddy_backup="/etc/caddy-nh/Caddyfile.bak.$(date +%Y%m%d-%H%M%S)"
+      if [[ "$APPLY" -eq 1 ]]; then
+        cp -a /etc/caddy-nh/Caddyfile "$caddy_backup" || die "Failed to backup Caddyfile"
+        printf '+ cp -a /etc/caddy-nh/Caddyfile %s\n' "$caddy_backup"
+      else
+        printf '[dry-run] cp -a /etc/caddy-nh/Caddyfile %s\n' "$caddy_backup"
+      fi
       run sed -i '/hide_via/a\    probe_resistance' /etc/caddy-nh/Caddyfile
       if [[ "$APPLY" -eq 1 ]]; then
-        /usr/bin/caddy-nh validate --config /etc/caddy-nh/Caddyfile || die "Caddyfile validation failed after probe_resistance change"
+        if ! /usr/bin/caddy-nh validate --config /etc/caddy-nh/Caddyfile; then
+          warn "Caddyfile validation failed; restoring $caddy_backup"
+          cp -a "$caddy_backup" /etc/caddy-nh/Caddyfile || true
+          die "Caddyfile validation failed after probe_resistance change"
+        fi
       else
         printf '[dry-run] /usr/bin/caddy-nh validate --config /etc/caddy-nh/Caddyfile\n'
       fi
@@ -245,6 +256,7 @@ if [[ "$ENABLE_PROBE_RESISTANCE" -eq 1 ]]; then
   fi
 fi
 
+run ufw allow "${SSH_PORT}/tcp"
 run ufw --force reset
 run ufw default deny incoming
 run ufw default allow outgoing

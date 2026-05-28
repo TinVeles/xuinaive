@@ -53,6 +53,24 @@ sql_quote() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"
 }
 
+confirm_destructive() {
+  local context="${1:-destructive operation}"
+  local allow_flag="${UPM_ALLOW_DESTROY_EXISTING:-0}"
+  if [[ "$allow_flag" == "1" ]]; then
+    upm_log_warn "Proceeding with $context (UPM_ALLOW_DESTROY_EXISTING=1)"
+    return 0
+  fi
+  if [[ ! -t 0 ]]; then
+    upm_die "$context requires --allow-destroy-existing or interactive confirmation"
+  fi
+  printf '\n!!! %s WILL DESTROY EXISTING STATE.\n' "$context" >&2
+  printf '!!! Pass --allow-destroy-existing to skip this prompt next time.\n' >&2
+  printf 'Type DESTROY to proceed: ' >&2
+  local reply
+  IFS= read -r reply || reply=""
+  [[ "$reply" == "DESTROY" ]] || upm_die "$context cancelled"
+}
+
 upm_config_set_many() {
   local file="$1" tmp pattern key value value_escaped
   shift

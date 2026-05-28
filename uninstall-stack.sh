@@ -148,7 +148,7 @@ remove_nginx_site_name() {
 
 clean_crontab() {
   command_exists crontab || return 0
-  run_shell "tmp=\$(mktemp); crontab -l 2>/dev/null | grep -vE 'x-ui|sub2sing-box|cloudflareips' > \"\$tmp\" || true; crontab \"\$tmp\"; rm -f \"\$tmp\""
+  run_shell "tmp=\$(mktemp); crontab -l 2>/dev/null | grep -vE '(^|[[:space:]/])(x-ui|sub2sing-box|cloudflareips)([[:space:]]|\$)' > \"\$tmp\" || true; crontab \"\$tmp\"; rm -f \"\$tmp\""
 }
 
 while [[ $# -gt 0 ]]; do

@@ -47,14 +47,14 @@ warp_local_proxy_ready() {
   grep -qi "connected" <<<"$status_text" || return 1
   if command_exists curl; then
     trace_output="$(curl -fsS --max-time 20 --socks5-hostname "${host}:${port}" https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
-    grep -Eqi '^warp=(on|plus)' <<<"$trace_output"
+    grep -Eqi '^warp=(on|plus)$' <<<"$trace_output"
     return
   fi
   if command_exists ss; then
     ss -H -ltn "sport = :$port" 2>/dev/null | grep -q .
     return
   fi
-  return 0
+  return 1
 }
 
 ensure_warp_local_proxy() {

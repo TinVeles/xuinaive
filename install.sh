@@ -66,6 +66,7 @@ PROFILE_PREFIX="${PROFILE_PREFIX:-auto}"
 PROJECT_DIR="${PROJECT_DIR:-${UPM_PROJECT_DIR:-$SCRIPT_DIR}}"
 REAL_INSTALL=0
 ASSUME_YES=0
+ALLOW_DESTROY_EXISTING="${UPM_ALLOW_DESTROY_EXISTING:-0}"
 DRY_RUN=1
 
 RED=$'\033[0;31m'
@@ -671,6 +672,7 @@ EOF
     done
     ok "Backup directory: $backup_dir"
 
+    UPM_ALLOW_DESTROY_EXISTING="$ALLOW_DESTROY_EXISTING" confirm_destructive "x-ui-pro upstream installer (will rm /usr/local/x-ui /etc/x-ui and kill 80/443 listeners)"
     XUI_PRINT_ACCESS_INFO=0 \
     XUI_SEED_PROFILES=0 \
     XUI_ENABLE_WARP_ROUTING="$xui_install_warp_routing" \
@@ -732,6 +734,7 @@ EOF
     WARP_OUTBOUND_TAG="$WARP_OUTBOUND_TAG" \
     WARP_INBOUND_TAG="$WARP_INBOUND_TAG" \
     WARP_AI_DOMAINS="$WARP_AI_DOMAINS" \
+    UPM_ALLOW_DESTROY_EXISTING="$ALLOW_DESTROY_EXISTING" \
     bash "$installer" "${all_args[@]}"
     show_final_access_info
     return 0
@@ -947,6 +950,7 @@ while [[ $# -gt 0 ]]; do
     --project-dir) PROJECT_DIR="${2:-}"; shift 2 ;;
     --install) REAL_INSTALL=1; DRY_RUN=0; shift ;;
     --yes) ASSUME_YES=1; shift ;;
+    --allow-destroy-existing) ALLOW_DESTROY_EXISTING=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;

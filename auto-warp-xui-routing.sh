@@ -80,7 +80,7 @@ install_warp_proxy() {
 test_warp_proxy() {
   log "Testing WARP proxy"
 
-  if ss -lntp | grep -q ":${WARP_PROXY_PORT}"; then
+  if ss -lntp | grep -Eq "[:.]${WARP_PROXY_PORT}([^0-9]|$)"; then
     ok "Local WARP proxy listens on ${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
   else
     warn "Не вижу listener на ${WARP_PROXY_PORT}. Проверка через curl всё равно будет выполнена."
@@ -89,7 +89,7 @@ test_warp_proxy() {
   local trace
   trace="$(curl -fsS --max-time 25 --socks5-hostname "${WARP_PROXY_HOST}:${WARP_PROXY_PORT}" https://www.cloudflare.com/cdn-cgi/trace || true)"
 
-  if grep -qi '^warp=on' <<<"$trace" || grep -qi '^warp=plus' <<<"$trace"; then
+  if grep -Eqi '^warp=(on|plus)$' <<<"$trace"; then
     ok "Cloudflare trace confirms WARP:"
     printf '%s\n' "$trace" | grep -E 'ip=|colo=|warp=' || true
   else

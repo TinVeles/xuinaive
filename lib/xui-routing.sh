@@ -41,7 +41,7 @@ xui_enable_warp_domain_sniffing() {
 
 xui_apply_warp_template() {
   local warp_tags_file="$1"
-  local db tags_json domains_json current key keys snippet_file updated updated_count inbound_spec snippet_inbound_tags key_exists
+  local db tags_json domains_json current key keys snippet_file updated updated_count inbound_spec snippet_inbound_tags
   db="$(xui_db_path)"
   inbound_spec="${WARP_INBOUND_TAG:-all}"
   if [[ ! -s "$warp_tags_file" && "$inbound_spec" != "all" && "$inbound_spec" != "*" && "$inbound_spec" != "" ]]; then
@@ -101,12 +101,7 @@ xui_apply_warp_template() {
       )
     ' <<<"$current")"
 
-    key_exists="$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM settings WHERE key=$(sql_quote "$key");" || printf '0')"
-    if [[ "$key_exists" -gt 0 ]]; then
-      sqlite3 "$db" "UPDATE settings SET value=$(sql_quote "$updated") WHERE key=$(sql_quote "$key");"
-    else
-      sqlite3 "$db" "INSERT INTO settings (key, value) VALUES ($(sql_quote "$key"), $(sql_quote "$updated"));"
-    fi
+    sqlite3 "$db" "INSERT INTO settings (key, value) VALUES ($(sql_quote "$key"), $(sql_quote "$updated")) ON CONFLICT(key) DO UPDATE SET value=excluded.value;"
 
     current="$updated"
     updated="$(jq -c \

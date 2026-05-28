@@ -1035,11 +1035,26 @@ function vlessLink(row, client) {
     const reality = stream.realitySettings || {};
     const settings = reality.settings || {};
     const serverNames = Array.isArray(reality.serverNames) ? reality.serverNames : [];
+    if (!serverNames[0]) {
+      console.error(`WARN: REALITY inbound port=${row.port} has empty serverNames; skipping link for client ${client.email || client.id}`);
+      return null;
+    }
+    if (!settings.publicKey) {
+      console.error(`WARN: REALITY inbound port=${row.port} has empty publicKey; skipping link for client ${client.email || client.id}`);
+      return null;
+    }
     params.set('security', 'reality');
     addParam(params, 'pbk', settings.publicKey);
     addParam(params, 'fp', settings.fingerprint || 'chrome');
-    addParam(params, 'sni', serverNames[0] || settings.serverName);
-    addParam(params, 'sid', Array.isArray(reality.shortIds) ? reality.shortIds[0] : '');
+    addParam(params, 'sni', serverNames[0]);
+    const shortIds = Array.isArray(reality.shortIds) ? reality.shortIds : [];
+    const sid = shortIds.length > 0 ? String(shortIds[0]) : '';
+    if (sid !== '' && !/^[0-9a-f]{0,16}$/i.test(sid)) {
+      console.error(`WARN: REALITY shortId "${sid}" is not valid hex; using empty sid`);
+      params.set('sid', '');
+    } else if (shortIds.length > 0) {
+      params.set('sid', sid);
+    }
     addParam(params, 'spx', settings.spiderX || '/');
     addParam(params, 'flow', client.flow);
   } else {

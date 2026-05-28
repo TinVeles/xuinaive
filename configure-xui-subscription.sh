@@ -237,13 +237,12 @@ awk -v domain="$DOMAIN" -v upstream="$upstream_name" '
   }
   { print }
 ' "$STREAM_CONF" > "$tmp_stream"
-cat "$tmp_stream" > "$STREAM_CONF"
-rm -f "$tmp_stream"
+mv -f "$tmp_stream" "$STREAM_CONF"
 
 tmp_stream="$(mktemp)"
-perl -0pe "s/\\nupstream\\s+$upstream_name\\s*\\{.*?\\n\\}\\n//sg" "$STREAM_CONF" > "$tmp_stream"
-cat "$tmp_stream" > "$STREAM_CONF"
-rm -f "$tmp_stream"
+UPSTREAM_NAME="$upstream_name" perl -0pe 'BEGIN { $name = $ENV{"UPSTREAM_NAME"}; } s/\nupstream\s+\Q$name\E\s*\{.*?\n\}\n//sg' "$STREAM_CONF" > "$tmp_stream" \
+  || { rm -f "$tmp_stream"; die "perl failed to clean stale upstream block"; }
+mv -f "$tmp_stream" "$STREAM_CONF"
 cat >> "$STREAM_CONF" <<EOF
 
 upstream $upstream_name {
