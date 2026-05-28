@@ -398,13 +398,14 @@ xui_sanitize_inbound_tags() {
   "
 }
 
-xui_enable_preset_xhttp() {
+xui_enable_standard_preset_inbounds() {
   sqlite3 "$XUI_DB" "
     UPDATE inbounds
     SET enable=1
-    WHERE protocol='vless'
-      AND json_valid(stream_settings)=1
-      AND json_extract(stream_settings,'$.network')='xhttp';
+    WHERE protocol IN ('vless','trojan')
+      AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+$(xui_preset_inbound_filter_sql);
   "
 }
 
@@ -500,7 +501,7 @@ xui_add_clients() {
   xui_repair_invalid_inbound_json
   xui_sanitize_inbound_tags
   xui_disable_nginx_enabled_backup_configs
-  xui_enable_preset_xhttp
+  xui_enable_standard_preset_inbounds
   xui_normalize_xhttp_tcp_inbounds
   xui_ensure_nginx_dynamic_proxy
   xui_ensure_nginx_reality_sni_routes
