@@ -90,7 +90,7 @@ xui_warp_mirror_stream_settings() {
 xui_ensure_warp_mirror_inbounds() {
   local db report_file rows inbound_id protocol tag remark port enable mirror_tag mirror_id
   local user_id up down total expiry_time listen settings stream_settings sniffing
-  local new_port new_listen new_remark new_settings new_stream
+  local new_port new_listen new_remark new_settings new_stream new_enable
   db="$(xui_db_path)"
   report_file="${1:-}"
   [[ -f "$db" ]] || return 0
@@ -139,12 +139,14 @@ $(xui_preset_inbound_filter_sql)
     new_remark="${remark:-inbound-$inbound_id} WARP"
     new_settings="$(jq -c '.clients = []' <<<"$settings")"
     new_stream="$(xui_warp_mirror_stream_settings "$stream_settings" "${port:-0}" "$new_port")"
+    new_enable="${XUI_WARP_INBOUNDS_ENABLE:-0}"
+    [[ "$new_enable" == "1" ]] || new_enable=0
 
     if [[ -n "$mirror_id" ]]; then
       sqlite3 "$db" "
         UPDATE inbounds
         SET remark=$(sql_quote "$new_remark"),
-            enable=$enable,
+            enable=$new_enable,
             listen=$(sql_quote "$new_listen"),
             port=$new_port,
             protocol=$(sql_quote "$protocol"),
@@ -156,12 +158,22 @@ $(xui_preset_inbound_filter_sql)
     else
       sqlite3 "$db" "
         INSERT INTO inbounds (user_id, up, down, total, remark, enable, expiry_time, listen, port, protocol, settings, stream_settings, tag, sniffing)
-        VALUES ($user_id, $up, $down, $total, $(sql_quote "$new_remark"), $enable, $expiry_time, $(sql_quote "$new_listen"), $new_port, $(sql_quote "$protocol"), $(sql_quote "$new_settings"), $(sql_quote "$new_stream"), $(sql_quote "$mirror_tag"), $(sql_quote "$sniffing"));
+        VALUES ($user_id, $up, $down, $total, $(sql_quote "$new_remark"), $new_enable, $expiry_time, $(sql_quote "$new_listen"), $new_port, $(sql_quote "$protocol"), $(sql_quote "$new_settings"), $(sql_quote "$new_stream"), $(sql_quote "$mirror_tag"), $(sql_quote "$sniffing"));
       "
       mirror_id="$(sqlite3 -readonly "$db" "SELECT id FROM inbounds WHERE tag=$(sql_quote "$mirror_tag") LIMIT 1;" 2>/dev/null || true)"
       [[ -n "$report_file" ]] && printf 'inbound=%s mirror=%s tag=%s action=created-warp-mirror\n' "$inbound_id" "$mirror_id" "$mirror_tag" >> "$report_file"
     fi
   done <<<"$rows"
+
+  sqlite3 "$db" "
+    UPDATE inbounds
+    SET listen=''
+    WHERE protocol IN ('vless','trojan')
+      AND listen LIKE '/%'
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='xhttp'
+      AND (COALESCE(tag,'') LIKE '%-warp' OR lower(COALESCE(remark,'')) LIKE '%warp%');
+  " 2>/dev/null || true
 }
 
 xui_apply_warp_template() {

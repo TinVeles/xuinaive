@@ -36,6 +36,7 @@ XUI_COMMON_SUB_ID="${XUI_COMMON_SUB_ID:-$PREFIX}"
 XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
 XUI_CREATE_WARP_INBOUNDS="${XUI_CREATE_WARP_INBOUNDS:-1}"
+XUI_WARP_INBOUNDS_ENABLE="${XUI_WARP_INBOUNDS_ENABLE:-0}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-0}"
 XUI_CLEANUP_WARP_TEMPLATE="${XUI_CLEANUP_WARP_TEMPLATE:-0}"
 XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-0}"
@@ -95,6 +96,7 @@ x-ui selection:
   default replace mode: selected inbound clients become exactly COUNT
   --xui-keep-existing: keep existing non-generated clients
   --no-xui-warp-inbounds: do not create/use WARP mirror inbounds
+  --xui-enable-warp-inbounds: create WARP mirror inbounds enabled (advanced; requires working public ingress)
   --combined-only: refresh combined subscription files only; do not edit x-ui or NHM users
 EOF
 }
@@ -129,6 +131,8 @@ while [[ $# -gt 0 ]]; do
     --no-xui-direct-clients) XUI_CREATE_DIRECT=0; shift ;;
     --xui-warp-inbounds) XUI_CREATE_WARP_INBOUNDS=1; shift ;;
     --no-xui-warp-inbounds) XUI_CREATE_WARP_INBOUNDS=0; shift ;;
+    --xui-enable-warp-inbounds) XUI_WARP_INBOUNDS_ENABLE=1; shift ;;
+    --xui-disable-warp-inbounds) XUI_WARP_INBOUNDS_ENABLE=0; shift ;;
     --xui-keep-existing) XUI_REPLACE_CLIENTS=0; shift ;;
     --xui-only) CREATE_XUI=1; CREATE_NH=0; shift ;;
     --nh-only) CREATE_XUI=0; CREATE_NH=1; shift ;;
@@ -149,6 +153,7 @@ done
 [[ "$XUI_COMMON_SUB_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--xui-common-sub-id may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
 [[ "$XUI_SUB_ID_MODE" == "per-client" || "$XUI_SUB_ID_MODE" == "common" ]] || die "--xui-sub-id-mode must be per-client or common"
 [[ "$XUI_CREATE_WARP_INBOUNDS" == "0" || "$XUI_CREATE_WARP_INBOUNDS" == "1" ]] || die "XUI_CREATE_WARP_INBOUNDS must be 0 or 1"
+[[ "$XUI_WARP_INBOUNDS_ENABLE" == "0" || "$XUI_WARP_INBOUNDS_ENABLE" == "1" ]] || die "XUI_WARP_INBOUNDS_ENABLE must be 0 or 1"
 if [[ "$XUI_CREATE_DIRECT" != "1" ]]; then
   warn "Standard clients are disabled; enabling them because clone inbounds are no longer supported."
   XUI_CREATE_DIRECT=1
@@ -581,6 +586,14 @@ EOF
 xui_disable_duplicate_xhttp_unix_listeners() {
   [[ -f "$XUI_DB" ]] || return 0
   sqlite3 "$XUI_DB" "
+    UPDATE inbounds
+    SET listen=''
+    WHERE protocol IN ('vless','trojan')
+      AND listen LIKE '/%'
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='xhttp'
+      AND (COALESCE(tag,'') LIKE '%-warp' OR lower(COALESCE(remark,'')) LIKE '%warp%');
+
     UPDATE inbounds
     SET enable=0
     WHERE id IN (
@@ -1574,6 +1587,7 @@ Profile generation complete
 x-ui:
   standard generated clients: ${XUI_CREATE_DIRECT} (${COUNT} per selected preset inbound when enabled)
   WARP mirror inbounds: ${XUI_CREATE_WARP_INBOUNDS} (${COUNT} clients per mirror; routing manual)
+  WARP mirror enabled: ${XUI_WARP_INBOUNDS_ENABLE}
   subId mode: ${XUI_SUB_ID_MODE}
   common subId (only common mode): ${XUI_COMMON_SUB_ID}
   replace existing clients: ${XUI_REPLACE_CLIENTS}

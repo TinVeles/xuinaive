@@ -17,6 +17,7 @@ XUI_SUB_ID_MODE="${XUI_SUB_ID_MODE:-per-client}"
 XUI_SEED_PROFILES="${XUI_SEED_PROFILES:-0}"
 XUI_CREATE_DIRECT_CLIENTS="${XUI_CREATE_DIRECT_CLIENTS:-1}"
 XUI_CREATE_WARP_INBOUNDS="${XUI_CREATE_WARP_INBOUNDS:-1}"
+XUI_WARP_INBOUNDS_ENABLE="${XUI_WARP_INBOUNDS_ENABLE:-0}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-0}"
 XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-0}"
 XUI_PRINT_ACCESS_INFO="${XUI_PRINT_ACCESS_INFO:-1}"
@@ -504,6 +505,14 @@ EOF
 xui_disable_duplicate_xhttp_unix_listeners() {
   [[ -f "$XUIDB" ]] || return 0
   sqlite3 "$XUIDB" "
+    UPDATE inbounds
+    SET listen=''
+    WHERE protocol IN ('vless','trojan')
+      AND listen LIKE '/%'
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='xhttp'
+      AND (COALESCE(tag,'') LIKE '%-warp' OR lower(COALESCE(remark,'')) LIKE '%warp%');
+
     UPDATE inbounds
     SET enable=0
     WHERE id IN (
