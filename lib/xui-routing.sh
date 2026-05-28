@@ -146,7 +146,7 @@ xui_apply_warp_template() {
           (.routing.rules // [])
           | if any(.[]?; .outboundTag == $tag)
             then map(if .outboundTag == $tag then warp_rule($domains; $inboundTags; $tag) else . end)
-            else . + [warp_rule($domains; $inboundTags; $tag)]
+            else [warp_rule($domains; $inboundTags; $tag)] + .
             end
         )
     ' <<<"$current")"

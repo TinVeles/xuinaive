@@ -339,6 +339,65 @@ if service_active panel-naive-hy2 || [[ -n "${NH_PANEL_PORT:-}" ]]; then
 fi
 
 echo
+echo "Network leak detection:"
+
+if command_exists resolvectl; then
+  resolv_output="$(resolvectl status 2>/dev/null || true)"
+  if grep -qE '\+DNSOverTLS|DNS over TLS:.*yes|DNSOverTLS=opportunistic|DNSOverTLS=yes' <<<"$resolv_output"; then
+    ok "System DNS uses DoT (DNS-over-TLS)"
+  else
+    warn "System DNS is NOT using DoT. DNS queries leak in plaintext to upstream resolver. Run: bash network-hardening.sh --apply --yes"
+  fi
+  current_dns="$(awk '/Current DNS Server/{print $NF; exit}' <<<"$resolv_output" 2>/dev/null)"
+  [[ -n "$current_dns" ]] && info "Current resolver: $current_dns"
+else
+  warn "resolvectl not available; cannot verify DNS leak status"
+fi
+
+if ip -6 addr show 2>/dev/null | grep -q 'scope global'; then
+  global_v6="$(ip -6 addr show scope global 2>/dev/null | awk '/inet6/{print $2; exit}')"
+  if [[ -f /etc/sysctl.d/99-upm-ipv6.conf ]] && grep -q 'disable_ipv6 = 1' /etc/sysctl.d/99-upm-ipv6.conf; then
+    ok "IPv6 globally disabled by network-hardening.sh"
+  else
+    info "Public IPv6 present: $global_v6"
+    if command_exists ss; then
+      v6_listeners="$(ss -H -ltn 2>/dev/null | awk '{print $4}' | grep -cE '^\[::\]:|^\[fe80|^\[2|^\[3' || printf '0')"
+      if [[ "$v6_listeners" -gt 0 ]]; then
+        ok "$v6_listeners IPv6 listeners present"
+      else
+        warn "Public IPv6 exists but no IPv6 listeners on this host. Clients with IPv6 connectivity may bypass your proxy stack. Disable IPv6 or bind listeners on it."
+      fi
+    fi
+  fi
+else
+  ok "No public IPv6 (no leak vector)"
+fi
+
+if command_exists sysctl; then
+  cc="$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo unknown)"
+  qdisc="$(sysctl -n net.core.default_qdisc 2>/dev/null || echo unknown)"
+  ka="$(sysctl -n net.ipv4.tcp_keepalive_time 2>/dev/null || echo unknown)"
+  [[ "$cc" == "bbr" ]] && ok "TCP congestion: bbr" || warn "TCP congestion: $cc (expected bbr)"
+  [[ "$qdisc" == "fq" || "$qdisc" == "fq_codel" ]] && ok "Qdisc: $qdisc" || warn "Qdisc: $qdisc (expected fq)"
+  if [[ "$ka" != "unknown" && "$ka" -le 300 ]]; then
+    ok "TCP keepalive: ${ka}s (suitable for long-lived proxy sessions)"
+  else
+    warn "TCP keepalive: ${ka}s. Run network-hardening.sh to apply 120s default."
+  fi
+fi
+
+if [[ "${WARP_ENABLED:-0}" == "1" ]] || command_exists warp-cli; then
+  snippet=/etc/x-ui/warp-generated-routing.json
+  if [[ -f "$snippet" ]]; then
+    if grep -q '"https://1.1.1.1/dns-query"' "$snippet" 2>/dev/null; then
+      ok "Xray WARP snippet routes AI-domain DNS through DoH (no plaintext DNS leak)"
+    else
+      warn "Xray WARP snippet missing DoH DNS section; regenerate via generate-profiles.sh"
+    fi
+  fi
+fi
+
+echo
 echo "Recommendations:"
 echo "- Run install.sh first in dry-run mode only."
 echo "- Make sure DNS A records point to this VPS before any TLS issuance."
