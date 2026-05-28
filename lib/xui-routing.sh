@@ -27,7 +27,7 @@ xui_enable_preset_domain_sniffing() {
   [[ -f "$db" ]] || return 0
   sqlite3 "$db" "
     UPDATE inbounds
-    SET sniffing='{\"enabled\":true,\"destOverride\":[\"http\",\"tls\",\"quic\",\"fakedns\"],\"metadataOnly\":false,\"routeOnly\":false}'
+    SET sniffing='{\"enabled\":true,\"destOverride\":[\"http\",\"tls\",\"quic\",\"fakedns\"],\"metadataOnly\":false,\"routeOnly\":true}'
     WHERE protocol IN ('vless','trojan')
 $(xui_preset_inbound_filter_sql)
       AND COALESCE(tag,'') NOT LIKE '%-warp'
@@ -85,6 +85,7 @@ xui_apply_warp_template() {
     updated="$(jq -c \
       --arg tag "${WARP_OUTBOUND_TAG:-warp-cli}" \
       --arg host "${WARP_PROXY_HOST:-127.0.0.1}" \
+      --argjson domains "$domains_json" \
       --argjson port "${WARP_PROXY_PORT:-40000}" \
       '
       def warp_outbound($tag; $host; $port):
@@ -99,6 +100,17 @@ xui_apply_warp_template() {
           else . + [warp_outbound($tag; $host; $port)]
           end
       )
+      | .dns = (.dns // {})
+      | .dns.servers = (
+          (.dns.servers // [])
+          | map(select(
+              ((type == "object") and (((.address // "") == "https://1.1.1.1/dns-query") or ((.address // "") == "https://1.0.0.1/dns-query"))) | not
+            ))
+          | [
+              {address:"https://1.1.1.1/dns-query", domains:$domains, skipFallback:true},
+              {address:"https://1.0.0.1/dns-query", domains:$domains, skipFallback:true}
+            ] + .
+        )
     ' <<<"$current")"
 
     upm_sqlite_setting_set "$db" "$key" "$updated"

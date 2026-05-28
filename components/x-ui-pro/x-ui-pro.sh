@@ -219,7 +219,7 @@ xui_repair_invalid_inbound_json() {
   xui_repair_invalid_inbound_settings
   sqlite3 "$XUIDB" "
     UPDATE inbounds
-    SET sniffing='{\"enabled\":false,\"destOverride\":[\"http\",\"tls\",\"quic\",\"fakedns\"],\"metadataOnly\":false,\"routeOnly\":false}'
+    SET sniffing='{\"enabled\":false,\"destOverride\":[\"http\",\"tls\",\"quic\",\"fakedns\"],\"metadataOnly\":false,\"routeOnly\":true}'
     WHERE sniffing IS NULL
        OR sniffing=''
        OR json_valid(sniffing)=0;
@@ -1184,7 +1184,7 @@ if [[ -f $XUIDB ]]; then
     "fakedns"
   ],
   "metadataOnly": false,
-  "routeOnly": false
+  "routeOnly": true
 }'
 	     );
       INSERT INTO "inbounds" ("user_id","up","down","total","remark","enable","expiry_time","listen","port","protocol","settings","stream_settings","tag","sniffing") VALUES ( 
@@ -1246,7 +1246,7 @@ if [[ -f $XUIDB ]]; then
     "fakedns"
   ],
   "metadataOnly": false,
-  "routeOnly": false
+  "routeOnly": true
 }'
 	     );
       INSERT INTO "inbounds" ("user_id","up","down","total","remark","enable","expiry_time","listen","port","protocol","settings","stream_settings","tag","sniffing") VALUES ( 
@@ -1329,7 +1329,7 @@ if [[ -f $XUIDB ]]; then
     "fakedns"
   ],
   "metadataOnly": false,
-  "routeOnly": false
+  "routeOnly": true
 }'
 	     );
 	INSERT INTO "inbounds" ("user_id","up","down","total","remark","enable","expiry_time","listen","port","protocol","settings","stream_settings","tag","sniffing") VALUES ( 
@@ -1389,7 +1389,7 @@ if [[ -f $XUIDB ]]; then
     "fakedns"
   ],
   "metadataOnly": false,
-  "routeOnly": false
+  "routeOnly": true
 }'
 	);
 EOF
