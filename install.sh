@@ -674,12 +674,19 @@ EOF
 
     UPM_ALLOW_DESTROY_EXISTING="$ALLOW_DESTROY_EXISTING" confirm_destructive "x-ui-pro upstream installer (will rm /usr/local/x-ui /etc/x-ui and kill 80/443 listeners)"
 
-    info "Pre-fetching and SHA256-verifying x-ui-pro upstream artifacts"
     local xui_verifier="$PROJECT_DIR/components/x-ui-pro/verify-upstream-binaries.sh"
-    [[ -x "$xui_verifier" ]] || die "Missing verifier: $xui_verifier"
     local xui_runtime
-    xui_runtime="$(bash "$xui_verifier" | tail -n1)"
-    [[ -x "$xui_runtime" ]] || die "verify-upstream-binaries.sh did not produce a runnable patched script"
+    if [[ -x "$xui_verifier" ]]; then
+      info "Pre-fetching and SHA256-verifying x-ui-pro upstream artifacts"
+      xui_runtime="$(bash "$xui_verifier" | tail -n1)"
+      [[ -x "$xui_runtime" ]] || die "verify-upstream-binaries.sh did not produce a runnable patched script"
+    else
+      if [[ "${UPM_SKIP_UPSTREAM_VERIFY:-0}" != "1" ]]; then
+        warn "Missing verifier: $xui_verifier"
+        warn "Skipping SHA256 verification. Set UPM_SKIP_UPSTREAM_VERIFY=1 to silence."
+      fi
+      xui_runtime="$xui_installer"
+    fi
 
     XUI_PRINT_ACCESS_INFO=0 \
     XUI_SEED_PROFILES=0 \

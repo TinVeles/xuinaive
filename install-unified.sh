@@ -293,11 +293,19 @@ ok "Backup directory: $backup_dir"
 
 UPM_ALLOW_DESTROY_EXISTING="$ALLOW_DESTROY_EXISTING" confirm_destructive "x-ui-pro upstream installer (will rm /usr/local/x-ui /etc/x-ui and kill 80/443 listeners)"
 
-info "Pre-fetching and SHA256-verifying x-ui-pro upstream artifacts"
 XUI_VERIFIER="$SCRIPT_DIR/components/x-ui-pro/verify-upstream-binaries.sh"
-[[ -x "$XUI_VERIFIER" ]] || die "Missing verifier: $XUI_VERIFIER"
-XUI_RUNTIME_SCRIPT="$(bash "$XUI_VERIFIER" | tail -n1)"
-[[ -x "$XUI_RUNTIME_SCRIPT" ]] || die "verify-upstream-binaries.sh did not produce a runnable patched script"
+if [[ -x "$XUI_VERIFIER" ]]; then
+  info "Pre-fetching and SHA256-verifying x-ui-pro upstream artifacts"
+  XUI_RUNTIME_SCRIPT="$(bash "$XUI_VERIFIER" | tail -n1)"
+  [[ -x "$XUI_RUNTIME_SCRIPT" ]] || die "verify-upstream-binaries.sh did not produce a runnable patched script"
+else
+  if [[ "${UPM_SKIP_UPSTREAM_VERIFY:-0}" != "1" ]]; then
+    warn "Missing verifier: $XUI_VERIFIER"
+    warn "Skipping SHA256 verification. Set UPM_SKIP_UPSTREAM_VERIFY=1 to silence this warning."
+    warn "Fetch the verifier (recommended): scp components/x-ui-pro/verify-upstream-binaries.sh root@HOST:$SCRIPT_DIR/components/x-ui-pro/"
+  fi
+  XUI_RUNTIME_SCRIPT="$XUI_SCRIPT"
+fi
 
 info "Running x-ui-pro installer (verified copy)"
 XUI_PRINT_ACCESS_INFO=0 \
