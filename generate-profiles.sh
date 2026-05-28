@@ -1404,25 +1404,24 @@ fs.mkdirSync(subDir, { recursive: true, mode: 0o755 });
 for (const [subId, links] of bySubId) {
   const profile = profilesBySubId.get(subId) || {};
   const subscriptionId = String(profile.subscriptionId || subId);
-  const officialXuiText = fetchXuiSubscription(subId);
+  const officialXuiText = links.length ? '' : fetchXuiSubscription(subId);
   const officialXuiLinks = officialXuiText ? officialXuiText.split(/\n/).filter(Boolean) : [];
-  const xuiLinks = renameXuiLinks(officialXuiLinks.length ? officialXuiLinks : links, subId, realityBases);
+  const xuiLinks = renameXuiLinks(links.length ? links : officialXuiLinks, subId, realityBases);
   const combined = [...xuiLinks, ...(nhBySubId.get(subId) || [])];
   const text = combined.join('\n');
   const xrayText = xuiLinks.join('\n');
   const stableLinks = [];
-  if (officialXuiLinks.length) {
-    stableLinks.push(...officialXuiLinks.filter(link => !/[?&]type=xhttp(?:&|$)/i.test(link) && !/[?&]type=splithttp(?:&|$)/i.test(link)));
-  } else {
-    for (const row of rows) {
-      if (!isStableV2rayNLink(row)) continue;
-      let settings;
-      try { settings = JSON.parse(row.settings || '{}'); } catch (_) { continue; }
-      for (const client of firstEnabledClient(settings, subId)) {
-        const link = row.protocol === 'trojan' ? trojanLink(row, client) : vlessLink(row, client);
-        if (link) stableLinks.push(link);
-      }
+  for (const row of rows) {
+    if (!isStableV2rayNLink(row)) continue;
+    let settings;
+    try { settings = JSON.parse(row.settings || '{}'); } catch (_) { continue; }
+    for (const client of firstEnabledClient(settings, subId)) {
+      const link = row.protocol === 'trojan' ? trojanLink(row, client) : vlessLink(row, client);
+      if (link) stableLinks.push(link);
     }
+  }
+  if (!stableLinks.length && officialXuiLinks.length) {
+    stableLinks.push(...officialXuiLinks.filter(link => !/[?&]type=xhttp(?:&|$)/i.test(link) && !/[?&]type=splithttp(?:&|$)/i.test(link)));
   }
   const stableText = stableLinks.join('\n');
   for (const legacyName of [
