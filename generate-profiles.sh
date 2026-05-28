@@ -119,8 +119,8 @@ while [[ $# -gt 0 ]]; do
     --xui-inbound-id) XUI_INBOUND_ID="${2:-}"; shift 2 ;;
     --xui-common-sub-id) XUI_COMMON_SUB_ID="${2:-}"; shift 2 ;;
     --xui-sub-id-mode) XUI_SUB_ID_MODE="${2:-}"; shift 2 ;;
-    --install-warp) XUI_ENABLE_WARP_ROUTING=1; XUI_AUTO_INSTALL_WARP=1; XUI_WARP_INBOUNDS_ENABLE=1; shift ;;
-    --xui-warp-routing) XUI_ENABLE_WARP_ROUTING=1; XUI_WARP_INBOUNDS_ENABLE=1; shift ;;
+    --install-warp) XUI_ENABLE_WARP_ROUTING=1; XUI_AUTO_INSTALL_WARP=1; shift ;;
+    --xui-warp-routing) XUI_ENABLE_WARP_ROUTING=1; shift ;;
     --no-xui-warp-routing) XUI_ENABLE_WARP_ROUTING=0; shift ;;
     --apply-xui-warp-template) XUI_APPLY_WARP_TEMPLATE=1; shift ;;
     --no-apply-xui-warp-template) XUI_APPLY_WARP_TEMPLATE=0; shift ;;
