@@ -17,7 +17,7 @@ NAIVE_EMAIL=""
 NH_EMAIL=""
 ASSUME_YES=0
 NH_BACKEND="127.0.0.1:9445"
-PANEL_ACCESS="nginx8080"
+PANEL_ACCESS="ssh-tunnel"
 PANEL_PUBLIC_PORT="8081"
 TLS_CERT=""
 TLS_KEY=""
@@ -293,7 +293,13 @@ ok "Backup directory: $backup_dir"
 
 UPM_ALLOW_DESTROY_EXISTING="$ALLOW_DESTROY_EXISTING" confirm_destructive "x-ui-pro upstream installer (will rm /usr/local/x-ui /etc/x-ui and kill 80/443 listeners)"
 
-info "Running x-ui-pro installer"
+info "Pre-fetching and SHA256-verifying x-ui-pro upstream artifacts"
+XUI_VERIFIER="$SCRIPT_DIR/components/x-ui-pro/verify-upstream-binaries.sh"
+[[ -x "$XUI_VERIFIER" ]] || die "Missing verifier: $XUI_VERIFIER"
+XUI_RUNTIME_SCRIPT="$(bash "$XUI_VERIFIER" | tail -n1)"
+[[ -x "$XUI_RUNTIME_SCRIPT" ]] || die "verify-upstream-binaries.sh did not produce a runnable patched script"
+
+info "Running x-ui-pro installer (verified copy)"
 XUI_PRINT_ACCESS_INFO=0 \
 XUI_SEED_PROFILES=0 \
 XUI_PROFILE_COUNT="$PROFILE_COUNT" \
@@ -303,9 +309,11 @@ XUI_APPLY_WARP_TEMPLATE="$XUI_APPLY_WARP_TEMPLATE" \
 XUI_CREATE_DIRECT_CLIENTS="$XUI_CREATE_DIRECT" \
 UPM_ALLOW_DESTROY_EXISTING="$ALLOW_DESTROY_EXISTING" \
 WARP_INBOUND_TAG="$WARP_INBOUND_TAG" \
-bash "$XUI_SCRIPT" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
+bash "$XUI_RUNTIME_SCRIPT" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
 require_active x-ui
 require_active nginx
+upm_assert_xui_creds_rotated /etc/x-ui/x-ui.db
+[[ -f /etc/x-ui/access-info.env ]] && chmod 0600 /etc/x-ui/access-info.env 2>/dev/null || true
 if [[ "$AUTO_INSTALL_WARP" == "1" && "$XUI_ENABLE_WARP_ROUTING" == "1" ]]; then
   ensure_warp_local_proxy "$SCRIPT_DIR"
 fi

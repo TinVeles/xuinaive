@@ -9,6 +9,27 @@ NH_PANEL_USERS_JSON="${NH_PANEL_USERS_JSON:-/opt/panel-naive-hy2/panel/data/user
 NH_PANEL_INITIAL_ADMIN="${NH_PANEL_INITIAL_ADMIN:-/opt/panel-naive-hy2/panel/data/initial-admin.txt}"
 NH_CADDYFILE="${NH_CADDYFILE:-/etc/caddy-nh/Caddyfile}"
 
+REDACT_SECRETS="${UPM_REDACT_SECRETS:-0}"
+for arg in "$@"; do
+  case "$arg" in
+    --redact) REDACT_SECRETS=1 ;;
+    --no-redact) REDACT_SECRETS=0 ;;
+  esac
+done
+
+redact() {
+  local value="${1:-}"
+  [[ "$REDACT_SECRETS" == "1" ]] || { printf '%s' "$value"; return 0; }
+  local len="${#value}"
+  if (( len <= 4 )); then
+    printf '****'
+  elif (( len <= 8 )); then
+    printf '%s****' "${value:0:1}"
+  else
+    printf '%s****%s' "${value:0:2}" "${value: -2}"
+  fi
+}
+
 if [[ -t 1 ]]; then
   BOLD=$'\033[1m'
   PURPLE=$'\033[0;35m'
@@ -73,7 +94,8 @@ config_set_file() {
   dir="$(dirname "$file")"
   mkdir -p "$dir" 2>/dev/null || return 0
   touch "$file" 2>/dev/null || return 0
-  tmp="${file}.tmp.$$"
+  tmp="$(mktemp "${file}.XXXXXX")" || return 0
+  chmod 600 "$tmp" 2>/dev/null || true
   awk -v key="$key" -v value="$(env_quote "$value")" '
     BEGIN { done = 0 }
     $0 ~ "^" key "=" {
@@ -86,7 +108,7 @@ config_set_file() {
       if (!done) print key "=" value
     }
   ' "$file" > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null || true; return 0; }
-  mv "$tmp" "$file" 2>/dev/null || { rm -f "$tmp" 2>/dev/null || true; return 0; }
+  mv -f "$tmp" "$file" 2>/dev/null || { rm -f "$tmp" 2>/dev/null || true; return 0; }
   chmod 600 "$file" 2>/dev/null || true
 }
 
@@ -603,13 +625,13 @@ echo -e "${PURPLE}${BOLD}║   🌐  x-ui                                       
 echo -e "${PURPLE}${BOLD}║   URL:${RESET}"
 echo -e "${CYAN}   ${xui_url}${RESET}"
 echo -e "${PURPLE}${BOLD}║   Login:    ${xui_user:-check with: x-ui settings}${RESET}"
-echo -e "${PURPLE}${BOLD}║   Password: ${xui_pass:-check with: x-ui settings}${RESET}"
+echo -e "${PURPLE}${BOLD}║   Password: $(redact "${xui_pass:-check with: x-ui settings}")${RESET}"
 echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"
 echo -e "${PURPLE}${BOLD}║   🖥  NHM Panel                               ║${RESET}"
 echo -e "${PURPLE}${BOLD}║   URL:${RESET}"
 echo -e "${CYAN}   ${nh_panel_url:-check config.env}${RESET}"
 echo -e "${PURPLE}${BOLD}║   Login:    ${nh_panel_login:-check config.env}${RESET}"
-echo -e "${PURPLE}${BOLD}║   Password: ${nh_panel_password:-check config.env}${RESET}"
+echo -e "${PURPLE}${BOLD}║   Password: $(redact "${nh_panel_password:-check config.env}")${RESET}"
 print_profiles_summary "$sub_base_url" "$sub_token"
 
 echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"

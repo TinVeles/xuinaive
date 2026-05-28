@@ -9,7 +9,7 @@ DOMAIN=""
 EMAIL=""
 PANEL_DOMAIN=""
 PANEL_EMAIL=""
-PANEL_ACCESS="nginx8080"
+PANEL_ACCESS="ssh-tunnel"
 LISTEN_HOST="127.0.0.1"
 INTERNAL_PORT="3000"
 PANEL_PUBLIC_PORT="8081"
@@ -719,7 +719,11 @@ ufw allow 22/tcp >/dev/null 2>&1 || true
 ufw allow 80/tcp >/dev/null 2>&1 || true
 ufw allow 443/tcp >/dev/null 2>&1 || true
 ufw allow 443/udp >/dev/null 2>&1 || true
-[[ "$PANEL_ACCESS" == "nginx8080" ]] && ufw allow "${PANEL_PUBLIC_PORT}/tcp" >/dev/null 2>&1 || true
+if [[ "$PANEL_ACCESS" == "nginx8080" ]]; then
+  ufw allow "${PANEL_PUBLIC_PORT}/tcp" >/dev/null 2>&1 || true
+else
+  ufw deny "${PANEL_PUBLIC_PORT}/tcp" >/dev/null 2>&1 || true
+fi
 
 if [[ "$PANEL_ACCESS" == "nginx8080" ]]; then
   SERVER_IP="$(public_ipv4)"
@@ -747,7 +751,12 @@ NH_BACKEND_LISTEN="${CADDY_LISTEN}"
 NH_ENABLE_MIERU="${NH_ENABLE_MIERU}"
 NH_TLS_CERT="${TLS_CERT}"
 NH_TLS_KEY="${TLS_KEY}"
-NH_PANEL_URL="http://${SERVER_IP:-SERVER_IP}:${PANEL_PUBLIC_PORT}"
+if [[ "$PANEL_ACCESS" == "nginx8080" ]]; then
+  NH_PANEL_URL_VAL="http://${SERVER_IP:-SERVER_IP}:${PANEL_PUBLIC_PORT}"
+else
+  NH_PANEL_URL_VAL="ssh -L ${PANEL_PUBLIC_PORT}:${LISTEN_HOST}:${INTERNAL_PORT} root@${SERVER_IP:-SERVER_IP} then http://localhost:${PANEL_PUBLIC_PORT}"
+fi
+NH_PANEL_URL="${NH_PANEL_URL_VAL}"
 NH_PANEL_LOGIN="${PANEL_LOGIN}"
 NH_PANEL_PASSWORD="${PANEL_PASSWORD}"
 NH_NAIVE_LOGIN="${NAIVE_LOGIN}"

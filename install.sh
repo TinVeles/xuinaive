@@ -39,7 +39,7 @@ NAIVE_EMAIL="${NAIVE_EMAIL:-}"
 NH_PROXY_DOMAIN="${NH_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
 NH_PROXY_EMAIL="${NH_PROXY_EMAIL:-${PROXY_EMAIL:-}}"
 NH_STACK="${NH_STACK:-both}"
-NH_ACCESS="${NH_ACCESS:-nginx8080}"
+NH_ACCESS="${NH_ACCESS:-ssh-tunnel}"
 NH_PANEL_DOMAIN="${NH_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
 NH_PANEL_EMAIL="${NH_PANEL_EMAIL:-${PANEL_EMAIL:-}}"
 NH_SSH_ONLY="${NH_SSH_ONLY:-0}"
@@ -673,6 +673,14 @@ EOF
     ok "Backup directory: $backup_dir"
 
     UPM_ALLOW_DESTROY_EXISTING="$ALLOW_DESTROY_EXISTING" confirm_destructive "x-ui-pro upstream installer (will rm /usr/local/x-ui /etc/x-ui and kill 80/443 listeners)"
+
+    info "Pre-fetching and SHA256-verifying x-ui-pro upstream artifacts"
+    local xui_verifier="$PROJECT_DIR/components/x-ui-pro/verify-upstream-binaries.sh"
+    [[ -x "$xui_verifier" ]] || die "Missing verifier: $xui_verifier"
+    local xui_runtime
+    xui_runtime="$(bash "$xui_verifier" | tail -n1)"
+    [[ -x "$xui_runtime" ]] || die "verify-upstream-binaries.sh did not produce a runnable patched script"
+
     XUI_PRINT_ACCESS_INFO=0 \
     XUI_SEED_PROFILES=0 \
     XUI_ENABLE_WARP_ROUTING="$xui_install_warp_routing" \
@@ -681,7 +689,8 @@ EOF
     XUI_CREATE_DIRECT_CLIENTS="$XUI_CREATE_DIRECT" \
     UPM_ALLOW_DESTROY_EXISTING="$ALLOW_DESTROY_EXISTING" \
     WARP_INBOUND_TAG="$WARP_INBOUND_TAG" \
-    bash "$xui_installer" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
+    bash "$xui_runtime" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
+    upm_assert_xui_creds_rotated /etc/x-ui/x-ui.db
 
     run_warp_install_if_requested
     run_profile_generation_if_requested

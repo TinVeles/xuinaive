@@ -34,7 +34,15 @@ warp_write_xray_snippet() {
     --argjson domains "$domains_json" \
     '{
       outbound: {tag:$tag, protocol:"socks", settings:{servers:[{address:$host, port:$port, users:[]}]}},
-      routingRule: ({type:"field", domain:$domains, outboundTag:$tag} + (if $inboundTags == null then {} else {inboundTag:$inboundTags} end))
+      routingRule: ({type:"field", domain:$domains, outboundTag:$tag} + (if $inboundTags == null then {} else {inboundTag:$inboundTags} end)),
+      dns: {
+        servers: [
+          {address: "https://1.1.1.1/dns-query", domains: $domains, skipFallback: true},
+          {address: "https://1.0.0.1/dns-query", domains: $domains, skipFallback: true},
+          "1.1.1.1",
+          "8.8.8.8"
+        ]
+      }
     }' > "$snippet_file"
 }
 

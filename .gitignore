@@ -39,6 +39,7 @@ wg*.conf
 *.session
 *.pid
 *.lock
+!components/x-ui-pro/upstream-pins.lock
 data/
 
 # Backups and archives that may contain secrets

@@ -200,6 +200,7 @@ xui_next_free_port() {
 
 xui_profile_label() {
   local inbound_id="$1" protocol="$2" stream_settings network security
+  [[ "$inbound_id" =~ ^[0-9]+$ ]] || die "xui_profile_label: invalid inbound_id: $inbound_id"
   stream_settings="$(sqlite3 -readonly "$XUI_DB" "SELECT stream_settings FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo '{}')"
   network="$(jq -r '.network // "tcp"' <<<"$stream_settings" 2>/dev/null || echo "tcp")"
   security="$(jq -r '.security // "none"' <<<"$stream_settings" 2>/dev/null || echo "none")"
@@ -265,6 +266,7 @@ xui_client_email() {
 
 xui_client_json() {
   local inbound_id="$1" protocol="$2" email="$3" sub_id="$4" now="$5" existing_json="${6:-{}}" password uid client_json is_reality
+  [[ "$inbound_id" =~ ^[0-9]+$ ]] || die "xui_client_json: invalid inbound_id: $inbound_id"
   if [[ -z "$existing_json" ]] || ! jq -e . >/dev/null 2>&1 <<<"$existing_json"; then
     existing_json="{}"
   fi
@@ -398,6 +400,7 @@ xui_enable_preset_xhttp() {
 
 xui_replace_generated_clients() {
   local inbound_id="$1" protocol="$2" mode="$3" tag="$4" report_file="$5"
+  [[ "$inbound_id" =~ ^[0-9]+$ ]] || die "xui_replace_generated_clients: invalid inbound_id: $inbound_id"
   local now index label email sub_id base client_json clients_json settings new_settings traffic_result existing_json
   now="$(date +%s)000"
   clients_json="[]"
@@ -456,6 +459,7 @@ xui_replace_generated_clients() {
 
 xui_prune_generated_clients() {
   local inbound_id="$1" protocol="$2" report_file="$3" settings new_settings
+  [[ "$inbound_id" =~ ^[0-9]+$ ]] || die "xui_prune_generated_clients: invalid inbound_id: $inbound_id"
   settings="$(sqlite3 -readonly "$XUI_DB" "SELECT settings FROM inbounds WHERE id=$inbound_id;")"
   new_settings="$(jq -c --arg prefix "$PREFIX" '
     def generated_email:
@@ -617,8 +621,8 @@ nh_generate() {
     NH_SUBSCRIPTION_TOKEN="$(tr -dc 'A-Za-z0-9._-' < "$NH_SUBSCRIPTION_TOKEN_FILE" | head -c 128)"
   else
     NH_SUBSCRIPTION_TOKEN="$(openssl rand -hex 24)"
-    printf '%s\n' "$NH_SUBSCRIPTION_TOKEN" > "$NH_SUBSCRIPTION_TOKEN_FILE"
-    chmod 0600 "$NH_SUBSCRIPTION_TOKEN_FILE"
+    upm_install_secret 0600 "$NH_SUBSCRIPTION_TOKEN_FILE" "$NH_SUBSCRIPTION_TOKEN" \
+      || die "Failed to write subscription token atomically"
   fi
   [[ -n "$NH_SUBSCRIPTION_TOKEN" ]] || die "Could not create NHM subscription token"
   chmod 0600 "$NH_SUBSCRIPTION_TOKEN_FILE" 2>/dev/null || true

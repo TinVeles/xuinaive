@@ -256,6 +256,41 @@ if [[ "$ENABLE_PROBE_RESISTANCE" -eq 1 ]]; then
   fi
 fi
 
+if [[ "$APPLY" -eq 1 ]]; then
+  ssh_session_port=""
+  if [[ -n "${SSH_CONNECTION:-}" ]]; then
+    ssh_session_port="$(awk '{print $4}' <<<"$SSH_CONNECTION")"
+  fi
+  if [[ -n "$ssh_session_port" && "$ssh_session_port" != "$SSH_PORT" ]]; then
+    warn "Current SSH session arrived on port $ssh_session_port but firewall will allow only $SSH_PORT/tcp."
+    warn "If the running sshd is NOT listening on $SSH_PORT, you will be locked out."
+    if [[ "$ASSUME_YES" -ne 1 ]]; then
+      read -r -p "Type LOCKOUT-RISK to continue: " answer
+      [[ "$answer" == "LOCKOUT-RISK" ]] || die "Cancelled"
+    fi
+  fi
+  if command_exists ss; then
+    if ! ss -H -tln "sport = :$SSH_PORT" 2>/dev/null | grep -q .; then
+      warn "No process is listening on TCP $SSH_PORT. Applying firewall would orphan SSH."
+      die "Refusing to continue. Adjust --ssh-port or start sshd on $SSH_PORT first."
+    fi
+  fi
+  TIMEBOMB_DELAY="${UPM_UFW_TIMEBOMB_SECONDS:-600}"
+  if [[ "$TIMEBOMB_DELAY" -gt 0 ]]; then
+    info "Arming UFW rollback timebomb: firewall will reset in ${TIMEBOMB_DELAY}s unless this script disarms it"
+    (
+      sleep "$TIMEBOMB_DELAY"
+      ufw --force reset >/dev/null 2>&1 || true
+      ufw allow OpenSSH >/dev/null 2>&1 || true
+      ufw allow "${SSH_PORT}/tcp" >/dev/null 2>&1 || true
+      ufw --force enable >/dev/null 2>&1 || true
+    ) </dev/null >/dev/null 2>&1 &
+    disown
+    TIMEBOMB_PID="$!"
+    trap '[[ -n "${TIMEBOMB_PID:-}" ]] && kill "$TIMEBOMB_PID" 2>/dev/null || true' EXIT
+  fi
+fi
+
 run ufw --force reset
 run ufw default deny incoming
 run ufw default allow outgoing
@@ -283,6 +318,19 @@ esac
 
 run ufw --force enable
 run ufw reload
+
+if [[ "$APPLY" -eq 1 ]]; then
+  if ufw status verbose 2>/dev/null | grep -qE "^${SSH_PORT}/tcp[[:space:]]+ALLOW"; then
+    ok "UFW confirms SSH allow for ${SSH_PORT}/tcp"
+  else
+    warn "Could not confirm SSH allow rule for ${SSH_PORT}/tcp in ufw status"
+  fi
+  if [[ -n "${TIMEBOMB_PID:-}" ]]; then
+    kill "$TIMEBOMB_PID" 2>/dev/null && ok "UFW rollback timebomb disarmed" || warn "Could not disarm UFW timebomb (PID $TIMEBOMB_PID)"
+    trap - EXIT
+    TIMEBOMB_PID=""
+  fi
+fi
 
 if [[ -f "$SCRIPT_DIR/config.env" ]]; then
   run chmod 600 "$SCRIPT_DIR/config.env"

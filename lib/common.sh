@@ -53,6 +53,26 @@ sql_quote() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"
 }
 
+sql_int() {
+  local value="${1:-}"
+  [[ "$value" =~ ^[0-9]+$ ]] || { printf '0'; return 1; }
+  printf '%s' "$value"
+}
+
+upm_redact() {
+  local value="${1:-}"
+  local mode="${UPM_REDACT_SECRETS:-0}"
+  [[ "$mode" == "1" ]] || { printf '%s' "$value"; return 0; }
+  local len="${#value}"
+  if (( len <= 4 )); then
+    printf '****'
+  elif (( len <= 8 )); then
+    printf '%s****' "${value:0:1}"
+  else
+    printf '%s****%s' "${value:0:2}" "${value: -2}"
+  fi
+}
+
 uri_encode() {
   local value="${1:-}"
   node -e 'process.stdout.write(encodeURIComponent(process.argv[1] || ""))' "$value"
@@ -118,6 +138,33 @@ nginx_config_contains() {
   local needle="$1"
   nginx -T 2>/dev/null | grep -Fq "$needle"
 }
+
+upm_install_secret() {
+  local mode="$1" dest="$2" tmp
+  shift 2
+  tmp="$(mktemp)"
+  chmod "$mode" "$tmp" 2>/dev/null || true
+  if [[ $# -gt 0 ]]; then
+    printf '%s\n' "$@" > "$tmp"
+  else
+    cat > "$tmp"
+  fi
+  install -m "$mode" "$tmp" "$dest" || { rm -f "$tmp"; return 1; }
+  rm -f "$tmp"
+}
+
+upm_assert_xui_creds_rotated() {
+  local db="${1:-/etc/x-ui/x-ui.db}"
+  command_exists sqlite3 || { upm_log_warn "sqlite3 missing; cannot verify x-ui creds rotation"; return 0; }
+  [[ -f "$db" ]] || { upm_log_warn "x-ui DB not found at $db; cannot verify creds rotation"; return 0; }
+  local username port
+  username="$(sqlite3 -readonly "$db" "SELECT value FROM settings WHERE key='username';" 2>/dev/null || printf '')"
+  port="$(sqlite3 -readonly "$db" "SELECT value FROM settings WHERE key='webPort';" 2>/dev/null || printf '')"
+  if [[ "$username" == "asdfasdf" || "$port" == "2096" ]]; then
+    upm_die "x-ui still has upstream default credentials (username=$username port=$port). Installation aborted before rotation. Re-run installer or reset manually via 'x-ui setting -username NEW -password NEW -port PORT -webBasePath PATH'."
+  fi
+}
+
 
 nginx_enable_stream_include() {
   local main_conf="/etc/nginx/nginx.conf" backup
