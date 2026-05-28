@@ -66,8 +66,8 @@ xui_normalize_xhttp_tcp_inbounds() {
   local db rows inbound_id port listen stream_settings new_port new_stream
   db="$(xui_db_path)"
   [[ -f "$db" ]] || return 0
-  rows="$(sqlite3 -separator $'\t' "$db" "
-    SELECT id, COALESCE(port,0), COALESCE(listen,''), stream_settings
+  rows="$(sqlite3 "$db" "
+    SELECT id
     FROM inbounds
     WHERE protocol IN ('vless','trojan')
       AND json_valid(stream_settings)=1
@@ -75,8 +75,11 @@ xui_normalize_xhttp_tcp_inbounds() {
     ORDER BY id;
   " 2>/dev/null || true)"
 
-  while IFS=$'\t' read -r inbound_id port listen stream_settings; do
+  while IFS= read -r inbound_id; do
     [[ -n "$inbound_id" ]] || continue
+    port="$(sqlite3 -readonly "$db" "SELECT COALESCE(port,0) FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo 0)"
+    listen="$(sqlite3 -readonly "$db" "SELECT COALESCE(listen,'') FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo '')"
+    stream_settings="$(sqlite3 -readonly "$db" "SELECT stream_settings FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo '{}')"
     if [[ "$port" =~ ^[0-9]+$ && "$port" -gt 0 && "$listen" != /* ]]; then
       continue
     fi
