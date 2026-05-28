@@ -503,6 +503,7 @@ xui_add_clients() {
   xui_disable_nginx_enabled_backup_configs
   xui_enable_standard_preset_inbounds
   xui_normalize_xhttp_tcp_inbounds
+  xui_normalize_grpc_service_names
   xui_ensure_nginx_dynamic_proxy
   xui_ensure_nginx_reality_sni_routes
   xui_enable_preset_domain_sniffing
@@ -533,7 +534,9 @@ $(xui_preset_inbound_filter_sql)"
         if [[ -n "$mirror_row" ]]; then
           IFS=$'\t' read -r mirror_id mirror_protocol mirror_tag <<<"$mirror_row"
           xui_replace_generated_clients "$mirror_id" "$mirror_protocol" "warp" "$mirror_tag" "$report_file"
-          routing_tag="$mirror_tag"
+          if [[ "${XUI_WARP_INBOUNDS_ENABLE:-0}" == "1" ]]; then
+            routing_tag="$mirror_tag"
+          fi
           ok "x-ui WARP mirror inbound ${mirror_id}: $COUNT clients, subId mode=$XUI_SUB_ID_MODE"
         fi
       fi

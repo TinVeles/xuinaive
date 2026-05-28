@@ -104,6 +104,24 @@ xui_normalize_xhttp_tcp_inbounds() {
   done <<<"$rows"
 }
 
+xui_normalize_grpc_service_names() {
+  local db
+  db="$(xui_db_path)"
+  [[ -f "$db" ]] || return 0
+  sqlite3 "$db" "
+    UPDATE inbounds
+    SET stream_settings = json_set(
+      stream_settings,
+      '$.grpcSettings.serviceName',
+      ltrim(COALESCE(json_extract(stream_settings,'$.grpcSettings.serviceName'), ''), '/')
+    )
+    WHERE protocol IN ('vless','trojan')
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='grpc'
+      AND COALESCE(json_extract(stream_settings,'$.grpcSettings.serviceName'), '') LIKE '/%';
+  " 2>/dev/null || true
+}
+
 xui_disable_nginx_enabled_backup_configs() {
   local enabled_dir="${NGINX_SITES_ENABLED_DIR:-/etc/nginx/sites-enabled}" disabled_dir file base stamp
   [[ -d "$enabled_dir" ]] || return 0
@@ -317,6 +335,8 @@ xui_warp_mirror_stream_settings() {
         end;
     def mirror_path($path):
       "/" + ($newPort|tostring) + "/" + (clean_path($path) | sub("-warp$"; "")) + "-warp";
+    def mirror_service($path):
+      ($newPort|tostring) + "/" + (clean_path($path) | sub("-warp$"; "")) + "-warp";
     def mirror_external:
       .externalProxy = (
         if ((.externalProxy // []) | length) > 0 then
@@ -335,7 +355,7 @@ xui_warp_mirror_stream_settings() {
       | .wsSettings.path = mirror_path(.wsSettings.path)
     elif (.network // "") == "grpc" then
       .grpcSettings = (.grpcSettings // {})
-      | .grpcSettings.serviceName = mirror_path(.grpcSettings.serviceName)
+      | .grpcSettings.serviceName = mirror_service(.grpcSettings.serviceName)
     elif (.network // "") == "xhttp" then
       .xhttpSettings = (.xhttpSettings // {})
       | .xhttpSettings.path = mirror_path(.xhttpSettings.path)

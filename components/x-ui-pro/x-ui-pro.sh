@@ -405,7 +405,9 @@ $(xui_preset_inbound_filter_sql)
         if [[ -n "$mirror_row" ]]; then
           IFS=$'\t' read -r mirror_id mirror_protocol mirror_tag <<<"$mirror_row"
           xui_set_inbound_clients "$mirror_id" "$mirror_protocol" "warp" "$mirror_tag"
-          routing_tag="$mirror_tag"
+          if [[ "${XUI_WARP_INBOUNDS_ENABLE:-0}" == "1" ]]; then
+            routing_tag="$mirror_tag"
+          fi
         fi
       fi
       [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && -n "$routing_tag" ]] && printf '%s\n' "$routing_tag" >> "$warp_tags_file"
@@ -452,7 +454,9 @@ $(xui_preset_inbound_filter_sql)
         if [[ -n "$mirror_row" ]]; then
           IFS=$'\t' read -r mirror_id mirror_protocol mirror_tag <<<"$mirror_row"
           xui_set_inbound_clients "$mirror_id" "$mirror_protocol" "warp" "$mirror_tag"
-          routing_tag="$mirror_tag"
+          if [[ "${XUI_WARP_INBOUNDS_ENABLE:-0}" == "1" ]]; then
+            routing_tag="$mirror_tag"
+          fi
         fi
       fi
       [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && -n "$routing_tag" ]] && printf '%s\n' "$routing_tag" >> "$warp_tags_file"
@@ -1411,7 +1415,7 @@ if [[ -f $XUIDB ]]; then
     }
   ],
   "grpcSettings": {
-    "serviceName": "/${trojan_port}/${trojan_path}",
+    "serviceName": "${trojan_port}/${trojan_path}",
     "authority": "${domain}",
     "multiMode": false
   }
@@ -1432,6 +1436,7 @@ if [[ -f $XUIDB ]]; then
 EOF
 xui_repair_invalid_inbound_json
 xui_sanitize_inbound_tags
+xui_normalize_grpc_service_names
 xui_enable_preset_domain_sniffing
 if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && "$XUI_AUTO_INSTALL_WARP" == "1" ]]; then
   ensure_warp_local_proxy "$UPM_ROOT_DIR"
