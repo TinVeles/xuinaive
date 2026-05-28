@@ -126,12 +126,16 @@ public_url="${sub_uri}${SUB_ID}"
 local_url="https://127.0.0.1:${SUB_PORT}${SUB_PATH}${SUB_ID}"
 
 info "Removing stale manual subscription nginx configs"
-for stale_conf in \
-  "/etc/nginx/conf.d/xui-subscription.conf" \
-  "$SITES_DIR/00-subscription-$DOMAIN.conf" \
-  "$SITES_DIR/00-subscription-sub.$DOMAIN.conf"; do
-  [[ -e "$stale_conf" || -L "$stale_conf" ]] || continue
-  rm -f "$stale_conf"
+for stale_dir in /etc/nginx/conf.d /etc/nginx/sites-enabled /etc/nginx/sites-available "$SITES_DIR"; do
+  [[ -d "$stale_dir" ]] || continue
+  for stale_conf in \
+    "$stale_dir/xui-subscription.conf" \
+    "$stale_dir/upm-xui-subscription-$DOMAIN.conf" \
+    "$stale_dir/00-subscription-$DOMAIN.conf" \
+    "$stale_dir/00-subscription-sub.$DOMAIN.conf"; do
+    [[ -e "$stale_conf" || -L "$stale_conf" ]] || continue
+    rm -f -- "$stale_conf"
+  done
 done
 
 info "Updating x-ui subscription settings"
