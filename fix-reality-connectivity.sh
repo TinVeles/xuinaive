@@ -30,6 +30,11 @@ DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
 DRY_RUN="${DRY_RUN:-0}"
 CHANGED=0
 
+# replacement decoys when an inbound's serverName is unreachable from the server.
+# must support TLS1.3 + HTTP/2 and be reachable from the host. override via env:
+#   REALITY_DECOY_CANDIDATES="dzen.ru mail.ru www.microsoft.com" bash fix-reality-connectivity.sh
+read -r -a REALITY_DECOY_CANDIDATES <<<"${REALITY_DECOY_CANDIDATES:-dzen.ru mail.ru www.tbank.ru store.steampowered.com www.microsoft.com www.cloudflare.com}"
+
 # --- locate the xray binary that ships with x-ui ---------------------------
 XRAY=""
 for cand in /usr/local/x-ui/bin/xray-linux-* /usr/local/bin/xray /usr/bin/xray; do
@@ -153,12 +158,43 @@ while IFS= read -r id; do
     ok "$nclients client(s) present"
   fi
 
-  # 5) decoy reachable?
+  # 5) decoy reachable?  (auto-swap to a reachable one if dead)
+  decoy_ok() {
+    # reachable AND negotiates TLS1.3 (reality requirement)
+    timeout 6 bash -c "echo | openssl s_client -connect ${1}:443 -servername ${1} -tls1_3 2>/dev/null | grep -q 'CONNECTED'"
+  }
   if [[ -n "$sni" && "$sni" != "null" ]]; then
-    if timeout 5 bash -c "echo | openssl s_client -connect ${sni}:443 -servername ${sni} 2>/dev/null | grep -q CONNECTED"; then
-      ok "decoy ${sni}:443 reachable"
+    if decoy_ok "$sni"; then
+      ok "decoy ${sni}:443 reachable (TLS1.3)"
     else
-      bad "decoy ${sni}:443 NOT reachable from server -> reality steal fails; pick another serverName"
+      bad "decoy ${sni}:443 NOT reachable from server -> reality steal fails"
+      # candidate pool: big sites, TLS1.3 + HTTP/2, rarely blocked, reachable from RU DCs
+      newsni=""
+      for cand in "${REALITY_DECOY_CANDIDATES[@]}"; do
+        # don't reuse a decoy already taken by another inbound
+        used="$(sqlr "SELECT 1 FROM inbounds WHERE json_extract(stream_settings,'\$.realitySettings.serverNames[0]')='$cand' LIMIT 1;")"
+        [[ -n "$used" ]] && continue
+        if decoy_ok "$cand"; then newsni="$cand"; break; fi
+      done
+      if [[ -n "$newsni" ]]; then
+        # update serverNames[0], realitySettings.dest/target, and grpc authority (if grpc)
+        apply "id=$id swap dead decoy ${sni} -> ${newsni}" "
+          UPDATE inbounds SET stream_settings = (
+            WITH s AS (SELECT stream_settings AS j FROM inbounds WHERE id=$id)
+            SELECT json_set(
+                     json_set(
+                       json_set(
+                         json_set(j,'\$.realitySettings.serverNames', json('[\"$newsni\"]')),
+                         '\$.realitySettings.dest', '${newsni}:443'),
+                       '\$.realitySettings.target', '${newsni}:443'),
+                     '\$.grpcSettings.authority',
+                     CASE WHEN json_extract(j,'\$.network')='grpc' THEN '$newsni'
+                          ELSE json_extract(j,'\$.grpcSettings.authority') END)
+            FROM s)
+          WHERE id=$id;"
+      else
+        warn "id=$id no reachable replacement decoy found; edit REALITY_DECOY_CANDIDATES"
+      fi
     fi
   fi
 done <<<"$ids"

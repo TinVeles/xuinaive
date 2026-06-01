@@ -468,8 +468,11 @@ xui_install_3dp_reference_presets() {
   xui_3dp_insert vless "$port" "${emoji_flag} vless-xhttp-reality" "$settings" "$stream"
 
   port="$(xui_3dp_random_port)"
-  sni="gosuslugi.ru"
-  stream="$(xui_3dp_reality_stream grpc "$sni" "$port" '{"grpcSettings":{"serviceName":"myservice","authority":"gosuslugi.ru","multiMode":false}}')"
+  # gosuslugi.ru geoblocks many hosting/datacenter IPs (reality steal fails when
+  # the decoy is unreachable from the server). dzen.ru is a big TLS1.3+HTTP/2 RU
+  # site that stays reachable from RU datacenters. Override with REALITY_GRPC_DECOY.
+  sni="${REALITY_GRPC_DECOY:-dzen.ru}"
+  stream="$(xui_3dp_reality_stream grpc "$sni" "$port" "$(jq -cn --arg authority "$sni" '{grpcSettings:{serviceName:"myservice",authority:$authority,multiMode:false}}')")"
   xui_3dp_insert vless "$port" "${emoji_flag} vless-grpc-reality" "$settings" "$stream"
 
   port="$(xui_3dp_random_port)"
