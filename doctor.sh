@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+source "$SCRIPT_DIR/lib/common.sh"
 
 XUI_DOMAIN="${XUI_DOMAIN:-}"
 NAIVE_DOMAIN="${NAIVE_DOMAIN:-}"
@@ -102,14 +104,7 @@ domain_a_records() {
 }
 
 port_details() {
-  local port="$1"
-  if command_exists ss; then
-    ss -H -ltnup "sport = :$port" 2>/dev/null || true
-  elif command_exists lsof; then
-    lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
-  else
-    return 0
-  fi
+  upm_port_details "$1"
 }
 
 xui_inbound_check() {

@@ -310,14 +310,7 @@ domain_a_records() {
 }
 
 port_details() {
-  local port="$1"
-  if command_exists ss; then
-    ss -H -ltnup "sport = :$port" 2>/dev/null || true
-  elif command_exists lsof; then
-    lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
-  else
-    return 0
-  fi
+  upm_port_details "$1"
 }
 
 show_port_report() {

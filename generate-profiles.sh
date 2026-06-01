@@ -552,13 +552,14 @@ xui_add_clients() {
   : > "$report_file"
   xui_repair_invalid_inbound_json
   xui_remove_deprecated_vmess_presets
+  xui_disable_experimental_trojan_grpc_presets
   xui_normalize_reference_preset_external_proxy_ports
   xui_sanitize_inbound_tags
   xui_disable_nginx_enabled_backup_configs
   xui_enable_standard_preset_inbounds
   xui_normalize_xhttp_tcp_inbounds
   xui_normalize_grpc_service_names
-  xui_normalize_direct_grpc_tls_inbounds
+  xui_restore_reference_vless_grpc_reality_inbounds
   xui_ensure_nginx_dynamic_proxy
   xui_ensure_nginx_reality_sni_routes
   xui_enable_preset_domain_sniffing
@@ -1715,10 +1716,10 @@ if [[ "$RELOAD_SERVICES" == "1" ]]; then
   fi
 fi
 
-cat <<EOF
-
-Profile generation complete
----------------------------
+printf '\nProfile generation complete\n'
+printf '%s\n' '---------------------------'
+if [[ "$CREATE_XUI" == "1" ]]; then
+  cat <<EOF
 x-ui:
   standard generated clients: ${XUI_CREATE_DIRECT} (${COUNT} per selected preset inbound when enabled)
   WARP mirror inbounds: ${XUI_CREATE_WARP_INBOUNDS} (${COUNT} clients per mirror; routing manual)
@@ -1736,7 +1737,11 @@ x-ui:
   WARP routed domains: ${WARP_AI_DOMAINS}
   WARP snippet: /etc/x-ui/warp-generated-routing.json
   x-ui report: /etc/x-ui/generated-clients.txt
+EOF
+fi
 
+if [[ "$CREATE_NH" == "1" ]]; then
+  cat <<EOF
 NHM:
   NaiveProxy profiles: ${COUNT}
   Hysteria2 profiles: ${COUNT}
@@ -1745,7 +1750,16 @@ NHM:
   subscriptions: ${NH_SUBSCRIPTION_DIR%/}/${NH_SUBSCRIPTION_TOKEN:-TOKEN_NOT_SET}
   combined x-ui+NHM: random per-client names from ${NH_PROFILE_MAP}
   combined all: ${NH_SUBSCRIPTION_DIR%/}/${NH_SUBSCRIPTION_TOKEN:-TOKEN_NOT_SET}/combined.txt
+EOF
+elif [[ "$COMBINED_ONLY" == "1" ]]; then
+  cat <<EOF
+Combined subscriptions:
+  random profile map: ${NH_PROFILE_MAP}
+  combined all: ${NH_SUBSCRIPTION_DIR%/}/${NH_SUBSCRIPTION_TOKEN:-TOKEN_NOT_SET}/combined.txt
+EOF
+fi
 
+cat <<EOF
 Backup:
   ${backup_dir}
 EOF

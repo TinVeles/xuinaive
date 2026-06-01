@@ -80,21 +80,19 @@ if [[ "$DRY_RUN" != "1" ]]; then
   info "DB backed up: $backup"
 fi
 
-direct_grpc_reality="$(sqlr "
+legacy_vless_grpc_tls="$(sqlr "
   SELECT COUNT(*)
   FROM inbounds
-  WHERE protocol IN ('vless','trojan')
+  WHERE protocol='vless'
     AND json_valid(stream_settings)=1
     AND json_extract(stream_settings,'\$.network')='grpc'
-    AND json_extract(stream_settings,'\$.security')='reality'
-    AND CAST(COALESCE(json_extract(stream_settings,'\$.externalProxy[0].port'),0) AS INTEGER)=port;")"
-if [[ "$direct_grpc_reality" != "0" ]]; then
-  if [[ "$DRY_RUN" == "1" ]]; then
-    warn "DRY_RUN: would convert $direct_grpc_reality direct gRPC REALITY inbound(s) to TLS"
-  else
-    XUI_DB="$DB" xui_normalize_direct_grpc_tls_inbounds
-    CHANGED=1
-  fi
+    AND json_extract(stream_settings,'\$.security')='tls'
+    AND lower(COALESCE(remark,'')) LIKE '%vless-grpc-tls%';")"
+if [[ "$DRY_RUN" == "1" && "$legacy_vless_grpc_tls" != "0" ]]; then
+  warn "DRY_RUN: would restore $legacy_vless_grpc_tls generated VLESS gRPC TLS preset(s) to REALITY"
+elif [[ "$legacy_vless_grpc_tls" != "0" ]]; then
+  XUI_DB="$DB" xui_restore_reference_vless_grpc_reality_inbounds
+  CHANGED=1
 fi
 
 # --- enumerate enabled reality inbounds ------------------------------------
@@ -175,7 +173,7 @@ while IFS= read -r id; do
   # 4) clients present?
   if (( nclients == 0 )); then
     bad "NO clients (UUID) on this inbound -> client cannot authenticate -> delay -1"
-    warn "run: sudo bash generate-profiles.sh   (it seeds client UUIDs + rebuilds the subscription)"
+    warn "run: sudo bash generate-profiles.sh --xui-only --yes   (it seeds client UUIDs + rebuilds the subscription)"
   else
     ok "$nclients client(s) present"
   fi
@@ -244,6 +242,6 @@ done <<<"$ids"
 
 printf '\nNext steps:\n'
 printf '  1. If any inbound reported NO clients or a key was regenerated, run:\n'
-printf '       sudo bash generate-profiles.sh\n'
+printf '       sudo bash generate-profiles.sh --xui-only --yes\n'
 printf '  2. Re-import / refresh the subscription in your client (v2rayN: Update subscription).\n'
 printf '  3. Re-test delay. Reality entries should leave -1.\n'

@@ -2,11 +2,10 @@
 #
 # add-inbounds.sh
 # ---------------
-# ADDITIVELY add two preset inbounds to an existing x-ui install WITHOUT wiping
+# ADDITIVELY add one preset inbound to an existing x-ui install WITHOUT wiping
 # the current inbounds/clients (unlike install.sh which does DELETE FROM inbounds):
 #
 #   * vless-ws       (VLESS over WebSocket + TLS on its own port)
-#   * trojan-grpc-tls (Trojan over gRPC + TLS on its own port)
 #
 # It reuses the server's existing public domain + TLS certificate, picks free
 # ports, opens ufw, seeds client UUIDs via generate-profiles.sh, and restarts x-ui.
@@ -105,22 +104,6 @@ if [[ "$DRY_RUN" != "1" ]]; then
 fi
 
 ADDED=0
-old_direct_grpc_reality="$(sqlr "
-  SELECT COUNT(*)
-  FROM inbounds
-  WHERE protocol IN ('vless','trojan')
-    AND json_valid(stream_settings)=1
-    AND json_extract(stream_settings,'\$.network')='grpc'
-    AND json_extract(stream_settings,'\$.security')='reality'
-    AND CAST(COALESCE(json_extract(stream_settings,'\$.externalProxy[0].port'),0) AS INTEGER)=port;")"
-if [[ "$old_direct_grpc_reality" != "0" ]]; then
-  if [[ "$DRY_RUN" == "1" ]]; then
-    warn "DRY_RUN: would convert $old_direct_grpc_reality direct gRPC REALITY inbound(s) to TLS"
-  else
-    XUI_DB="$DB" xui_normalize_direct_grpc_tls_inbounds
-    ADDED=1
-  fi
-fi
 
 # === 1) vless-ws + TLS (masked as real HTTPS) ==============================
 WS_REMARK="${EMOJI} vless-ws-tls"
@@ -156,43 +139,6 @@ else
   ADDED=1
 fi
 
-# === 2) trojan-grpc + TLS ==================================================
-TG_REMARK="${EMOJI} trojan-grpc-tls"
-if [[ "$(sqlr "SELECT COUNT(*) FROM inbounds WHERE protocol='trojan' AND json_extract(stream_settings,'\$.network')='grpc';")" != "0" ]]; then
-  warn "skip: Trojan gRPC inbound already exists"
-elif [[ -z "$CERT_FILE" || -z "$KEY_FILE" ]]; then
-  warn "skip trojan-grpc-tls: no TLS cert found (set WS_CERT=/path/fullchain.pem WS_KEY=/path/privkey.pem)"
-elif [[ "$DRY_RUN" != "1" && ( ! -f "$CERT_FILE" || ! -f "$KEY_FILE" ) ]]; then
-  warn "skip trojan-grpc-tls: cert/key file missing on disk ($CERT_FILE / $KEY_FILE)"
-else
-  port="$(free_port)"
-  grpc_service="trojan-grpc-$(openssl rand -hex 6)"
-  settings='{"clients":[],"fallbacks":[]}'
-  stream="$(jq -cn \
-    --arg dom "$PUBLIC_DOMAIN" --arg cert "$CERT_FILE" --arg key "$KEY_FILE" \
-    --arg serviceName "$grpc_service" --argjson port "$port" '{
-    network:"grpc",
-    security:"tls",
-    externalProxy:[{forceTls:"tls",dest:$dom,port:$port,remark:""}],
-    grpcSettings:{serviceName:$serviceName,authority:$dom,multiMode:false},
-    tlsSettings:{
-      serverName:$dom,
-      alpn:["h2"],
-      certificates:[{buildChain:false,certificateFile:$cert,keyFile:$key,oneTimeLoading:false,usage:"encipherment"}],
-      cipherSuites:"",
-      disableSystemRoot:false,
-      echForceQuery:"none",
-      echServerKeys:"",
-      enableSessionResumption:false,
-      maxVersion:"1.3",
-      minVersion:"1.2",
-      rejectUnknownSni:false
-    }
-  }')"
-  insert_inbound trojan "$port" "$TG_REMARK" "$settings" "$stream"
-  ADDED=1
-fi
-
 # --- seed clients + apply --------------------------------------------------
 if (( ADDED )) && [[ "$DRY_RUN" != "1" ]]; then
   command -v ufw >/dev/null && ufw reload >/dev/null 2>&1 || true
@@ -202,7 +148,7 @@ if (( ADDED )) && [[ "$DRY_RUN" != "1" ]]; then
 
   info "seeding client UUIDs + rebuilding subscription (generate-profiles.sh)..."
   if [[ -x "$SCRIPT_DIR/generate-profiles.sh" || -f "$SCRIPT_DIR/generate-profiles.sh" ]]; then
-    bash "$SCRIPT_DIR/generate-profiles.sh" || warn "generate-profiles.sh returned non-zero; run it manually"
+    bash "$SCRIPT_DIR/generate-profiles.sh" --xui-only --yes || warn "generate-profiles.sh returned non-zero; run it manually"
   else
     warn "generate-profiles.sh not found next to this script; run it manually to seed clients"
   fi
@@ -213,6 +159,6 @@ sqlite3 "$DB" "SELECT id, port, protocol,
        json_extract(stream_settings,'\$.network') AS net,
        json_extract(stream_settings,'\$.security') AS sec,
        remark
-       FROM inbounds WHERE remark IN ($(q "$WS_REMARK"),$(q "$TG_REMARK"));" 2>/dev/null || true
+       FROM inbounds WHERE remark=$(q "$WS_REMARK");" 2>/dev/null || true
 
 printf '\nNext: refresh subscription in your client (v2rayN: Update subscription), then test.\n'

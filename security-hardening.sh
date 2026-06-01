@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+source "$SCRIPT_DIR/lib/common.sh"
 
 APPLY=0
 ASSUME_YES=0
@@ -101,12 +103,7 @@ public_ipv4() {
 }
 
 port_details() {
-  local port="$1"
-  if command_exists ss; then
-    ss -H -ltnup "sport = :$port" 2>/dev/null || true
-  elif command_exists lsof; then
-    lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
-  fi
+  upm_port_details "$1"
 }
 
 while [[ $# -gt 0 ]]; do

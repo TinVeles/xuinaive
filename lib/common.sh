@@ -13,6 +13,23 @@ if ! declare -F command_exists >/dev/null 2>&1; then
   command_exists() { command -v "$1" >/dev/null 2>&1; }
 fi
 
+upm_port_details() {
+  local port="$1"
+  if command_exists ss; then
+    ss -H -ltnup 2>/dev/null | awk -v port="$port" '
+      {
+        local_address=$5
+        if (local_address ~ (":" port "$")) {
+          print
+        }
+      }
+    '
+  elif command_exists lsof; then
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
+    lsof -nP -iUDP:"$port" 2>/dev/null || true
+  fi
+}
+
 if ! declare -F info >/dev/null 2>&1; then
   info() { printf 'INFO: %s\n' "$*"; }
 fi

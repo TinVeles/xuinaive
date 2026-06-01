@@ -181,7 +181,7 @@ derived mix plus one Trojan preset:
 - one Hysteria2 UDP inbound;
 - one VLESS XHTTP REALITY inbound;
 - four VLESS TCP REALITY inbounds with different decoy SNI sites;
-- one VLESS gRPC TLS inbound;
+- one VLESS gRPC REALITY inbound;
 - one VLESS WS inbound;
 - one Shadowsocks 2022 TCP inbound;
 - one Trojan TCP REALITY inbound.
@@ -190,10 +190,9 @@ VMess is intentionally omitted because it is deprecated. Profile regeneration
 also removes old project-generated `vmess-tcp` preset inbounds and repairs
 public-port metadata left by older generated Shadowsocks presets.
 
-`3dp-manager` provides Trojan TCP REALITY, not Trojan gRPC. Direct gRPC presets
-use TLS with the public x-ui domain certificate. Xray requires a correct domain
-name for gRPC and recommends migrating gRPC deployments to XHTTP. An optional
-Trojan gRPC TLS profile can be added with `sudo bash add-inbounds.sh`.
+`3dp-manager` provides VLESS gRPC REALITY and Trojan TCP REALITY, not Trojan
+gRPC. Profile regeneration disables older project-generated Trojan gRPC
+experiments so they are not advertised as supported inbounds.
 The x-ui presets listen on random public ports. The installer opens them in UFW;
 also allow those generated TCP ports and the Hysteria2 UDP port in your VPS
 provider firewall when it is enabled.
@@ -204,13 +203,18 @@ the REALITY decoy SNI can replace the VPS uplink address: for example, a client
 that should connect to `vpn.example.com:12345` may incorrectly dial
 `ya.ru:12345`. Test imported profiles with TUN disabled first.
 
-Regenerate profiles to migrate older direct VLESS or Trojan gRPC REALITY
-listeners to gRPC TLS without changing their public ports:
+Repair and regenerate x-ui inbounds after an update:
 
 ```bash
-sudo bash generate-profiles.sh --xui-only --yes
-sudo systemctl restart x-ui
+cd ~/unified-proxy-manager
+git pull
+sudo bash repair-xui-inbounds.sh
 ```
+
+This is the normal x-ui repair entrypoint. It creates a backup, repairs the
+generated presets, refreshes x-ui-only subscriptions, and runs `doctor.sh`.
+Internal scripts remain separate modules so installation, diagnostics, and
+profile generation can still be tested independently.
 
 For NHM Panel, open `Bypass` and enable `AI through WARP for Hy2`. The panel writes Hysteria2 `outbounds` and ACL rules so matching AI domains use the same local WARP proxy. NaiveProxy cannot do this server-side because Caddy `forward_proxy` has no per-domain outbound ACL; configure NaiveProxy split routing in the client instead.
 
@@ -562,10 +566,12 @@ sudo systemctl daemon-reload
 Useful checks before and after changes:
 
 ```bash
-bash -n install.sh install-unified.sh install-warp.sh generate-profiles.sh status.sh doctor.sh show-access-info.sh uninstall-stack.sh
+bash -n install.sh install-unified.sh install-warp.sh generate-profiles.sh repair-xui-inbounds.sh status.sh doctor.sh show-access-info.sh uninstall-stack.sh
 bash install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email a@example.com --dry-run
 bash install-warp.sh --help
 bash generate-profiles.sh --help
+bash tests/common-regression.sh
+bash tests/xui-routing-regression.sh
 ```
 
 On Windows, use a working WSL or Git/MSYS Bash. The real target is Ubuntu 22.04/24.04 or Debian 12.
@@ -588,6 +594,7 @@ On Windows, use a working WSL or Git/MSYS Bash. The real target is Ubuntu 22.04/
 +-- install-unified.sh
 +-- install-warp.sh
 +-- generate-profiles.sh
++-- repair-xui-inbounds.sh
 +-- show-access-info.sh
 +-- status.sh
 +-- doctor.sh

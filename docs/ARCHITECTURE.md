@@ -18,6 +18,7 @@ The manager reads system state, validates the vendored component files, and eith
 - `install.sh` accepts `--mode xui`, `--mode naive`, `--mode all`, `--mode both`, or `--mode nh`, validates required domain arguments, checks OS/commands/services/ports/DNS, and prints a dry-run plan.
 - `status.sh` reports configured domains, service states, listening ports, and recent service logs when available.
 - `doctor.sh` performs diagnostic checks and prints recommendations.
+- `repair-xui-inbounds.sh` is the single operator-facing x-ui repair command. It backs up the database, applies narrowly scoped preset repairs, regenerates x-ui profiles, and runs `doctor.sh`.
 
 ## Shared Libraries
 
