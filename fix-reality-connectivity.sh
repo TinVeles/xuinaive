@@ -222,6 +222,11 @@ done <<<"$ids"
 # --- restart x-ui if we changed the DB -------------------------------------
 if (( CHANGED )); then
   printf '\n'
+  info "refreshing nginx REALITY SNI routes..."
+  XUI_DB="$DB" xui_ensure_nginx_reality_sni_routes || {
+    bad "nginx REALITY SNI route refresh failed; inspect nginx -t before retrying"
+    exit 1
+  }
   info "restarting x-ui to apply DB changes..."
   systemctl restart x-ui
   sleep 2

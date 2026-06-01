@@ -17,11 +17,13 @@ components/
 The unified layout keeps one public HTTPS entrypoint:
 
 - nginx stream from x-ui-pro owns public `0.0.0.0:443`;
-- x-ui-pro REALITY backend stays on `127.0.0.1:8443`;
+- x-ui-pro REALITY backends stay on internal TCP ports and nginx stream routes
+  each decoy SNI to its matching backend;
 - x-ui-pro HTTPS/web backend stays on `127.0.0.1:7443`;
 - NHM NaiveProxy/Caddy is moved to `127.0.0.1:9445`;
 - nginx stream routes the NHM/NaiveProxy domain SNI to `127.0.0.1:9445`;
-- Hysteria2 listens on public `443/udp`;
+- NHM Hysteria2 listens on public `443/udp`;
+- the x-ui Hysteria2 preset listens on separate `24443/udp` by default in all mode;
 - NHM Panel listens on `3000` and is exposed through nginx `8081` by default.
 
 Use `../install-unified.sh --mode all --yes` for the explicit real installer.

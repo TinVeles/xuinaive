@@ -83,11 +83,15 @@ This gives you:
 ```text
 Internet 443/tcp
   -> nginx stream
-     -> x-ui / Xray for x-ui domains and inbounds
+     -> x-ui / Xray REALITY backends by decoy SNI
+     -> x-ui HTTPS vhost and websocket path proxy by x-ui domain
      -> 127.0.0.1:9445 for NHM NaiveProxy by SNI
 
 Internet 443/udp
-  -> hysteria-server
+  -> NHM hysteria-server
+
+Internet 24443/udp
+  -> x-ui Hysteria2 preset in --mode all
 
 NHM Panel
   -> 127.0.0.1:3000 internally
@@ -437,7 +441,12 @@ Apply recommended hardening:
 sudo bash security-hardening.sh --apply --yes
 ```
 
-The recommended profile keeps only SSH, `80/tcp`, `443/tcp`, and `443/udp` open, closes public NHM Panel port `8081/tcp`, installs fail2ban and unattended-upgrades, enables `probe_resistance` in `/etc/caddy-nh/Caddyfile`, and restricts access files to `0600`.
+The recommended profile keeps SSH, `80/tcp`, `443/tcp`, `443/udp`, and the
+published ports of enabled x-ui presets open. This includes `8388/tcp` for the
+default Shadowsocks preset and `24443/udp` for the x-ui Hysteria2 preset in
+`--mode all`. It closes public NHM Panel port `8081/tcp`, installs fail2ban and
+unattended-upgrades, enables `probe_resistance` in `/etc/caddy-nh/Caddyfile`,
+and restricts access files to `0600`.
 
 Access NHM Panel through an SSH tunnel after hardening:
 
@@ -454,7 +463,7 @@ http://127.0.0.1:8081
 Allow an extra public port only when needed:
 
 ```bash
-sudo bash security-hardening.sh --apply --yes --allow-port 8443/tcp
+sudo bash security-hardening.sh --apply --yes --allow-port 2053/tcp
 ```
 
 Restrict panel access to a static IP/CIDR:
@@ -615,6 +624,7 @@ bash install-warp.sh --help
 bash generate-profiles.sh --help
 bash tests/common-regression.sh
 bash tests/xui-routing-regression.sh
+bash tests/xui-routing-443-regression.sh
 bash tests/xui-v3-regression.sh
 ```
 

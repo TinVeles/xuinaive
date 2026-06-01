@@ -62,6 +62,12 @@ xui_v3_require_schema "$XUI_DB"
 backup_dir="/opt/unified-proxy-manager/backups/xui-v3-$(date '+%Y-%m-%d-%H-%M-%S')"
 mkdir -p "$backup_dir"
 cp -a "$XUI_DB" "$backup_dir/x-ui.db"
+for path in /etc/nginx/snippets/includes.conf /etc/nginx/stream-enabled/stream.conf /etc/nginx/stream-enabled/upm-xui-reality.conf; do
+  if [[ -e "$path" || -L "$path" ]]; then
+    mkdir -p "$backup_dir$(dirname "$path")"
+    cp -a "$path" "$backup_dir$(dirname "$path")/"
+  fi
+done
 upm_log_ok "Backup directory: $backup_dir"
 
 xui_was_active=0
@@ -96,19 +102,19 @@ fi
 XUI_DB="$XUI_DB" xui_repair_invalid_inbound_json
 XUI_DB="$XUI_DB" xui_remove_deprecated_vmess_presets
 XUI_DB="$XUI_DB" xui_disable_experimental_trojan_grpc_presets
-XUI_DB="$XUI_DB" xui_normalize_reference_preset_external_proxy_ports
 XUI_DB="$XUI_DB" xui_sanitize_inbound_tags
 XUI_DB="$XUI_DB" xui_normalize_xhttp_tcp_inbounds
 XUI_DB="$XUI_DB" xui_normalize_grpc_service_names
 XUI_DB="$XUI_DB" xui_restore_reference_vless_grpc_reality_inbounds
+XUI_DB="$XUI_DB" xui_normalize_reference_preset_external_proxy_ports
 XUI_DB="$XUI_DB" xui_enable_preset_domain_sniffing
 
 report_file="/etc/x-ui/generated-clients-v3.txt"
 mkdir -p "$(dirname "$report_file")"
 XUI_DB="$XUI_DB" xui_v3_replace_generated_clients "$XUI_DB" "$COUNT" "$PREFIX" "$report_file"
 
-XUI_DB="$XUI_DB" xui_ensure_nginx_dynamic_proxy || true
-XUI_DB="$XUI_DB" xui_ensure_nginx_reality_sni_routes || true
+XUI_DB="$XUI_DB" xui_ensure_nginx_dynamic_proxy
+XUI_DB="$XUI_DB" xui_ensure_nginx_reality_sni_routes
 XUI_DB="$XUI_DB" xui_open_public_preset_ports
 
 if [[ "$RESTART_XUI" == "1" ]] && command_exists systemctl; then

@@ -61,7 +61,8 @@ Real installation is gated behind `--install --yes`.
 - x-ui-pro nginx stream owns public `443/tcp`;
 - NHM Caddy/NaiveProxy binds only `127.0.0.1:9445`;
 - nginx stream routes the NHM/NaiveProxy SNI domain to `127.0.0.1:9445`;
-- Hysteria2 binds public `443/udp`, which does not conflict with nginx TCP.
+- NHM Hysteria2 binds public `443/udp`, which does not conflict with nginx TCP;
+- the x-ui Hysteria2 preset binds separate `24443/udp` by default in all mode.
 
 ## NHM Standalone Mode
 

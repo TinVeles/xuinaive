@@ -109,7 +109,57 @@ xui_normalize_reference_preset_external_proxy_ports() {
   local db updated
   db="$(xui_db_path)"
   [[ -f "$db" ]] || return 0
+  # Reality (tcp/xhttp/grpc), trojan-reality and vless-ws are reachable on
+  # public TCP 443: nginx stream SNI passthrough for the reality family and
+  # nginx domain vhost path-proxy for ws. shadowsocks and hysteria2 keep their
+  # dedicated listening ports, so their published ports must match them.
   updated="$(sqlite3 "$db" "
+    UPDATE inbounds
+    SET stream_settings=json_set(
+      stream_settings,
+      '$.externalProxy[0].port', 443,
+      '$.sockopt.acceptProxyProtocol', json('true')
+    )
+    WHERE json_valid(stream_settings)=1
+      AND json_type(stream_settings, '$.externalProxy[0]')='object'
+      AND json_extract(stream_settings, '$.security')='reality'
+      AND (
+        CAST(COALESCE(json_extract(stream_settings, '$.externalProxy[0].port'), 0) AS INTEGER) != 443
+        OR COALESCE(json_extract(stream_settings, '$.sockopt.acceptProxyProtocol'), 0) != 1
+      )
+      AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+      AND (
+        lower(COALESCE(remark,'')) LIKE '%vless-tcp-reality%'
+        OR lower(COALESCE(remark,'')) LIKE '%vless-xhttp-reality%'
+        OR lower(COALESCE(remark,'')) LIKE '%vless-grpc%'
+        OR lower(COALESCE(remark,'')) LIKE '%trojan-tcp-reality%'
+        OR lower(COALESCE(remark,'')) LIKE '%trojan-grpc%'
+      );
+
+    UPDATE inbounds
+    SET stream_settings=json_set(
+      stream_settings,
+      '$.externalProxy[0].port', 443,
+      '$.wsSettings.path',
+        CASE
+          WHEN COALESCE(json_extract(stream_settings, '$.wsSettings.path'), '') LIKE '/' || port || '/%'
+            THEN json_extract(stream_settings, '$.wsSettings.path')
+          ELSE '/' || port || '/' || ltrim(COALESCE(json_extract(stream_settings, '$.wsSettings.path'), ''), '/')
+        END,
+      '$.wsSettings.acceptProxyProtocol', json('false')
+    )
+    WHERE json_valid(stream_settings)=1
+      AND json_type(stream_settings, '$.externalProxy[0]')='object'
+      AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+      AND lower(COALESCE(remark,'')) LIKE '%vless-ws%'
+      AND (
+        CAST(COALESCE(json_extract(stream_settings, '$.externalProxy[0].port'), 0) AS INTEGER) != 443
+        OR COALESCE(json_extract(stream_settings, '$.wsSettings.path'), '') NOT LIKE '/' || port || '/%'
+        OR COALESCE(json_extract(stream_settings, '$.wsSettings.acceptProxyProtocol'), 0) != 0
+      );
+
     UPDATE inbounds
     SET stream_settings=json_set(stream_settings, '$.externalProxy[0].port', port)
     WHERE json_valid(stream_settings)=1
@@ -118,17 +168,11 @@ xui_normalize_reference_preset_external_proxy_ports() {
       AND COALESCE(tag,'') NOT LIKE '%-warp'
       AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
       AND (
-        lower(COALESCE(remark,'')) LIKE '%vless-tcp-reality-%'
-        OR lower(COALESCE(remark,'')) LIKE '%vless-xhttp-reality%'
-        OR lower(COALESCE(remark,'')) LIKE '%vless-grpc%'
-        OR lower(COALESCE(remark,'')) LIKE '%vless-ws%'
-        OR lower(COALESCE(remark,'')) LIKE '%shadowsocks-tcp%'
+        lower(COALESCE(remark,'')) LIKE '%shadowsocks-tcp%'
         OR lower(COALESCE(remark,'')) LIKE '%hysteria2-udp%'
-        OR lower(COALESCE(remark,'')) LIKE '%trojan-tcp-reality%'
-        OR lower(COALESCE(remark,'')) LIKE '%trojan-grpc%'
       );
 
-    SELECT changes();
+    SELECT total_changes();
   " 2>/dev/null || true)"
   updated="${updated##*$'\n'}"
   if [[ "$updated" =~ ^[0-9]+$ && "$updated" -gt 0 ]]; then
@@ -278,6 +322,9 @@ xui_restore_reference_vless_grpc_reality_inbounds() {
       .security = "reality"
       | del(.tlsSettings)
       | .externalProxy[0].forceTls = "same"
+      | .externalProxy[0].port = 443
+      | .sockopt = (.sockopt // {})
+      | .sockopt.acceptProxyProtocol = true
       | .grpcSettings = (.grpcSettings // {})
       | .grpcSettings.authority = $decoy
       | .realitySettings = {
@@ -322,48 +369,105 @@ xui_disable_nginx_enabled_backup_configs() {
 }
 
 xui_ensure_nginx_reality_sni_routes() {
-  local db stream_conf backup tmp_stream sni_list
+  local db stream_conf upstream_conf backup_stream backup_upstreams had_upstreams=0
+  local tmp_stream tmp_upstreams map_routes map_keys rows inbound_id port sni upstream key
   db="$(xui_db_path)"
   stream_conf="${NGINX_STREAM_CONF:-/etc/nginx/stream-enabled/stream.conf}"
+  upstream_conf="${NGINX_XUI_REALITY_UPSTREAM_CONF:-/etc/nginx/stream-enabled/upm-xui-reality.conf}"
   [[ -f "$db" && -f "$stream_conf" ]] || return 0
   command -v sqlite3 >/dev/null 2>&1 || return 0
-
-  sni_list="$(sqlite3 -readonly "$db" "
-    WITH reality_inbounds AS (
-      SELECT stream_settings
-      FROM inbounds
-      WHERE enable=1
-        AND protocol='vless'
-        AND json_valid(stream_settings)=1
-        AND json_extract(stream_settings,'$.network')='tcp'
-        AND json_extract(stream_settings,'$.security')='reality'
-    ),
-    names AS (
-      SELECT json_extract(stream_settings,'$.realitySettings.settings.serverName') AS name
-      FROM reality_inbounds
-      UNION
-      SELECT value AS name
-      FROM reality_inbounds,
-           json_each(COALESCE(json_extract(stream_settings,'$.realitySettings.serverNames'),'[]'))
-    )
-    SELECT DISTINCT trim(name)
-    FROM names
-    WHERE trim(COALESCE(name,'')) <> '';
-  " 2>/dev/null || true)"
-  [[ -n "$sni_list" ]] || return 0
   grep -q 'map[[:space:]]\+\$ssl_preread_server_name[[:space:]]\+\$sni_name' "$stream_conf" 2>/dev/null || return 0
 
-  backup="$(mktemp)"
-  cp -a "$stream_conf" "$backup" 2>/dev/null || backup=""
+  rows="$(sqlite3 -separator $'\t' -readonly "$db" "
+    WITH reality_inbounds AS (
+      SELECT id, port, stream_settings
+      FROM inbounds
+      WHERE enable=1
+        AND protocol IN ('vless','trojan')
+        AND json_valid(stream_settings)=1
+        AND json_extract(stream_settings,'$.network') IN ('tcp','xhttp','grpc')
+        AND json_extract(stream_settings,'$.security')='reality'
+        AND COALESCE(tag,'') NOT LIKE '%-warp'
+        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+    ),
+    names AS (
+      SELECT reality_inbounds.id, reality_inbounds.port, trim(server_name.value) AS name
+      FROM reality_inbounds,
+           json_each(COALESCE(json_extract(stream_settings,'$.realitySettings.serverNames'),'[]')) AS server_name
+      UNION
+      SELECT reality_inbounds.id, reality_inbounds.port, trim(COALESCE(json_extract(stream_settings,'$.realitySettings.settings.serverName'),'')) AS name
+      FROM reality_inbounds
+    )
+    SELECT DISTINCT id, port, name
+    FROM names
+    WHERE name <> ''
+    ORDER BY id, name;
+  " 2>/dev/null || true)"
+
+  map_routes="$(mktemp)"
+  map_keys="$(mktemp)"
   tmp_stream="$(mktemp)"
-  awk -v snis="$sni_list" '
+  tmp_upstreams="$(mktemp)"
+  : > "$map_routes"
+  : > "$map_keys"
+  printf '# Managed by unified-proxy-manager. Do not edit.\n' > "$tmp_upstreams"
+
+  declare -A route_ports=()
+  declare -A upstreams=()
+  while IFS=$'\t' read -r inbound_id port sni; do
+    inbound_id="${inbound_id//$'\r'/}"
+    port="${port//$'\r'/}"
+    sni="${sni//$'\r'/}"
+    [[ -n "$inbound_id" && -n "$port" && -n "$sni" ]] || continue
+    [[ "$inbound_id" =~ ^[0-9]+$ && "$port" =~ ^[0-9]+$ && "$port" -gt 0 && "$port" -le 65535 ]] || {
+      warn "invalid REALITY route row: inbound=$inbound_id port=$port sni=$sni"
+      rm -f "$map_routes" "$map_keys" "$tmp_stream" "$tmp_upstreams"
+      return 1
+    }
+    [[ "$sni" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || {
+      warn "invalid REALITY SNI in x-ui database: $sni"
+      rm -f "$map_routes" "$map_keys" "$tmp_stream" "$tmp_upstreams"
+      return 1
+    }
+    key="${sni,,}"
+    if [[ -n "${route_ports[$key]:-}" && "${route_ports[$key]}" != "$port" ]]; then
+      warn "REALITY SNI $sni is assigned to multiple backend ports (${route_ports[$key]} and $port); each public-443 REALITY preset needs a unique SNI"
+      rm -f "$map_routes" "$map_keys" "$tmp_stream" "$tmp_upstreams"
+      return 1
+    fi
+    route_ports["$key"]="$port"
+    upstream="upm_xui_reality_${inbound_id}"
+    if ! grep -Fqx "$key" "$map_keys"; then
+      printf '%s\n' "$key" >> "$map_keys"
+      printf '    %-32s %s; # upm-xui-reality\n' "$sni" "$upstream" >> "$map_routes"
+    fi
+    if [[ -z "${upstreams[$upstream]:-}" ]]; then
+      upstreams["$upstream"]=1
+      printf '\nupstream %s {\n    server 127.0.0.1:%s;\n}\n' "$upstream" "$port" >> "$tmp_upstreams"
+    fi
+  done <<<"$rows"
+
+  backup_stream="$(mktemp)"
+  cp -a "$stream_conf" "$backup_stream"
+  backup_upstreams="$(mktemp)"
+  if [[ -f "$upstream_conf" ]]; then
+    cp -a "$upstream_conf" "$backup_upstreams"
+    had_upstreams=1
+  fi
+
+  awk -v routes_file="$map_routes" -v keys_file="$map_keys" '
     BEGIN {
-      n = split(snis, raw, "\n")
-      for (i = 1; i <= n; i++) {
-        if (raw[i] != "") route[raw[i]] = 1
+      while ((getline line < routes_file) > 0) {
+        routes[++route_count] = line
       }
+      close(routes_file)
+      while ((getline line < keys_file) > 0) {
+        managed[line] = 1
+      }
+      close(keys_file)
       in_map = 0
       inserted = 0
+      skipping = 0
     }
     function map_key(line,    cleaned, parts) {
       cleaned = line
@@ -374,17 +478,29 @@ xui_ensure_nginx_reality_sni_routes() {
       split(cleaned, parts, /[[:space:]]+/)
       return parts[1]
     }
-    function print_routes(    name) {
+    function print_routes(    i) {
       if (inserted) return
-      for (name in route) {
-        printf "    %-32s xray;\n", name
-        seen[name] = 1
+      print "    # BEGIN unified-proxy-manager x-ui reality routes"
+      for (i = 1; i <= route_count; i++) {
+        print routes[i]
       }
+      print "    # END unified-proxy-manager x-ui reality routes"
       inserted = 1
     }
     $0 ~ /^[[:space:]]*map[[:space:]]+\$ssl_preread_server_name[[:space:]]+\$sni_name[[:space:]]*\{/ {
       in_map = 1
       print
+      next
+    }
+    in_map && $0 ~ /^[[:space:]]*#[[:space:]]*BEGIN unified-proxy-manager x-ui reality routes[[:space:]]*$/ {
+      skipping = 1
+      next
+    }
+    in_map && $0 ~ /^[[:space:]]*#[[:space:]]*END unified-proxy-manager x-ui reality routes[[:space:]]*$/ {
+      skipping = 0
+      next
+    }
+    in_map && skipping {
       next
     }
     in_map && $0 ~ /^[[:space:]]*hostnames;[[:space:]]*$/ {
@@ -400,28 +516,36 @@ xui_ensure_nginx_reality_sni_routes() {
     }
     in_map {
       candidate = map_key($0)
-      if (candidate in route) next
-      if (candidate != "" && seen[candidate]++) next
+      if (tolower(candidate) in managed) next
+      if ($0 ~ /#[[:space:]]*upm-xui-reality[[:space:]]*$/) next
     }
     { print }
+    END {
+      if (!inserted) exit 42
+    }
   ' "$stream_conf" > "$tmp_stream" || {
-    rm -f "$tmp_stream"
-    [[ -n "$backup" && -f "$backup" ]] && rm -f "$backup"
+    rm -f "$map_routes" "$map_keys" "$tmp_stream" "$tmp_upstreams" "$backup_stream" "$backup_upstreams"
     return 1
   }
-  mv -f "$tmp_stream" "$stream_conf"
+  install -m 0644 "$tmp_stream" "$stream_conf"
+  install -m 0644 "$tmp_upstreams" "$upstream_conf"
 
   if command -v nginx >/dev/null 2>&1; then
     if nginx -t >/dev/null 2>&1; then
       systemctl reload nginx 2>/dev/null || true
     else
-      [[ -n "$backup" && -f "$backup" ]] && cp -a "$backup" "$stream_conf" 2>/dev/null || true
+      cp -a "$backup_stream" "$stream_conf" 2>/dev/null || true
+      if [[ "$had_upstreams" == "1" ]]; then
+        cp -a "$backup_upstreams" "$upstream_conf" 2>/dev/null || true
+      else
+        rm -f "$upstream_conf"
+      fi
       warn "nginx Reality SNI stream route update failed validation; restored $stream_conf"
-      [[ -n "$backup" && -f "$backup" ]] && rm -f "$backup"
+      rm -f "$map_routes" "$map_keys" "$tmp_stream" "$tmp_upstreams" "$backup_stream" "$backup_upstreams"
       return 1
     fi
   fi
-  [[ -n "$backup" && -f "$backup" ]] && rm -f "$backup"
+  rm -f "$map_routes" "$map_keys" "$tmp_stream" "$tmp_upstreams" "$backup_stream" "$backup_upstreams"
 }
 
 xui_ensure_nginx_dynamic_proxy() {
@@ -494,12 +618,18 @@ xui_allow_public_inbound_port() {
   ufw allow "${port}/${protocol}" >/dev/null 2>&1 || true
 }
 
-xui_open_public_preset_ports() {
-  local db rows port protocol
+xui_public_preset_port_rules() {
+  local db
   db="$(xui_db_path)"
   [[ -f "$db" ]] || return 0
-  rows="$(sqlite3 -separator $'\t' -readonly "$db" "
-    SELECT port,
+  sqlite3 -separator $'\t' -readonly "$db" "
+    SELECT DISTINCT
+           CASE
+             WHEN json_valid(stream_settings)=1
+                  AND CAST(COALESCE(json_extract(stream_settings,'$.externalProxy[0].port'),0) AS INTEGER) > 0
+               THEN CAST(json_extract(stream_settings,'$.externalProxy[0].port') AS INTEGER)
+             ELSE port
+           END,
            CASE
              WHEN protocol IN ('hysteria','hysteria2') THEN 'udp'
              ELSE 'tcp'
@@ -508,7 +638,12 @@ xui_open_public_preset_ports() {
     WHERE enable=1
       AND port > 0
 $(xui_preset_inbound_filter_sql);
-  " 2>/dev/null || true)"
+  " 2>/dev/null || true
+}
+
+xui_open_public_preset_ports() {
+  local rows port protocol
+  rows="$(xui_public_preset_port_rules)"
   while IFS=$'\t' read -r port protocol; do
     [[ -n "$port" ]] || continue
     xui_allow_public_inbound_port "$port" "${protocol:-tcp}"
@@ -559,6 +694,7 @@ xui_install_3dp_reference_presets() {
         network:$network,
         security:"reality",
         externalProxy:[{forceTls:"same",dest:$publicDomain,port:$inboundPort,remark:""}],
+        sockopt:{acceptProxyProtocol:true},
         realitySettings:{
           show:false,
           xver:0,
@@ -599,15 +735,23 @@ xui_install_3dp_reference_presets() {
   xui_3dp_insert vless "$port" "${emoji_flag} vless-grpc-reality" "$settings" "$stream"
 
   port="$(xui_3dp_random_port)"
+  # vless-ws is fronted on public 443 by the nginx domain vhost (www upstream),
+  # which terminates TLS for $public_domain and path-proxies "/<port>/" to this
+  # backend (xui_ensure_nginx_dynamic_proxy). forceTls:"tls" makes the published
+  # link use TLS+SNI=$public_domain. nginx forwards plain HTTP upgrade to the
+  # backend (no PROXY header at the http hop), so acceptProxyProtocol is false.
   stream="$(jq -cn --arg publicDomain "$public_domain" --argjson port "$port" '{
     network:"ws",
     security:"none",
-    externalProxy:[{forceTls:"none",dest:$publicDomain,port:$port,remark:""}],
-    wsSettings:{host:$publicDomain,path:"/",acceptProxyProtocol:false,heartbeatPeriod:0,headers:{}}
+    externalProxy:[{forceTls:"tls",dest:$publicDomain,port:443,remark:""}],
+    wsSettings:{host:$publicDomain,path:("/" + ($port|tostring) + "/"),acceptProxyProtocol:false,heartbeatPeriod:0,headers:{}}
   }')"
   xui_3dp_insert vless "$port" "${emoji_flag} vless-ws" "$settings" "$stream"
 
-  port="$(xui_3dp_random_port)"
+  # shadowsocks-tcp has no SNI/TLS, so it cannot share nginx's 443. It keeps a
+  # stable dedicated port (default 8388, override SS_PUBLIC_PORT) that you open
+  # once in the provider firewall/security group.
+  port="$(xui_next_free_inbound_port "$db" "${SS_PUBLIC_PORT:-8388}")"
   password="$(openssl rand -base64 32 | tr -d '\n')"
   settings="$(jq -cn --arg password "$password" '{clients:[],ivCheck:false,method:"2022-blake3-aes-256-gcm",network:"tcp",password:$password}')"
   stream="$(jq -cn --arg publicDomain "$public_domain" --argjson port "$port" '{
@@ -618,7 +762,13 @@ xui_install_3dp_reference_presets() {
   }')"
   xui_3dp_insert shadowsocks "$port" "${emoji_flag} shadowsocks-tcp" "$settings" "$stream"
 
-  port="$(xui_3dp_random_port)"
+  # hysteria2 is QUIC/UDP and cannot share nginx's TCP 443. In xui-only mode it
+  # binds public UDP 443. Unified installs override HY2_PUBLIC_PORT because the
+  # NHM hysteria-server already owns UDP 443.
+  port="${HY2_PUBLIC_PORT:-443}"
+  if [[ "$port" != "443" ]]; then
+    port="$(xui_next_free_inbound_port "$db" "$port")"
+  fi
   auth="$(openssl rand -hex 16)"
   obfs_password="$(openssl rand -hex 8)"
   settings="$(jq -cn --arg auth "$auth" '{clients:[],version:2}')"

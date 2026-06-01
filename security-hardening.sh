@@ -4,6 +4,8 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=lib/xui-routing.sh
+source "$SCRIPT_DIR/lib/xui-routing.sh"
 
 APPLY=0
 ASSUME_YES=0
@@ -42,7 +44,7 @@ Options:
   --no-probe-resistance       Do not add probe_resistance to /etc/caddy-nh/Caddyfile.
   --ssh-disable-password      Disable SSH password login.
   --ssh-disable-root          Disable SSH root login. Risky unless a sudo user exists.
-  --allow-port PORT[/PROTO]   Keep an extra port open, e.g. 8443/tcp. Repeatable.
+  --allow-port PORT[/PROTO]   Keep an extra port open, e.g. 2053/tcp. Repeatable.
   -h, --help                  Show this help.
 
 Firewall profile:
@@ -50,6 +52,7 @@ Firewall profile:
   allow 80/tcp
   allow 443/tcp
   allow 443/udp
+  preserve published ports for enabled x-ui presets
   close or restrict PANEL_PORT/tcp depending on panel mode
 EOF
 }
@@ -295,6 +298,10 @@ run ufw allow "${SSH_PORT}/tcp"
 run ufw allow 80/tcp
 run ufw allow 443/tcp
 run ufw allow 443/udp
+while IFS=$'\t' read -r port protocol; do
+  [[ -n "$port" ]] || continue
+  run ufw allow "${port}/${protocol:-tcp}"
+done < <(xui_public_preset_port_rules)
 for rule in "${EXTRA_ALLOW_RULES[@]}"; do
   [[ -n "$rule" ]] || continue
   run ufw allow "$rule"

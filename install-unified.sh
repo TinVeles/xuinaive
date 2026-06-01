@@ -32,6 +32,7 @@ AUTO_INSTALL_WARP="${AUTO_INSTALL_WARP:-0}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-0}"
 XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
+XUI_HY2_PUBLIC_PORT="${XUI_HY2_PUBLIC_PORT:-24443}"
 PRINT_ACCESS_INFO=1
 NH_ENABLE_MIERU=0
 ALLOW_DESTROY_EXISTING="${UPM_ALLOW_DESTROY_EXISTING:-0}"
@@ -230,6 +231,7 @@ is_valid_domain "$NH_DOMAIN" || die "--nh-domain is invalid: $NH_DOMAIN"
 is_valid_domain "$REALITY_DEST" || die "--reality-dest is invalid: $REALITY_DEST"
 is_valid_email "$NH_EMAIL" || die "--nh-email is invalid: $NH_EMAIL"
 is_valid_port "$PANEL_PUBLIC_PORT" || die "--panel-public-port must be 1..65535"
+is_valid_port "$XUI_HY2_PUBLIC_PORT" || die "XUI_HY2_PUBLIC_PORT must be 1..65535"
 is_valid_hostport "$NH_BACKEND" || die "--nh-backend must be safe host:port"
 if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
   [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
@@ -258,6 +260,7 @@ Reality dest:        ${REALITY_DEST}
 NHM email:         ${NH_EMAIL}
 Panel port:          ${PANEL_PUBLIC_PORT}
 Backend listen:      ${NH_BACKEND}
+x-ui Hysteria2 UDP:  ${XUI_HY2_PUBLIC_PORT}
 Mieru module:        $([[ "$NH_ENABLE_MIERU" == "1" ]] && printf enabled || printf disabled)
 TLS cert:            ${TLS_CERT:-auto/ACME}
 TLS key:             ${TLS_KEY:-auto/ACME}
@@ -271,6 +274,7 @@ Unified all-in-one real install plan
 3. Install NHM Panel + NaiveProxy + Hysteria2:
    caddy-nh binds ${NH_BACKEND} for TCP NaiveProxy.
    hysteria-server binds 0.0.0.0:443/udp.
+   x-ui Hysteria2 keeps its separate ${XUI_HY2_PUBLIC_PORT}/udp listener.
    panel-naive-hy2 is exposed with panel access mode ${PANEL_ACCESS} on port ${PANEL_PUBLIC_PORT}.
 4. Install WARP local proxy only when --install-warp is enabled.
 5. Generate x-ui, NaiveProxy, Hysteria2, and combined subscriptions when enabled.
@@ -315,6 +319,7 @@ XUI_PROFILE_PREFIX="$PROFILE_PREFIX" \
 XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
 XUI_APPLY_WARP_TEMPLATE="$XUI_APPLY_WARP_TEMPLATE" \
 XUI_CREATE_DIRECT_CLIENTS="$XUI_CREATE_DIRECT" \
+HY2_PUBLIC_PORT="$XUI_HY2_PUBLIC_PORT" \
 UPM_ALLOW_DESTROY_EXISTING="$ALLOW_DESTROY_EXISTING" \
 WARP_INBOUND_TAG="$WARP_INBOUND_TAG" \
 bash "$XUI_RUNTIME_SCRIPT" -install yes -panel 1 -subdomain "$XUI_DOMAIN" -reality_domain "$REALITY_DEST"
@@ -404,6 +409,7 @@ config_set WARP_AI_DOMAINS "$WARP_AI_DOMAINS"
 config_set XUI_ENABLE_WARP_ROUTING "$XUI_ENABLE_WARP_ROUTING"
 config_set XUI_APPLY_WARP_TEMPLATE "$XUI_APPLY_WARP_TEMPLATE"
 config_set XUI_CREATE_DIRECT "$XUI_CREATE_DIRECT"
+config_set XUI_HY2_PUBLIC_PORT "$XUI_HY2_PUBLIC_PORT"
 ok "Saved final configuration: $SCRIPT_DIR/config.env"
 
 if [[ "$GENERATE_PROFILES" == "1" ]]; then

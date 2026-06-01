@@ -61,6 +61,8 @@ XUI_DB="$db" xui_disable_experimental_trojan_grpc_presets
 [[ "$(sqlite3 -readonly "$db" "SELECT json_extract(stream_settings,'$.security') FROM inbounds WHERE id=2;")" == "reality" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT json_extract(stream_settings,'$.realitySettings.serverNames[0]') FROM inbounds WHERE id=2;")" == "dzen.ru" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT json_extract(stream_settings,'$.grpcSettings.authority') FROM inbounds WHERE id=2;")" == "dzen.ru" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT json_extract(stream_settings,'$.externalProxy[0].port') FROM inbounds WHERE id=2;")" == "443" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT json_extract(stream_settings,'$.sockopt.acceptProxyProtocol') FROM inbounds WHERE id=2;")" == "1" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT remark FROM inbounds WHERE id=2;")" == "vless-grpc-reality" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT json_extract(stream_settings,'$.security') FROM inbounds WHERE id=3;")" == "tls" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT remark FROM inbounds WHERE id=3;")" == "trojan-grpc-tls" ]]

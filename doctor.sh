@@ -109,7 +109,7 @@ port_details() {
 
 xui_inbound_check() {
   local db="/etc/x-ui/x-ui.db"
-  local rows id remark protocol port network security external_port socket_type details
+  local rows id remark protocol port network security external_port expected_external_port socket_type details
   [[ -f "$db" ]] || { warn "x-ui database not found: $db"; return 0; }
   command_exists sqlite3 || { warn "sqlite3 missing; cannot inspect x-ui inbounds"; return 0; }
 
@@ -137,8 +137,12 @@ xui_inbound_check() {
     else
       bad "x-ui inbound id=$id protocol=$protocol network=${network:-none} security=${security:-none} is enabled but ${port}/${socket_type} is not listening"
     fi
-    if [[ -n "$external_port" && "$external_port" != "$port" ]]; then
-      warn "x-ui inbound id=$id remark=$remark exports stale public port $external_port; expected $port"
+    expected_external_port="$port"
+    if [[ "$security" == "reality" || "$network" == "ws" ]]; then
+      expected_external_port="443"
+    fi
+    if [[ -n "$external_port" && "$external_port" != "$expected_external_port" ]]; then
+      warn "x-ui inbound id=$id remark=$remark exports stale public port $external_port; expected $expected_external_port"
     fi
   done <<<"$rows"
 }

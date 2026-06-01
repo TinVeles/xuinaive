@@ -340,12 +340,13 @@ xui_post_update_db() {
   xui_repair_invalid_inbound_json
   xui_remove_deprecated_vmess_presets
   xui_disable_experimental_trojan_grpc_presets
-  xui_normalize_reference_preset_external_proxy_ports
   xui_sanitize_inbound_tags
   xui_enable_preset_xhttp
   xui_normalize_xhttp_tcp_inbounds
   xui_restore_reference_vless_grpc_reality_inbounds
+  xui_normalize_reference_preset_external_proxy_ports
   xui_ensure_nginx_dynamic_proxy
+  xui_ensure_nginx_reality_sni_routes
   xui_enable_preset_domain_sniffing
   xui_fix_all_vless_decryption
   xui_validate_inbound_json
@@ -1490,11 +1491,13 @@ xui_install_3dp_reference_presets \
 xui_repair_invalid_inbound_json
 xui_remove_deprecated_vmess_presets
 xui_disable_experimental_trojan_grpc_presets
-xui_normalize_reference_preset_external_proxy_ports
 xui_sanitize_inbound_tags
 xui_normalize_grpc_service_names
 xui_restore_reference_vless_grpc_reality_inbounds
+xui_normalize_reference_preset_external_proxy_ports
 xui_enable_preset_domain_sniffing
+xui_ensure_nginx_dynamic_proxy
+xui_ensure_nginx_reality_sni_routes
 if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && "$XUI_AUTO_INSTALL_WARP" == "1" ]]; then
   ensure_warp_local_proxy "$UPM_ROOT_DIR"
 fi
@@ -1801,8 +1804,6 @@ ufw allow 80/tcp
 ufw allow 443/tcp
 ufw allow "${panel_port}/tcp"
 ufw allow "${sub_port}/tcp"
-ufw allow "${ws_port}/tcp"
-ufw allow "${trojan_port}/tcp"
 xui_open_public_preset_ports
 ufw --force enable  
 ##################################Show Details##########################################################

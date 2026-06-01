@@ -190,7 +190,7 @@ fi
 
 backup_dir="/opt/unified-proxy-manager/backups/profiles-$(date '+%Y-%m-%d-%H-%M-%S')"
 mkdir -p "$backup_dir"
-for path in "$XUI_DB" "$NH_CONFIG" "$CADDYFILE" "$HYSTERIA_CONFIG" "$NH_PROFILE_MAP" /etc/nginx/snippets/nh-subscriptions.conf /etc/nginx/snippets/includes.conf; do
+for path in "$XUI_DB" "$NH_CONFIG" "$CADDYFILE" "$HYSTERIA_CONFIG" "$NH_PROFILE_MAP" /etc/nginx/snippets/nh-subscriptions.conf /etc/nginx/snippets/includes.conf /etc/nginx/stream-enabled/stream.conf /etc/nginx/stream-enabled/upm-xui-reality.conf; do
   if [[ -e "$path" || -L "$path" ]]; then
     mkdir -p "$backup_dir$(dirname "$path")"
     cp -a "$path" "$backup_dir$(dirname "$path")/"
@@ -527,13 +527,13 @@ xui_add_clients() {
   xui_repair_invalid_inbound_json
   xui_remove_deprecated_vmess_presets
   xui_disable_experimental_trojan_grpc_presets
-  xui_normalize_reference_preset_external_proxy_ports
   xui_sanitize_inbound_tags
   xui_disable_nginx_enabled_backup_configs
   xui_enable_standard_preset_inbounds
   xui_normalize_xhttp_tcp_inbounds
   xui_normalize_grpc_service_names
   xui_restore_reference_vless_grpc_reality_inbounds
+  xui_normalize_reference_preset_external_proxy_ports
   xui_ensure_nginx_dynamic_proxy
   xui_ensure_nginx_reality_sni_routes
   xui_enable_preset_domain_sniffing

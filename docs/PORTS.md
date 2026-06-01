@@ -7,10 +7,13 @@ Based on `AUDIT.md`, these are the important upstream ports to check before any 
 - `80/tcp`: nginx HTTP redirect and ACME.
 - `443/tcp`: nginx stream SNI public entrypoint.
 - `7443/tcp`: local nginx TLS vhost for panel/websocket domain.
-- `8443/tcp`: Xray REALITY inbound.
+- Random high TCP ports: Xray REALITY backends routed from public `443/tcp`
+  by each preset's decoy SNI.
 - `9443/tcp`: local nginx TLS vhost for REALITY destination.
 - `8080/tcp` on `127.0.0.1`: `sub2sing-box`.
-- Random high ports: panel/sub/ws/trojan internals.
+- `443/udp`: x-ui Hysteria2 preset in x-ui-only mode.
+- `8388/tcp`: x-ui Shadowsocks preset by default.
+- Random high ports: panel/sub/ws internals.
 
 ## NaiveProxy
 
@@ -22,10 +25,13 @@ Based on `AUDIT.md`, these are the important upstream ports to check before any 
 
 - `443/tcp`: public nginx stream SNI router.
 - `7443/tcp`: x-ui-pro HTTPS/web backend.
-- `8443/tcp`: x-ui-pro REALITY backend.
+- Random high TCP ports: x-ui-pro REALITY backends routed by decoy SNI.
 - `9443/tcp`: x-ui-pro REALITY destination nginx backend.
 - `9445/tcp` on `127.0.0.1`: NHM NaiveProxy/Caddy backend service `caddy-nh`.
-- `443/udp`: Hysteria2 service `hysteria-server`.
+- `443/udp`: NHM Hysteria2 service `hysteria-server`.
+- `24443/udp`: x-ui Hysteria2 preset by default in `--mode all`. Override
+  with `XUI_HY2_PUBLIC_PORT` if needed.
+- `8388/tcp`: x-ui Shadowsocks preset by default.
 - `3000/tcp`: NHM Panel service `panel-naive-hy2`.
 - `8081/tcp`: nginx HTTP proxy to the NHM Panel by default.
 - `40000/tcp` on `127.0.0.1`: optional Cloudflare WARP local proxy when `--install-warp` is used.
@@ -59,4 +65,6 @@ In all-in-one mode, NaiveProxy clients still connect to external `443`; nginx st
 
 ## Conflict Rule
 
-On one VPS, only one process should own public `443/tcp`. In `--mode all`, nginx owns public `443/tcp`; NHM Caddy is moved to loopback. Hysteria2 uses `443/udp`, so it can coexist with nginx TCP.
+On one VPS, only one process should own public `443/tcp`. In `--mode all`,
+nginx owns public `443/tcp`; NHM Caddy is moved to loopback. NHM Hysteria2 owns
+`443/udp`, while the x-ui Hysteria2 preset uses separate `24443/udp`.
