@@ -111,6 +111,42 @@ port_details() {
   fi
 }
 
+xui_inbound_check() {
+  local db="/etc/x-ui/x-ui.db"
+  local rows id remark protocol port network security external_port socket_type details
+  [[ -f "$db" ]] || { warn "x-ui database not found: $db"; return 0; }
+  command_exists sqlite3 || { warn "sqlite3 missing; cannot inspect x-ui inbounds"; return 0; }
+
+  rows="$(sqlite3 -separator $'\t' -readonly "$db" "
+    SELECT id,
+           COALESCE(remark,''),
+           protocol,
+           COALESCE(port,0),
+           COALESCE(json_extract(stream_settings,'$.network'),''),
+           COALESCE(json_extract(stream_settings,'$.security'),''),
+           COALESCE(json_extract(stream_settings,'$.externalProxy[0].port'),'')
+    FROM inbounds
+    WHERE enable=1
+    ORDER BY id;
+  " 2>/dev/null || true)"
+  [[ -n "$rows" ]] || { warn "No enabled x-ui inbounds found"; return 0; }
+
+  while IFS=$'\t' read -r id remark protocol port network security external_port; do
+    [[ "$port" =~ ^[0-9]+$ && "$port" -gt 0 ]] || continue
+    socket_type="tcp"
+    [[ "$protocol" == "hysteria" || "$protocol" == "hysteria2" ]] && socket_type="udp"
+    details="$(port_details "$port")"
+    if [[ -n "$details" ]]; then
+      ok "x-ui inbound id=$id protocol=$protocol network=${network:-none} security=${security:-none} listens on ${port}/${socket_type}"
+    else
+      bad "x-ui inbound id=$id protocol=$protocol network=${network:-none} security=${security:-none} is enabled but ${port}/${socket_type} is not listening"
+    fi
+    if [[ -n "$external_port" && "$external_port" != "$port" ]]; then
+      warn "x-ui inbound id=$id remark=$remark exports stale public port $external_port; expected $port"
+    fi
+  done <<<"$rows"
+}
+
 service_active() {
   local svc="$1"
   command_exists systemctl && systemctl is-active --quiet "$svc" 2>/dev/null
@@ -281,6 +317,10 @@ for port in 80 443 2053 3000 8080 8081 8443 9443 9445 "$WARP_PROXY_PORT"; do
     ok "Port $port is free or not detected"
   fi
 done
+
+echo
+echo "x-ui enabled inbounds:"
+xui_inbound_check
 
 echo
 echo "Services:"

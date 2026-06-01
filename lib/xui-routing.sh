@@ -66,6 +66,36 @@ xui_remove_deprecated_vmess_presets() {
   fi
 }
 
+xui_normalize_reference_preset_external_proxy_ports() {
+  local db updated
+  db="$(xui_db_path)"
+  [[ -f "$db" ]] || return 0
+  updated="$(sqlite3 "$db" "
+    UPDATE inbounds
+    SET stream_settings=json_set(stream_settings, '$.externalProxy[0].port', port)
+    WHERE json_valid(stream_settings)=1
+      AND json_type(stream_settings, '$.externalProxy[0]')='object'
+      AND CAST(COALESCE(json_extract(stream_settings, '$.externalProxy[0].port'), 0) AS INTEGER) != port
+      AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+      AND (
+        lower(COALESCE(remark,'')) LIKE '%vless-tcp-reality-%'
+        OR lower(COALESCE(remark,'')) LIKE '%vless-xhttp-reality%'
+        OR lower(COALESCE(remark,'')) LIKE '%vless-grpc-reality%'
+        OR lower(COALESCE(remark,'')) LIKE '%vless-ws%'
+        OR lower(COALESCE(remark,'')) LIKE '%shadowsocks-tcp%'
+        OR lower(COALESCE(remark,'')) LIKE '%hysteria2-udp%'
+        OR lower(COALESCE(remark,'')) LIKE '%trojan-tcp-reality%'
+      );
+
+    SELECT changes();
+  " 2>/dev/null || true)"
+  updated="${updated##*$'\n'}"
+  if [[ "$updated" =~ ^[0-9]+$ && "$updated" -gt 0 ]]; then
+    printf 'INFO: Normalized reference preset public port(s): %s\n' "$updated"
+  fi
+}
+
 xui_enable_warp_domain_sniffing() {
   xui_enable_preset_domain_sniffing
 }

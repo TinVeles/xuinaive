@@ -339,6 +339,7 @@ xui_validate_inbound_json() {
 xui_post_update_db() {
   xui_repair_invalid_inbound_json
   xui_remove_deprecated_vmess_presets
+  xui_normalize_reference_preset_external_proxy_ports
   xui_sanitize_inbound_tags
   xui_enable_preset_xhttp
   xui_normalize_xhttp_tcp_inbounds
@@ -1486,6 +1487,7 @@ xui_install_3dp_reference_presets \
   "/root/cert/${domain}/privkey.pem"
 xui_repair_invalid_inbound_json
 xui_remove_deprecated_vmess_presets
+xui_normalize_reference_preset_external_proxy_ports
 xui_sanitize_inbound_tags
 xui_normalize_grpc_service_names
 xui_enable_preset_domain_sniffing

@@ -187,7 +187,8 @@ derived mix plus one Trojan preset:
 - one Trojan TCP REALITY inbound.
 
 VMess is intentionally omitted because it is deprecated. Profile regeneration
-also removes old project-generated `vmess-tcp` preset inbounds.
+also removes old project-generated `vmess-tcp` preset inbounds and repairs
+public-port metadata left by older generated Shadowsocks presets.
 
 `3dp-manager` provides Trojan TCP REALITY, not Trojan gRPC. The older generated
 Trojan gRPC preset was removed because its nginx path proxy was not reliable.

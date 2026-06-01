@@ -541,6 +541,7 @@ xui_add_clients() {
   : > "$report_file"
   xui_repair_invalid_inbound_json
   xui_remove_deprecated_vmess_presets
+  xui_normalize_reference_preset_external_proxy_ports
   xui_sanitize_inbound_tags
   xui_disable_nginx_enabled_backup_configs
   xui_enable_standard_preset_inbounds
