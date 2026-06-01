@@ -518,7 +518,7 @@ $(xui_preset_inbound_filter_sql);
 xui_install_3dp_reference_presets() {
   local db="$1" public_domain="$2" private_key="$3" public_key="$4" emoji_flag="$5"
   local certificate_file="$6" key_file="$7"
-  local sniffing settings stream port sni tag remark password auth obfs_password
+  local sniffing settings stream port sni tag remark password auth obfs_password reality_index
 
   [[ -f "$db" ]] || return 0
 
@@ -578,10 +578,12 @@ xui_install_3dp_reference_presets() {
   sqlite3 "$db" "DELETE FROM client_traffics; DELETE FROM inbounds;"
 
   settings='{"clients":[],"decryption":"none","encryption":"none","fallbacks":[]}'
+  reality_index=0
   for sni in ya.ru vk.com ok.ru ozon.ru; do
+    reality_index=$((reality_index + 1))
     port="$(xui_3dp_random_port)"
     stream="$(xui_3dp_reality_stream tcp "$sni" "$port" '{"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}')"
-    xui_3dp_insert vless "$port" "${emoji_flag} vless-tcp-reality-${sni}" "$settings" "$stream"
+    xui_3dp_insert vless "$port" "${emoji_flag} vless-tcp-reality-${reality_index}" "$settings" "$stream"
   done
 
   port="$(xui_3dp_random_port)"
