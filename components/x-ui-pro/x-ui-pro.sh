@@ -338,6 +338,7 @@ xui_validate_inbound_json() {
 
 xui_post_update_db() {
   xui_repair_invalid_inbound_json
+  xui_remove_deprecated_vmess_presets
   xui_sanitize_inbound_tags
   xui_enable_preset_xhttp
   xui_normalize_xhttp_tcp_inbounds
@@ -421,7 +422,7 @@ xui_seed_default_profiles() {
   inbound_rows="$(sqlite3 -separator $'\t' "$XUIDB" \
     "SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
      FROM inbounds
-     WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2')
+     WHERE protocol IN ('vless','trojan','shadowsocks','hysteria','hysteria2')
        AND COALESCE(tag,'') NOT LIKE '%-warp'
        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
 $(xui_preset_inbound_filter_sql)
@@ -480,7 +481,7 @@ xui_seed_bulk_profiles() {
   inbound_rows="$(sqlite3 -separator $'\t' "$XUIDB" \
     "SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
      FROM inbounds
-     WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2')
+     WHERE protocol IN ('vless','trojan','shadowsocks','hysteria','hysteria2')
        AND COALESCE(tag,'') NOT LIKE '%-warp'
        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
 $(xui_preset_inbound_filter_sql)
@@ -585,7 +586,7 @@ xui_disable_duplicate_xhttp_unix_listeners() {
 xui_repair_client_traffic_rows() {
   [[ -f "$XUIDB" ]] || return 0
   local rows inbound_id protocol settings client_rows email enable exact_count email_count
-  rows="$(sqlite3 -readonly -separator $'\t' "$XUIDB" "SELECT id, protocol, settings FROM inbounds WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2') AND json_valid(settings)=1;" 2>/dev/null || true)"
+  rows="$(sqlite3 -readonly -separator $'\t' "$XUIDB" "SELECT id, protocol, settings FROM inbounds WHERE protocol IN ('vless','trojan','shadowsocks','hysteria','hysteria2') AND json_valid(settings)=1;" 2>/dev/null || true)"
   [[ -n "$rows" ]] || return 0
   while IFS=$'\t' read -r inbound_id protocol settings; do
     [[ -n "$inbound_id" && -n "$settings" ]] || continue
@@ -1484,6 +1485,7 @@ xui_install_3dp_reference_presets \
   "/root/cert/${domain}/fullchain.pem" \
   "/root/cert/${domain}/privkey.pem"
 xui_repair_invalid_inbound_json
+xui_remove_deprecated_vmess_presets
 xui_sanitize_inbound_tags
 xui_normalize_grpc_service_names
 xui_enable_preset_domain_sniffing

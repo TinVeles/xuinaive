@@ -435,7 +435,7 @@ xui_enable_standard_preset_inbounds() {
   sqlite3 "$XUI_DB" "
     UPDATE inbounds
     SET enable=1
-    WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2')
+    WHERE protocol IN ('vless','trojan','shadowsocks','hysteria','hysteria2')
       AND COALESCE(tag,'') NOT LIKE '%-warp'
       AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
 $(xui_preset_inbound_filter_sql);
@@ -540,6 +540,7 @@ xui_add_clients() {
   mkdir -p "$(dirname "$report_file")"
   : > "$report_file"
   xui_repair_invalid_inbound_json
+  xui_remove_deprecated_vmess_presets
   xui_sanitize_inbound_tags
   xui_disable_nginx_enabled_backup_configs
   xui_enable_standard_preset_inbounds
@@ -554,7 +555,7 @@ xui_add_clients() {
 
   query="SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
      FROM inbounds
-     WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2')
+     WHERE protocol IN ('vless','trojan','shadowsocks','hysteria','hysteria2')
        AND COALESCE(tag,'') NOT LIKE '%-warp'
        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
 $(xui_preset_inbound_filter_sql)"
@@ -639,7 +640,7 @@ xui_disable_duplicate_xhttp_unix_listeners() {
   sqlite3 "$XUI_DB" "
     UPDATE inbounds
     SET listen=''
-    WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2')
+    WHERE protocol IN ('vless','trojan','shadowsocks','hysteria','hysteria2')
       AND listen LIKE '/%'
       AND json_valid(stream_settings)=1
       AND json_extract(stream_settings,'$.network')='xhttp'
@@ -670,7 +671,7 @@ xui_disable_duplicate_xhttp_unix_listeners() {
 xui_repair_client_traffic_rows() {
   [[ -f "$XUI_DB" ]] || return 0
   local rows inbound_id protocol settings client_rows email enable exact_count email_count
-  rows="$(sqlite3 -readonly -separator $'\t' "$XUI_DB" "SELECT id, protocol, settings FROM inbounds WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2') AND json_valid(settings)=1;" 2>/dev/null || true)"
+  rows="$(sqlite3 -readonly -separator $'\t' "$XUI_DB" "SELECT id, protocol, settings FROM inbounds WHERE protocol IN ('vless','trojan','shadowsocks','hysteria','hysteria2') AND json_valid(settings)=1;" 2>/dev/null || true)"
   [[ -n "$rows" ]] || return 0
   while IFS=$'\t' read -r inbound_id protocol settings; do
     [[ -n "$inbound_id" && -n "$settings" ]] || continue
@@ -1208,19 +1209,6 @@ function trojanLink(row, client) {
   return `trojan://${encode(password)}@${ep.server}:${ep.port}?${params.toString()}#${encode(client.email || row.remark || 'x-ui')}`;
 }
 
-function vmessLink(row, client) {
-  const stream = JSON.parse(row.stream_settings || '{}');
-  const ep = endpoint(stream, row.port);
-  if (!ep.server || !client.id) return null;
-  const payload = {
-    v: '2', ps: client.email || row.remark || 'vmess', add: ep.server,
-    port: String(ep.port), id: client.id, aid: '0', scy: '',
-    net: String(stream.network || 'tcp'), type: 'none', host: '', path: '/',
-    tls: String(stream.security || 'none'), sni: '', alpn: '', fp: ''
-  };
-  return `vmess://${Buffer.from(JSON.stringify(payload), 'utf8').toString('base64')}`;
-}
-
 function shadowsocksLink(row, client) {
   const stream = JSON.parse(row.stream_settings || '{}');
   const settings = JSON.parse(row.settings || '{}');
@@ -1256,7 +1244,6 @@ function hysteria2Link(row, client) {
 
 function xuiLink(row, client) {
   if (row.protocol === 'trojan') return trojanLink(row, client);
-  if (row.protocol === 'vmess') return vmessLink(row, client);
   if (row.protocol === 'shadowsocks') return shadowsocksLink(row, client);
   if (row.protocol === 'hysteria' || row.protocol === 'hysteria2') return hysteria2Link(row, client);
   return vlessLink(row, client);
@@ -1288,7 +1275,7 @@ function xuiRows() {
       SELECT id, remark, port, protocol, settings, stream_settings, tag
       FROM inbounds
       WHERE enable=1
-        AND protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2')
+        AND protocol IN ('vless','trojan','shadowsocks','hysteria','hysteria2')
         AND json_valid(settings)=1
         AND json_valid(stream_settings)=1
       ORDER BY id
@@ -1366,15 +1353,18 @@ function xuiSettings() {
 function normalizeSubText(raw) {
   const text = String(raw || '').trim();
   if (!text || /<html/i.test(text)) return '';
-  const hasLinks = /(?:vless|trojan|vmess|ss|hysteria2|hy2):\/\//i.test(text);
-  if (hasLinks) return text.split(/\r?\n/).map(s => s.trim()).filter(Boolean).join('\n');
+  const supportedLinks = value => String(value || '')
+    .split(/\r?\n/)
+    .map(s => s.trim())
+    .filter(s => /^(?:vless|trojan|ss|hysteria2|hy2):\/\//i.test(s))
+    .join('\n');
+  const direct = supportedLinks(text);
+  if (direct) return direct;
   const compact = text.replace(/\s+/g, '');
   if (!/^[A-Za-z0-9+/=_-]+$/.test(compact)) return '';
   try {
     const decoded = Buffer.from(compact.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8').trim();
-    if (/(?:vless|trojan|vmess|ss|hysteria2|hy2):\/\//i.test(decoded)) {
-      return decoded.split(/\r?\n/).map(s => s.trim()).filter(Boolean).join('\n');
-    }
+    return supportedLinks(decoded);
   } catch (_) {}
   return '';
 }

@@ -17,7 +17,7 @@ xui_preset_inbound_filter_sql() {
          OR (protocol='trojan'
              AND json_valid(stream_settings)=1
              AND json_extract(stream_settings,'$.network') IN ('tcp','grpc'))
-         OR (protocol IN ('vmess','shadowsocks')
+         OR (protocol='shadowsocks'
              AND json_valid(stream_settings)=1
              AND json_extract(stream_settings,'$.network')='tcp')
          OR (protocol IN ('hysteria','hysteria2')
@@ -34,11 +34,36 @@ xui_enable_preset_domain_sniffing() {
   sqlite3 "$db" "
     UPDATE inbounds
     SET sniffing='{\"enabled\":true,\"destOverride\":[\"http\",\"tls\",\"quic\",\"fakedns\"],\"metadataOnly\":false,\"routeOnly\":true}'
-    WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2')
+    WHERE protocol IN ('vless','trojan','shadowsocks','hysteria','hysteria2')
 $(xui_preset_inbound_filter_sql)
       AND COALESCE(tag,'') NOT LIKE '%-warp'
       AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
   "
+}
+
+xui_remove_deprecated_vmess_presets() {
+  local db removed
+  db="$(xui_db_path)"
+  [[ -f "$db" ]] || return 0
+  removed="$(sqlite3 "$db" "
+    DELETE FROM client_traffics
+    WHERE inbound_id IN (
+      SELECT id
+      FROM inbounds
+      WHERE protocol='vmess'
+        AND lower(COALESCE(remark,'')) LIKE '%vmess-tcp%'
+    );
+
+    DELETE FROM inbounds
+    WHERE protocol='vmess'
+      AND lower(COALESCE(remark,'')) LIKE '%vmess-tcp%';
+
+    SELECT changes();
+  " 2>/dev/null || true)"
+  removed="${removed##*$'\n'}"
+  if [[ "$removed" =~ ^[0-9]+$ && "$removed" -gt 0 ]]; then
+    printf 'INFO: Removed deprecated VMess preset inbound(s): %s\n' "$removed"
+  fi
 }
 
 xui_enable_warp_domain_sniffing() {
@@ -427,18 +452,14 @@ xui_install_3dp_reference_presets() {
   xui_3dp_insert vless "$port" "${emoji_flag} vless-ws" "$settings" "$stream"
 
   port="$(xui_3dp_random_port)"
-  settings='{"clients":[]}'
+  password="$(openssl rand -base64 32 | tr -d '\n')"
+  settings="$(jq -cn --arg password "$password" '{clients:[],ivCheck:false,method:"2022-blake3-aes-256-gcm",network:"tcp",password:$password}')"
   stream="$(jq -cn --arg publicDomain "$public_domain" --argjson port "$port" '{
     network:"tcp",
     security:"none",
     externalProxy:[{forceTls:"none",dest:$publicDomain,port:$port,remark:""}],
     tcpSettings:{acceptProxyProtocol:false,header:{type:"none"}}
   }')"
-  xui_3dp_insert vmess "$port" "${emoji_flag} vmess-tcp" "$settings" "$stream"
-
-  port="$(xui_3dp_random_port)"
-  password="$(openssl rand -base64 32 | tr -d '\n')"
-  settings="$(jq -cn --arg password "$password" '{clients:[],ivCheck:false,method:"2022-blake3-aes-256-gcm",network:"tcp",password:$password}')"
   xui_3dp_insert shadowsocks "$port" "${emoji_flag} shadowsocks-tcp" "$settings" "$stream"
 
   port="$(xui_3dp_random_port)"

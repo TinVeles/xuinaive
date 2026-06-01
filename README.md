@@ -175,23 +175,31 @@ When WARP is enabled, the routing model is AI-only:
 For x-ui, WARP mode prepares one `warp-cli` SOCKS outbound and one AI-domain routing snippet. By default it does not write directly into the x-ui routing settings DB, because that path can make 3x-ui inbound edits unstable on some panel versions. Generated clients stay on enabled preset inbounds.
 
 Fresh installs that include x-ui (`--mode xui`, `--mode both`, or `--mode all`)
-install the default [3dp-manager](https://github.com/denpiligrim/3dp-manager) mix
-plus one Trojan preset:
+install a modernized [3dp-manager](https://github.com/denpiligrim/3dp-manager)
+derived mix plus one Trojan preset:
 
 - one Hysteria2 UDP inbound;
 - one VLESS XHTTP REALITY inbound;
 - four VLESS TCP REALITY inbounds with different decoy SNI sites;
 - one VLESS gRPC REALITY inbound;
 - one VLESS WS inbound;
-- one VMess TCP inbound;
 - one Shadowsocks 2022 TCP inbound;
 - one Trojan TCP REALITY inbound.
+
+VMess is intentionally omitted because it is deprecated. Profile regeneration
+also removes old project-generated `vmess-tcp` preset inbounds.
 
 `3dp-manager` provides Trojan TCP REALITY, not Trojan gRPC. The older generated
 Trojan gRPC preset was removed because its nginx path proxy was not reliable.
 The x-ui presets listen on random public ports. The installer opens them in UFW;
 also allow those generated TCP ports and the Hysteria2 UDP port in your VPS
 provider firewall when it is enabled.
+
+When testing REALITY profiles through a client-side TUN inbound, disable
+destination override sniffing or set its `routeOnly` option to `true`. Otherwise
+the REALITY decoy SNI can replace the VPS uplink address: for example, a client
+that should connect to `vpn.example.com:12345` may incorrectly dial
+`ya.ru:12345`. Test imported profiles with TUN disabled first.
 
 For NHM Panel, open `Bypass` and enable `AI through WARP for Hy2`. The panel writes Hysteria2 `outbounds` and ACL rules so matching AI domains use the same local WARP proxy. NaiveProxy cannot do this server-side because Caddy `forward_proxy` has no per-domain outbound ACL; configure NaiveProxy split routing in the client instead.
 
