@@ -41,7 +41,7 @@ sudo bash install.sh --mode all \
 This gives you:
 
 - x-ui and NHM on one VPS.
-- 15 generated 3x-ui profiles on normal inbounds.
+- 15 generated 3x-ui profiles on each enabled preset inbound.
 - 15 generated NaiveProxy profiles.
 - 15 generated Hysteria2 profiles.
 - No WARP by default.
@@ -172,13 +172,32 @@ When WARP is enabled, the routing model is AI-only:
 - Gemini, Google AI, Google API/static/auth hosts, YouTube support hosts, and NotebookLM domains go through WARP.
 - Everything else stays on the normal direct outbound.
 
-For x-ui, WARP mode prepares one `warp-cli` SOCKS outbound and one AI-domain routing snippet. By default it does not write directly into the x-ui routing settings DB, because that path can make 3x-ui inbound edits unstable on some panel versions. Generated clients stay on the normal Reality, WS, XHTTP, and Trojan-gRPC inbounds.
+For x-ui, WARP mode prepares one `warp-cli` SOCKS outbound and one AI-domain routing snippet. By default it does not write directly into the x-ui routing settings DB, because that path can make 3x-ui inbound edits unstable on some panel versions. Generated clients stay on enabled preset inbounds.
+
+Fresh installs that include x-ui (`--mode xui`, `--mode both`, or `--mode all`)
+install the default [3dp-manager](https://github.com/denpiligrim/3dp-manager) mix
+plus one Trojan preset:
+
+- one Hysteria2 UDP inbound;
+- one VLESS XHTTP REALITY inbound;
+- four VLESS TCP REALITY inbounds with different decoy SNI sites;
+- one VLESS gRPC REALITY inbound;
+- one VLESS WS inbound;
+- one VMess TCP inbound;
+- one Shadowsocks 2022 TCP inbound;
+- one Trojan TCP REALITY inbound.
+
+`3dp-manager` provides Trojan TCP REALITY, not Trojan gRPC. The older generated
+Trojan gRPC preset was removed because its nginx path proxy was not reliable.
+The x-ui presets listen on random public ports. The installer opens them in UFW;
+also allow those generated TCP ports and the Hysteria2 UDP port in your VPS
+provider firewall when it is enabled.
 
 For NHM Panel, open `Bypass` and enable `AI through WARP for Hy2`. The panel writes Hysteria2 `outbounds` and ACL rules so matching AI domains use the same local WARP proxy. NaiveProxy cannot do this server-side because Caddy `forward_proxy` has no per-domain outbound ACL; configure NaiveProxy split routing in the client instead.
 
 ### Sniffing
 
-Generated preset inbounds get Xray sniffing enabled by default for `http`, `tls`, `quic`, and `fakedns`. This applies to Reality, WS, XHTTP, and Trojan-gRPC. Sniffing lets Xray see the destination domain from HTTP Host, TLS SNI, or QUIC SNI before applying domain routing. Without sniffing, some AI-domain rules can be skipped because Xray only sees an IP.
+Generated preset inbounds get Xray sniffing enabled by default for `http`, `tls`, `quic`, and `fakedns`. This applies to generated x-ui presets. Sniffing lets Xray see the destination domain from HTTP Host, TLS SNI, or QUIC SNI before applying domain routing. Without sniffing, some AI-domain rules can be skipped because Xray only sees an IP.
 
 ## Profile Generation
 
@@ -188,7 +207,7 @@ Generate or refresh profiles after installation:
 sudo bash generate-profiles.sh --yes
 ```
 
-By default this creates 15 x-ui clients on each selected preset inbound, 15 NaiveProxy profiles, and 15 Hysteria2 profiles. It does not install WARP and does not write WARP routing.
+By default this creates 15 x-ui clients on each selected preset inbound, 15 NaiveProxy profiles, and 15 NHM Hysteria2 profiles. It does not install WARP and does not write WARP routing. Fresh x-ui installs also include a separate 3x-ui-managed Hysteria2 UDP preset.
 
 The default supported x-ui line is `2.9.*`. Profile generation writes clients through the classic `inbounds.settings.clients` model used by 3x-ui `2.9.*`.
 

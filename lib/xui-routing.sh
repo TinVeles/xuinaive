@@ -13,10 +13,16 @@ xui_preset_inbound_filter_sql() {
           AND json_extract(stream_settings,'$.security')='reality')
          OR (protocol='vless'
              AND json_valid(stream_settings)=1
-             AND json_extract(stream_settings,'$.network') IN ('ws','xhttp'))
+             AND json_extract(stream_settings,'$.network') IN ('ws','xhttp','grpc'))
          OR (protocol='trojan'
              AND json_valid(stream_settings)=1
-             AND json_extract(stream_settings,'$.network')='grpc')
+             AND json_extract(stream_settings,'$.network') IN ('tcp','grpc'))
+         OR (protocol IN ('vmess','shadowsocks')
+             AND json_valid(stream_settings)=1
+             AND json_extract(stream_settings,'$.network')='tcp')
+         OR (protocol IN ('hysteria','hysteria2')
+             AND json_valid(stream_settings)=1
+             AND json_extract(stream_settings,'$.network')='hysteria')
        )
 SQL
 }
@@ -28,7 +34,7 @@ xui_enable_preset_domain_sniffing() {
   sqlite3 "$db" "
     UPDATE inbounds
     SET sniffing='{\"enabled\":true,\"destOverride\":[\"http\",\"tls\",\"quic\",\"fakedns\"],\"metadataOnly\":false,\"routeOnly\":true}'
-    WHERE protocol IN ('vless','trojan')
+    WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2')
 $(xui_preset_inbound_filter_sql)
       AND COALESCE(tag,'') NOT LIKE '%-warp'
       AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
@@ -305,10 +311,162 @@ EOF
 }
 
 xui_allow_public_inbound_port() {
-  local port="$1"
+  local port="$1" protocol="${2:-tcp}"
   [[ "$port" =~ ^[0-9]+$ && "$port" -gt 0 ]] || return 0
   command -v ufw >/dev/null 2>&1 || return 0
-  ufw allow "${port}/tcp" >/dev/null 2>&1 || true
+  ufw allow "${port}/${protocol}" >/dev/null 2>&1 || true
+}
+
+xui_open_public_preset_ports() {
+  local db rows port protocol
+  db="$(xui_db_path)"
+  [[ -f "$db" ]] || return 0
+  rows="$(sqlite3 -separator $'\t' -readonly "$db" "
+    SELECT port,
+           CASE
+             WHEN protocol IN ('hysteria','hysteria2') THEN 'udp'
+             ELSE 'tcp'
+           END
+    FROM inbounds
+    WHERE enable=1
+      AND port > 0
+$(xui_preset_inbound_filter_sql);
+  " 2>/dev/null || true)"
+  while IFS=$'\t' read -r port protocol; do
+    [[ -n "$port" ]] || continue
+    xui_allow_public_inbound_port "$port" "${protocol:-tcp}"
+  done <<<"$rows"
+}
+
+xui_install_3dp_reference_presets() {
+  local db="$1" public_domain="$2" private_key="$3" public_key="$4" emoji_flag="$5"
+  local certificate_file="$6" key_file="$7"
+  local sniffing settings stream port sni tag remark password auth obfs_password
+
+  [[ -f "$db" ]] || return 0
+
+  xui_3dp_random_port() {
+    local candidate
+    candidate="$(( $(od -An -N2 -tu2 /dev/urandom | tr -d ' ') % 40000 + 10000 ))"
+    xui_next_free_inbound_port "$db" "$candidate"
+  }
+
+  xui_3dp_insert() {
+    local protocol="$1"
+    port="$2"
+    remark="$3"
+    settings="$4"
+    stream="$5"
+    tag="inbound-${port}"
+    sqlite3 "$db" "
+      INSERT INTO inbounds
+        (user_id, up, down, total, remark, enable, expiry_time, listen, port, protocol, settings, stream_settings, tag, sniffing)
+      VALUES
+        (1, 0, 0, 0, $(sql_quote "$remark"), 1, 0, '', $port, $(sql_quote "$protocol"), $(sql_quote "$settings"), $(sql_quote "$stream"), $(sql_quote "$tag"), $(sql_quote "$sniffing"));
+    "
+  }
+
+  xui_3dp_reality_stream() {
+    local network="$1" decoy="$2" inbound_port="$3" transport_json="$4"
+    jq -cn \
+      --arg network "$network" \
+      --arg decoy "$decoy" \
+      --arg publicDomain "$public_domain" \
+      --arg privateKey "$private_key" \
+      --arg publicKey "$public_key" \
+      --arg sid1 "$(openssl rand -hex 4)" \
+      --arg sid2 "$(openssl rand -hex 4)" \
+      --argjson inboundPort "$inbound_port" \
+      --argjson transport "$transport_json" \
+      '{
+        network:$network,
+        security:"reality",
+        externalProxy:[{forceTls:"same",dest:$publicDomain,port:$inboundPort,remark:""}],
+        realitySettings:{
+          show:false,
+          xver:0,
+          target:($decoy + ":443"),
+          dest:($decoy + ":443"),
+          serverNames:[$decoy],
+          privateKey:$privateKey,
+          shortIds:[$sid1,$sid2],
+          settings:{publicKey:$publicKey,fingerprint:"random",serverName:"",spiderX:"/"}
+        }
+      } + $transport'
+  }
+
+  sniffing='{"enabled":true,"destOverride":["http","tls","quic","fakedns"],"metadataOnly":false,"routeOnly":true}'
+
+  # Called only after destructive fresh x-ui installation. Replace upstream four-profile seed.
+  sqlite3 "$db" "DELETE FROM client_traffics; DELETE FROM inbounds;"
+
+  settings='{"clients":[],"decryption":"none","encryption":"none","fallbacks":[]}'
+  for sni in ya.ru vk.com ok.ru ozon.ru; do
+    port="$(xui_3dp_random_port)"
+    stream="$(xui_3dp_reality_stream tcp "$sni" "$port" '{"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}')"
+    xui_3dp_insert vless "$port" "${emoji_flag} vless-tcp-reality-${sni}" "$settings" "$stream"
+  done
+
+  port="$(xui_3dp_random_port)"
+  sni="avito.ru"
+  stream="$(xui_3dp_reality_stream xhttp "$sni" "$port" '{"xhttpSettings":{"host":"avito.ru","path":"/","mode":"auto","noSSEHeader":false,"scMaxBufferedPosts":30,"scMaxEachPostBytes":"1000000","scStreamUpServerSecs":"20-80","xPaddingBytes":"100-1000"}}')"
+  xui_3dp_insert vless "$port" "${emoji_flag} vless-xhttp-reality" "$settings" "$stream"
+
+  port="$(xui_3dp_random_port)"
+  sni="gosuslugi.ru"
+  stream="$(xui_3dp_reality_stream grpc "$sni" "$port" '{"grpcSettings":{"serviceName":"myservice","authority":"gosuslugi.ru","multiMode":false}}')"
+  xui_3dp_insert vless "$port" "${emoji_flag} vless-grpc-reality" "$settings" "$stream"
+
+  port="$(xui_3dp_random_port)"
+  stream="$(jq -cn --arg publicDomain "$public_domain" --argjson port "$port" '{
+    network:"ws",
+    security:"none",
+    externalProxy:[{forceTls:"none",dest:$publicDomain,port:$port,remark:""}],
+    wsSettings:{host:$publicDomain,path:"/",acceptProxyProtocol:false,heartbeatPeriod:0,headers:{}}
+  }')"
+  xui_3dp_insert vless "$port" "${emoji_flag} vless-ws" "$settings" "$stream"
+
+  port="$(xui_3dp_random_port)"
+  settings='{"clients":[]}'
+  stream="$(jq -cn --arg publicDomain "$public_domain" --argjson port "$port" '{
+    network:"tcp",
+    security:"none",
+    externalProxy:[{forceTls:"none",dest:$publicDomain,port:$port,remark:""}],
+    tcpSettings:{acceptProxyProtocol:false,header:{type:"none"}}
+  }')"
+  xui_3dp_insert vmess "$port" "${emoji_flag} vmess-tcp" "$settings" "$stream"
+
+  port="$(xui_3dp_random_port)"
+  password="$(openssl rand -base64 32 | tr -d '\n')"
+  settings="$(jq -cn --arg password "$password" '{clients:[],ivCheck:false,method:"2022-blake3-aes-256-gcm",network:"tcp",password:$password}')"
+  xui_3dp_insert shadowsocks "$port" "${emoji_flag} shadowsocks-tcp" "$settings" "$stream"
+
+  port="$(xui_3dp_random_port)"
+  auth="$(openssl rand -hex 16)"
+  obfs_password="$(openssl rand -hex 8)"
+  settings="$(jq -cn --arg auth "$auth" '{clients:[],version:2}')"
+  stream="$(jq -cn \
+    --arg publicDomain "$public_domain" \
+    --arg certificateFile "$certificate_file" \
+    --arg keyFile "$key_file" \
+    --arg auth "$auth" \
+    --arg obfsPassword "$obfs_password" \
+    --argjson port "$port" \
+    '{
+      network:"hysteria",
+      security:"tls",
+      externalProxy:[{forceTls:"tls",dest:$publicDomain,port:$port,remark:""}],
+      finalmask:{udp:[{type:"salamander",settings:{password:$obfsPassword}}]},
+      hysteriaSettings:{auth:$auth,masquerade:{content:"",dir:"",headers:{},insecure:true,rewriteHost:false,statusCode:0,type:"proxy",url:"https://google.com"},udpIdleTimeout:60,version:2},
+      tlsSettings:{serverName:$publicDomain,alpn:["h3"],certificates:[{buildChain:false,certificateFile:$certificateFile,keyFile:$keyFile,oneTimeLoading:false,usage:"encipherment"}],cipherSuites:"",disableSystemRoot:false,echForceQuery:"none",echServerKeys:"",enableSessionResumption:false,maxVersion:"1.3",minVersion:"1.2",rejectUnknownSni:false}
+    }')"
+  xui_3dp_insert hysteria "$port" "${emoji_flag} hysteria2-udp" "$settings" "$stream"
+
+  port="$(xui_3dp_random_port)"
+  sni="kinopoisk.ru"
+  settings='{"clients":[],"fallbacks":[]}'
+  stream="$(xui_3dp_reality_stream tcp "$sni" "$port" '{"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}')"
+  xui_3dp_insert trojan "$port" "${emoji_flag} trojan-tcp-reality" "$settings" "$stream"
 }
 
 xui_open_warp_reality_ports() {

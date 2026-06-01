@@ -100,11 +100,13 @@ xui_profile_label() {
   network="$(jq -r '.network // "tcp"' <<<"$stream_settings" 2>/dev/null || echo "tcp")"
   security="$(jq -r '.security // "none"' <<<"$stream_settings" 2>/dev/null || echo "none")"
   if [[ "$security" == "reality" ]]; then
-    printf 'reality\n'
+    printf '%s-reality-%s\n' "$network" "$inbound_id"
+  elif [[ "$protocol" == "hysteria" || "$protocol" == "hysteria2" ]]; then
+    printf 'hy2-%s\n' "$inbound_id"
   elif [[ "$protocol" == "trojan" && "$network" == "grpc" ]]; then
     printf 'trojan-grpc\n'
   elif [[ -n "$network" && "$network" != "null" ]]; then
-    printf '%s\n' "$network" | tr -cd 'A-Za-z0-9_.-'
+    printf '%s-%s-%s\n' "$protocol" "$network" "$inbound_id" | tr -cd 'A-Za-z0-9_.-'
   else
     printf 'inbound-%s\n' "$inbound_id"
   fi
@@ -129,7 +131,7 @@ xui_profile_indices() {
 }
 
 xui_bulk_client_json() {
-  local inbound_id="$1" protocol="$2" email="$3" sub_id="$4" now="$5" existing_json="${6:-{}}" password uid client_json is_reality
+  local inbound_id="$1" protocol="$2" email="$3" sub_id="$4" now="$5" existing_json="${6:-{}}" password uid client_json is_reality network
   if [[ -z "$existing_json" ]] || ! jq -e . >/dev/null 2>&1 <<<"$existing_json"; then
     existing_json="{}"
   fi
@@ -137,6 +139,7 @@ xui_bulk_client_json() {
   if sqlite3 "$XUIDB" "SELECT stream_settings FROM inbounds WHERE id=$inbound_id;" | grep -q '"security"[[:space:]]*:[[:space:]]*"reality"'; then
     is_reality=1
   fi
+  network="$(sqlite3 -readonly "$XUIDB" "SELECT COALESCE(json_extract(stream_settings,'$.network'),'tcp') FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || printf 'tcp')"
   if [[ "$protocol" == "trojan" ]]; then
     password="$(gen_random_string 20)"
     jq -cn \
@@ -162,6 +165,36 @@ xui_bulk_client_json() {
           totalGB:($o.totalGB // 0),
           updated_at:($o.updated_at // ($now|tonumber))
         }'
+  elif [[ "$protocol" == "shadowsocks" ]]; then
+    password="$(openssl rand -base64 32 | tr -d '\n')"
+    jq -cn \
+      --arg email "$email" \
+      --arg subId "$sub_id" \
+      --arg password "$password" \
+      --argjson old "$existing_json" \
+      '($old // {}) as $o
+      | {
+          id:"",
+          flow:"",
+          email:$email,
+          password:($o.password // $password),
+          enable:($o.enable // true),
+          limitIp:($o.limitIp // 0),
+          totalGB:($o.totalGB // 0),
+          expiryTime:($o.expiryTime // 0),
+          tgId:($o.tgId // ""),
+          subId:$subId,
+          reset:($o.reset // 0)
+        }'
+  elif [[ "$protocol" == "hysteria" || "$protocol" == "hysteria2" ]]; then
+    password="$(gen_random_string 24)"
+    jq -cn \
+      --arg email "$email" \
+      --arg subId "$sub_id" \
+      --arg auth "$password" \
+      --argjson old "$existing_json" \
+      '($old // {}) as $o
+      | {auth:($o.auth // $auth),email:$email,enable:($o.enable // true),subId:$subId}'
   else
     uid="$(xui_uuid | tr -d '[:space:]')"
     client_json="$(jq -cn \
@@ -186,7 +219,7 @@ xui_bulk_client_json() {
           created_at:($o.created_at // ($now|tonumber)),
           updated_at:($o.updated_at // ($now|tonumber))
         }')"
-    if [[ "$is_reality" == "1" ]]; then
+    if [[ "$is_reality" == "1" && "$network" == "tcp" ]]; then
       jq '.flow = "xtls-rprx-vision"' <<<"$client_json"
     else
       printf '%s\n' "$client_json"
@@ -315,7 +348,7 @@ xui_post_update_db() {
 }
 
 xui_set_inbound_clients() {
-  local inbound_id="$1" protocol="$2" mode="$3" tag="$4" now index label email sub_id client_json clients_json settings new_settings traffic_result existing_json
+  local inbound_id="$1" protocol="$2" mode="$3" tag="$4" now index label email sub_id client_json clients_json settings new_settings traffic_result existing_json first_auth
   now="$(date +%s)000"
   clients_json="[]"
   label="$(xui_profile_label "$inbound_id" "$protocol")"
@@ -336,6 +369,14 @@ xui_set_inbound_clients() {
 
   new_settings="$(jq -c --argjson clients "$clients_json" '.clients = $clients' <<<"$settings" | xui_normalize_inbound_settings "$protocol")"
   sqlite3 "$XUIDB" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
+  if [[ "$protocol" == "hysteria" || "$protocol" == "hysteria2" ]]; then
+    first_auth="$(jq -r '(.clients // [])[0].auth // ""' <<<"$new_settings")"
+    [[ -n "$first_auth" ]] && sqlite3 "$XUIDB" "
+      UPDATE inbounds
+      SET stream_settings=json_set(stream_settings, '$.hysteriaSettings.auth', $(sql_quote "$first_auth"))
+      WHERE id=$inbound_id AND json_valid(stream_settings)=1;
+    "
+  fi
   sqlite3 "$XUIDB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id;"
   for index in $(xui_profile_indices "$XUI_PROFILE_COUNT"); do
     if [[ "$XUI_SUB_ID_MODE" == "common" ]]; then
@@ -380,7 +421,7 @@ xui_seed_default_profiles() {
   inbound_rows="$(sqlite3 -separator $'\t' "$XUIDB" \
     "SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
      FROM inbounds
-     WHERE protocol IN ('vless','trojan')
+     WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2')
        AND COALESCE(tag,'') NOT LIKE '%-warp'
        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
 $(xui_preset_inbound_filter_sql)
@@ -439,7 +480,7 @@ xui_seed_bulk_profiles() {
   inbound_rows="$(sqlite3 -separator $'\t' "$XUIDB" \
     "SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
      FROM inbounds
-     WHERE protocol IN ('vless','trojan')
+     WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2')
        AND COALESCE(tag,'') NOT LIKE '%-warp'
        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
 $(xui_preset_inbound_filter_sql)
@@ -544,7 +585,7 @@ xui_disable_duplicate_xhttp_unix_listeners() {
 xui_repair_client_traffic_rows() {
   [[ -f "$XUIDB" ]] || return 0
   local rows inbound_id protocol settings client_rows email enable exact_count email_count
-  rows="$(sqlite3 -readonly -separator $'\t' "$XUIDB" "SELECT id, protocol, settings FROM inbounds WHERE protocol IN ('vless','trojan') AND json_valid(settings)=1;" 2>/dev/null || true)"
+  rows="$(sqlite3 -readonly -separator $'\t' "$XUIDB" "SELECT id, protocol, settings FROM inbounds WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2') AND json_valid(settings)=1;" 2>/dev/null || true)"
   [[ -n "$rows" ]] || return 0
   while IFS=$'\t' read -r inbound_id protocol settings; do
     [[ -n "$inbound_id" && -n "$settings" ]] || continue
@@ -1434,6 +1475,14 @@ if [[ -f $XUIDB ]]; then
 }'
 	);
 EOF
+xui_install_3dp_reference_presets \
+  "$XUIDB" \
+  "$domain" \
+  "$private_key" \
+  "$public_key" \
+  "$emoji_flag" \
+  "/root/cert/${domain}/fullchain.pem" \
+  "/root/cert/${domain}/privkey.pem"
 xui_repair_invalid_inbound_json
 xui_sanitize_inbound_tags
 xui_normalize_grpc_service_names
@@ -1746,6 +1795,7 @@ ufw allow "${panel_port}/tcp"
 ufw allow "${sub_port}/tcp"
 ufw allow "${ws_port}/tcp"
 ufw allow "${trojan_port}/tcp"
+xui_open_public_preset_ports
 ufw --force enable  
 ##################################Show Details##########################################################
 

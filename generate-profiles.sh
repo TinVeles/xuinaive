@@ -215,11 +215,13 @@ xui_profile_label() {
   network="$(jq -r '.network // "tcp"' <<<"$stream_settings" 2>/dev/null || echo "tcp")"
   security="$(jq -r '.security // "none"' <<<"$stream_settings" 2>/dev/null || echo "none")"
   if [[ "$security" == "reality" ]]; then
-    printf 'reality\n'
+    printf '%s-reality-%s\n' "$network" "$inbound_id"
+  elif [[ "$protocol" == "hysteria" || "$protocol" == "hysteria2" ]]; then
+    printf 'hy2-%s\n' "$inbound_id"
   elif [[ "$protocol" == "trojan" && "$network" == "grpc" ]]; then
     printf 'trojan-grpc\n'
   elif [[ -n "$network" && "$network" != "null" ]]; then
-    printf '%s\n' "$network" | tr -cd 'A-Za-z0-9_.-'
+    printf '%s-%s-%s\n' "$protocol" "$network" "$inbound_id" | tr -cd 'A-Za-z0-9_.-'
   else
     printf 'inbound-%s\n' "$inbound_id"
   fi
@@ -275,7 +277,7 @@ xui_client_email() {
 }
 
 xui_client_json() {
-  local inbound_id="$1" protocol="$2" email="$3" sub_id="$4" now="$5" existing_json="${6:-{}}" password uid client_json is_reality
+  local inbound_id="$1" protocol="$2" email="$3" sub_id="$4" now="$5" existing_json="${6:-{}}" password uid client_json is_reality network
   [[ "$inbound_id" =~ ^[0-9]+$ ]] || die "xui_client_json: invalid inbound_id: $inbound_id"
   if [[ -z "$existing_json" ]] || ! jq -e . >/dev/null 2>&1 <<<"$existing_json"; then
     existing_json="{}"
@@ -284,6 +286,7 @@ xui_client_json() {
   if sqlite3 "$XUI_DB" "SELECT stream_settings FROM inbounds WHERE id=$inbound_id;" | grep -q '"security"[[:space:]]*:[[:space:]]*"reality"'; then
     is_reality=1
   fi
+  network="$(sqlite3 -readonly "$XUI_DB" "SELECT COALESCE(json_extract(stream_settings,'$.network'),'tcp') FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || printf 'tcp')"
   if [[ "$protocol" == "trojan" ]]; then
     password="$(rand_password)"
     jq -cn \
@@ -309,6 +312,36 @@ xui_client_json() {
           totalGB:($o.totalGB // 0),
           updated_at:($o.updated_at // ($now|tonumber))
         }'
+  elif [[ "$protocol" == "shadowsocks" ]]; then
+    password="$(openssl rand -base64 32 | tr -d '\n')"
+    jq -cn \
+      --arg email "$email" \
+      --arg subId "$sub_id" \
+      --arg password "$password" \
+      --argjson old "$existing_json" \
+      '($old // {}) as $o
+      | {
+          id:"",
+          flow:"",
+          email:$email,
+          password:($o.password // $password),
+          enable:($o.enable // true),
+          limitIp:($o.limitIp // 0),
+          totalGB:($o.totalGB // 0),
+          expiryTime:($o.expiryTime // 0),
+          tgId:($o.tgId // ""),
+          subId:$subId,
+          reset:($o.reset // 0)
+        }'
+  elif [[ "$protocol" == "hysteria" || "$protocol" == "hysteria2" ]]; then
+    password="$(rand_password)"
+    jq -cn \
+      --arg email "$email" \
+      --arg subId "$sub_id" \
+      --arg auth "$password" \
+      --argjson old "$existing_json" \
+      '($old // {}) as $o
+      | {auth:($o.auth // $auth),email:$email,enable:($o.enable // true),subId:$subId}'
   else
     uid="$(uuid_value | tr -d '[:space:]')"
     client_json="$(jq -cn \
@@ -333,7 +366,7 @@ xui_client_json() {
           created_at:($o.created_at // ($now|tonumber)),
           updated_at:($o.updated_at // ($now|tonumber))
         }')"
-    if [[ "$is_reality" == "1" ]]; then
+    if [[ "$is_reality" == "1" && "$network" == "tcp" ]]; then
       jq '.flow = "xtls-rprx-vision"' <<<"$client_json"
     else
       printf '%s\n' "$client_json"
@@ -402,7 +435,7 @@ xui_enable_standard_preset_inbounds() {
   sqlite3 "$XUI_DB" "
     UPDATE inbounds
     SET enable=1
-    WHERE protocol IN ('vless','trojan')
+    WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2')
       AND COALESCE(tag,'') NOT LIKE '%-warp'
       AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
 $(xui_preset_inbound_filter_sql);
@@ -412,7 +445,7 @@ $(xui_preset_inbound_filter_sql);
 xui_replace_generated_clients() {
   local inbound_id="$1" protocol="$2" mode="$3" tag="$4" report_file="$5"
   [[ "$inbound_id" =~ ^[0-9]+$ ]] || die "xui_replace_generated_clients: invalid inbound_id: $inbound_id"
-  local now index label email sub_id base client_json clients_json settings new_settings traffic_result existing_json
+  local now index label email sub_id base client_json clients_json settings new_settings traffic_result existing_json first_auth
   now="$(date +%s)000"
   clients_json="[]"
   label="$(xui_profile_label "$inbound_id" "$protocol")"
@@ -450,6 +483,14 @@ xui_replace_generated_clients() {
   fi
 
   sqlite3 "$XUI_DB" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
+  if [[ "$protocol" == "hysteria" || "$protocol" == "hysteria2" ]]; then
+    first_auth="$(jq -r '(.clients // [])[0].auth // ""' <<<"$new_settings")"
+    [[ -n "$first_auth" ]] && sqlite3 "$XUI_DB" "
+      UPDATE inbounds
+      SET stream_settings=json_set(stream_settings, '$.hysteriaSettings.auth', $(sql_quote "$first_auth"))
+      WHERE id=$inbound_id AND json_valid(stream_settings)=1;
+    "
+  fi
   if [[ "$XUI_REPLACE_CLIENTS" == "1" ]]; then
     sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE inbound_id=$inbound_id;"
   else
@@ -509,10 +550,11 @@ xui_add_clients() {
   xui_enable_preset_domain_sniffing
   xui_ensure_warp_mirror_inbounds "$report_file"
   xui_open_warp_reality_ports
+  xui_open_public_preset_ports
 
   query="SELECT id, protocol, COALESCE(tag,''), COALESCE(remark,''), port, enable
      FROM inbounds
-     WHERE protocol IN ('vless','trojan')
+     WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2')
        AND COALESCE(tag,'') NOT LIKE '%-warp'
        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
 $(xui_preset_inbound_filter_sql)"
@@ -597,7 +639,7 @@ xui_disable_duplicate_xhttp_unix_listeners() {
   sqlite3 "$XUI_DB" "
     UPDATE inbounds
     SET listen=''
-    WHERE protocol IN ('vless','trojan')
+    WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2')
       AND listen LIKE '/%'
       AND json_valid(stream_settings)=1
       AND json_extract(stream_settings,'$.network')='xhttp'
@@ -628,7 +670,7 @@ xui_disable_duplicate_xhttp_unix_listeners() {
 xui_repair_client_traffic_rows() {
   [[ -f "$XUI_DB" ]] || return 0
   local rows inbound_id protocol settings client_rows email enable exact_count email_count
-  rows="$(sqlite3 -readonly -separator $'\t' "$XUI_DB" "SELECT id, protocol, settings FROM inbounds WHERE protocol IN ('vless','trojan') AND json_valid(settings)=1;" 2>/dev/null || true)"
+  rows="$(sqlite3 -readonly -separator $'\t' "$XUI_DB" "SELECT id, protocol, settings FROM inbounds WHERE protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2') AND json_valid(settings)=1;" 2>/dev/null || true)"
   [[ -n "$rows" ]] || return 0
   while IFS=$'\t' read -r inbound_id protocol settings; do
     [[ -n "$inbound_id" && -n "$settings" ]] || continue
@@ -1136,9 +1178,22 @@ function trojanLink(row, client) {
   if (!ep.server || !password) return null;
 
   const network = String(stream.network || 'tcp');
+  const security = String(stream.security || 'none');
   const params = new URLSearchParams();
   params.set('type', network);
-  params.set('security', ep.tls === 'tls' || ep.tls === 'same' || [443, 8443].includes(ep.port) ? 'tls' : String(stream.security || 'none'));
+  if (security === 'reality') {
+    const reality = stream.realitySettings || {};
+    const settings = reality.settings || {};
+    const serverNames = Array.isArray(reality.serverNames) ? reality.serverNames : [];
+    params.set('security', 'reality');
+    addParam(params, 'pbk', settings.publicKey);
+    addParam(params, 'fp', settings.fingerprint || 'random');
+    addParam(params, 'sni', serverNames[0]);
+    addParam(params, 'sid', Array.isArray(reality.shortIds) ? reality.shortIds[0] : '');
+    addParam(params, 'spx', settings.spiderX || '/');
+  } else {
+    params.set('security', ep.tls === 'tls' || ep.tls === 'same' || [443, 8443].includes(ep.port) ? 'tls' : security);
+  }
 
   if (network === 'grpc') {
     const grpc = stream.grpcSettings || {};
@@ -1153,12 +1208,66 @@ function trojanLink(row, client) {
   return `trojan://${encode(password)}@${ep.server}:${ep.port}?${params.toString()}#${encode(client.email || row.remark || 'x-ui')}`;
 }
 
+function vmessLink(row, client) {
+  const stream = JSON.parse(row.stream_settings || '{}');
+  const ep = endpoint(stream, row.port);
+  if (!ep.server || !client.id) return null;
+  const payload = {
+    v: '2', ps: client.email || row.remark || 'vmess', add: ep.server,
+    port: String(ep.port), id: client.id, aid: '0', scy: '',
+    net: String(stream.network || 'tcp'), type: 'none', host: '', path: '/',
+    tls: String(stream.security || 'none'), sni: '', alpn: '', fp: ''
+  };
+  return `vmess://${Buffer.from(JSON.stringify(payload), 'utf8').toString('base64')}`;
+}
+
+function shadowsocksLink(row, client) {
+  const stream = JSON.parse(row.stream_settings || '{}');
+  const settings = JSON.parse(row.settings || '{}');
+  const ep = endpoint(stream, row.port);
+  if (!ep.server || !settings.method || !settings.password || !client.password) return null;
+  const userInfo = `${settings.method}:${settings.password}:${client.password}`;
+  return `ss://${Buffer.from(userInfo, 'utf8').toString('base64')}@${ep.server}:${ep.port}?type=tcp#${encode(client.email || row.remark || 'ss')}`;
+}
+
+function hysteria2Link(row, client) {
+  const stream = JSON.parse(row.stream_settings || '{}');
+  const ep = endpoint(stream, row.port);
+  const auth = client.auth || client.password;
+  if (!ep.server || !auth) return null;
+  const finalmask = stream.finalmask?.udp?.[0] || {};
+  const fm = {
+    udp: [{
+      type: finalmask.type,
+      settings: { password: finalmask.settings?.password }
+    }]
+  };
+  const params = new URLSearchParams();
+  params.set('insecure', '1');
+  params.set('security', 'tls');
+  params.set('fp', 'chrome');
+  params.set('alpn', 'h3');
+  params.set('fm', JSON.stringify(fm));
+  addParam(params, 'sni', stream.tlsSettings?.serverName || ep.server);
+  addParam(params, 'obfs', finalmask.type);
+  addParam(params, 'obfs-password', finalmask.settings?.password);
+  return `hy2://${encode(auth)}@${ep.server}:${ep.port}/?${params.toString()}#${encode(client.email || row.remark || 'hy2')}`;
+}
+
+function xuiLink(row, client) {
+  if (row.protocol === 'trojan') return trojanLink(row, client);
+  if (row.protocol === 'vmess') return vmessLink(row, client);
+  if (row.protocol === 'shadowsocks') return shadowsocksLink(row, client);
+  if (row.protocol === 'hysteria' || row.protocol === 'hysteria2') return hysteria2Link(row, client);
+  return vlessLink(row, client);
+}
+
 function isStableV2rayNLink(row) {
   try {
     const stream = JSON.parse(row.stream_settings || '{}');
     const network = String(stream.network || 'tcp');
     const security = String(stream.security || 'none');
-    return network === 'ws' || network === 'grpc' || (network === 'tcp' && security === 'reality');
+    return network !== 'xhttp' && (row.protocol !== 'vless' || network === 'ws' || network === 'grpc' || (network === 'tcp' && security === 'reality'));
   } catch (_) {
     return false;
   }
@@ -1179,7 +1288,7 @@ function xuiRows() {
       SELECT id, remark, port, protocol, settings, stream_settings, tag
       FROM inbounds
       WHERE enable=1
-        AND protocol IN ('vless','trojan')
+        AND protocol IN ('vless','trojan','vmess','shadowsocks','hysteria','hysteria2')
         AND json_valid(settings)=1
         AND json_valid(stream_settings)=1
       ORDER BY id
@@ -1393,7 +1502,7 @@ for (const row of rows) {
   try { settings = JSON.parse(row.settings || '{}'); } catch (_) { continue; }
   for (const subId of bySubId.keys()) {
     for (const client of firstEnabledClient(settings, subId)) {
-      const link = row.protocol === 'trojan' ? trojanLink(row, client) : vlessLink(row, client);
+      const link = xuiLink(row, client);
       if (link) bySubId.get(subId).push(link);
     }
   }
@@ -1420,7 +1529,7 @@ for (const [subId, links] of bySubId) {
     let settings;
     try { settings = JSON.parse(row.settings || '{}'); } catch (_) { continue; }
     for (const client of firstEnabledClient(settings, subId)) {
-      const link = row.protocol === 'trojan' ? trojanLink(row, client) : vlessLink(row, client);
+      const link = xuiLink(row, client);
       if (link) stableLinks.push(link);
     }
   }
