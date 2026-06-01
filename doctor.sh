@@ -6,9 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 XUI_DOMAIN="${XUI_DOMAIN:-}"
 NAIVE_DOMAIN="${NAIVE_DOMAIN:-}"
 REALITY_DEST="${REALITY_DEST:-}"
+MODE="${MODE:-}"
 NH_PROXY_DOMAIN="${NH_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
 NH_PANEL_DOMAIN="${NH_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
-NH_PANEL_PORT="${NH_PANEL_PORT:-8081}"
+NH_PANEL_PORT="${NH_PANEL_PORT:-}"
 NH_BACKEND_LISTEN="${NH_BACKEND_LISTEN:-127.0.0.1:9445}"
 NH_NAIVE_LOGIN="${NH_NAIVE_LOGIN:-}"
 NH_NAIVE_PASSWORD="${NH_NAIVE_PASSWORD:-}"
@@ -33,7 +34,7 @@ load_config_env() {
       \'*\') value="${value:1:${#value}-2}" ;;
     esac
     case "$key" in
-      XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_PORT|NH_BACKEND_LISTEN|NH_NAIVE_LOGIN|NH_NAIVE_PASSWORD|NH_NAIVE_LINK|WARP_ENABLED|WARP_PROXY_HOST|WARP_PROXY_PORT|WARP_OUTBOUND_TAG)
+      MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_PORT|NH_BACKEND_LISTEN|NH_NAIVE_LOGIN|NH_NAIVE_PASSWORD|NH_NAIVE_LINK|WARP_ENABLED|WARP_PROXY_HOST|WARP_PROXY_PORT|WARP_OUTBOUND_TAG)
         printf -v "$key" '%s' "$value"
         ;;
     esac
@@ -145,6 +146,38 @@ xui_inbound_check() {
       warn "x-ui inbound id=$id remark=$remark exports stale public port $external_port; expected $port"
     fi
   done <<<"$rows"
+}
+
+xui_runtime_config_report() {
+  local config="/usr/local/x-ui/bin/config.json"
+  [[ -r "$config" ]] || { warn "x-ui runtime config not found: $config"; return 0; }
+  command_exists jq || { warn "jq missing; cannot inspect x-ui runtime config"; return 0; }
+
+  jq -r '
+    .inbounds[]?
+    | [
+        (.tag // ""),
+        (.listen // ""),
+        ((.port // "") | tostring),
+        (.protocol // ""),
+        (.streamSettings.network // ""),
+        (.streamSettings.security // "")
+      ]
+    | @tsv
+  ' "$config" 2>/dev/null || warn "Cannot parse x-ui runtime config: $config"
+}
+
+xui_recent_log_report() {
+  local output=""
+  command_exists journalctl || { warn "journalctl missing; cannot inspect x-ui logs"; return 0; }
+  output="$(journalctl -u x-ui -n 240 --no-pager -l 2>/dev/null \
+    | grep -Ei 'XRAY:|xray|error|failed|warning|panic|fatal' \
+    | tail -n 100 || true)"
+  if [[ -n "$output" ]]; then
+    printf '%s\n' "$output"
+  else
+    ok "No recent x-ui/Xray warnings or errors found"
+  fi
 }
 
 service_active() {
@@ -286,7 +319,7 @@ fi
 
 echo
 echo "Required commands:"
-for cmd in curl wget git systemctl; do
+for cmd in curl wget git systemctl sqlite3 jq node; do
   command_exists "$cmd" && ok "$cmd found" || bad "$cmd missing"
 done
 
@@ -321,6 +354,14 @@ done
 echo
 echo "x-ui enabled inbounds:"
 xui_inbound_check
+
+echo
+echo "x-ui runtime inbounds:"
+xui_runtime_config_report
+
+echo
+echo "x-ui recent warnings/errors:"
+xui_recent_log_report
 
 echo
 echo "Services:"
@@ -364,7 +405,7 @@ if [[ -n "${NH_PROXY_DOMAIN:-}" ]]; then
   naive_proxy_check
 fi
 
-if service_active panel-naive-hy2 || [[ -n "${NH_PANEL_PORT:-}" ]]; then
+if service_active panel-naive-hy2 || [[ -n "${NH_PANEL_PORT:-}" || -n "${NH_PANEL_DOMAIN:-}" ]]; then
   echo
   echo "NHM Panel HTTP:"
   http_check "http://127.0.0.1:3000/" "Panel backend"

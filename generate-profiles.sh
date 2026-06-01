@@ -60,6 +60,16 @@ err() { printf '%s\n' "${RED}ERROR:${NC} $*" >&2; }
 die() { err "$*"; exit 1; }
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
+ensure_node_runtime() {
+  command_exists node && return 0
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]] && command_exists apt-get; then
+    info "Installing Node.js runtime required for subscription generation"
+    DEBIAN_FRONTEND=noninteractive apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
+  fi
+  command_exists node || die "node is required. Install it with: sudo apt-get update && sudo apt-get install -y nodejs"
+}
+
 usage() {
   cat <<EOF
 Usage:
@@ -159,7 +169,8 @@ if [[ "$XUI_CREATE_DIRECT" != "1" ]]; then
   XUI_CREATE_DIRECT=1
 fi
 
-for cmd in node openssl; do
+ensure_node_runtime
+for cmd in openssl; do
   command_exists "$cmd" || die "$cmd is required"
 done
 if [[ "$CREATE_XUI" == "1" || "$COMBINED_ONLY" == "1" ]]; then
