@@ -5,10 +5,10 @@
 # ADDITIVELY add two preset inbounds to an existing x-ui install WITHOUT wiping
 # the current inbounds/clients (unlike install.sh which does DELETE FROM inbounds):
 #
-#   * vless-ws            (VLESS over WebSocket, plain — sits on its own port)
-#   * trojan-grpc-reality (Trojan over gRPC with REALITY)
+#   * vless-ws       (VLESS over WebSocket + TLS on its own port)
+#   * trojan-grpc-tls (Trojan over gRPC + TLS on its own port)
 #
-# It reuses the server's existing public domain + REALITY key pair, picks free
+# It reuses the server's existing public domain + TLS certificate, picks free
 # ports, opens ufw, seeds client UUIDs via generate-profiles.sh, and restarts x-ui.
 #
 # Safe + idempotent: skips an inbound whose remark already exists; backs up the DB.
@@ -16,13 +16,16 @@
 # Usage:
 #   sudo bash add-inbounds.sh
 #   sudo DRY_RUN=1 bash add-inbounds.sh           # preview, no writes
-#   sudo TROJAN_GRPC_DECOY=mail.ru bash add-inbounds.sh
 #
 set -euo pipefail
 
 DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
 DRY_RUN="${DRY_RUN:-0}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+source "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=lib/xui-routing.sh
+source "$SCRIPT_DIR/lib/xui-routing.sh"
 
 c_grn=$'\033[32m'; c_yel=$'\033[33m'; c_red=$'\033[31m'; c_rst=$'\033[0m'
 ok()   { printf '%sOK%s   %s\n' "$c_grn" "$c_rst" "$*"; }
@@ -49,14 +52,6 @@ PUBLIC_DOMAIN="$(sqlr "
   LIMIT 1;")"
 [[ -n "$PUBLIC_DOMAIN" ]] || die "could not read public domain from existing inbounds"
 
-read -r PRIV PUB < <(sqlr "
-  SELECT json_extract(stream_settings,'\$.realitySettings.privateKey') || ' ' ||
-         json_extract(stream_settings,'\$.realitySettings.settings.publicKey')
-  FROM inbounds
-  WHERE json_extract(stream_settings,'\$.security')='reality'
-  LIMIT 1;")
-[[ -n "$PRIV" && -n "$PUB" ]] || die "could not read REALITY key pair from existing inbounds"
-
 # emoji/flag prefix from an existing remark (e.g. "🇩🇪")
 SAMPLE_REMARK="$(sqlr "SELECT remark FROM inbounds WHERE remark LIKE '%vless-tcp-reality%' LIMIT 1;")"
 EMOJI="${SAMPLE_REMARK%% *}"
@@ -76,7 +71,6 @@ KEY_FILE="${WS_KEY:-$KEY_FILE}"
 SNIFFING='{"enabled":true,"destOverride":["http","tls","quic","fakedns"],"metadataOnly":false,"routeOnly":true}'
 
 info "public domain : $PUBLIC_DOMAIN"
-info "reality pubkey: $PUB"
 info "flag          : $EMOJI"
 
 # --- helpers ---------------------------------------------------------------
@@ -91,7 +85,6 @@ free_port() {
     printf '%s\n' "$p"; return
   done
 }
-decoy_ok() { timeout 6 bash -c "echo | openssl s_client -connect ${1}:443 -servername ${1} -tls1_3 2>/dev/null | grep -q CONNECTED"; }
 remark_exists() { [[ "$(sqlr "SELECT COUNT(*) FROM inbounds WHERE remark=$(q "$1");")" != "0" ]]; }
 
 insert_inbound() {
@@ -112,6 +105,22 @@ if [[ "$DRY_RUN" != "1" ]]; then
 fi
 
 ADDED=0
+old_direct_grpc_reality="$(sqlr "
+  SELECT COUNT(*)
+  FROM inbounds
+  WHERE protocol IN ('vless','trojan')
+    AND json_valid(stream_settings)=1
+    AND json_extract(stream_settings,'\$.network')='grpc'
+    AND json_extract(stream_settings,'\$.security')='reality'
+    AND CAST(COALESCE(json_extract(stream_settings,'\$.externalProxy[0].port'),0) AS INTEGER)=port;")"
+if [[ "$old_direct_grpc_reality" != "0" ]]; then
+  if [[ "$DRY_RUN" == "1" ]]; then
+    warn "DRY_RUN: would convert $old_direct_grpc_reality direct gRPC REALITY inbound(s) to TLS"
+  else
+    XUI_DB="$DB" xui_normalize_direct_grpc_tls_inbounds
+    ADDED=1
+  fi
+fi
 
 # === 1) vless-ws + TLS (masked as real HTTPS) ==============================
 WS_REMARK="${EMOJI} vless-ws-tls"
@@ -147,40 +156,38 @@ else
   ADDED=1
 fi
 
-# === 2) trojan-grpc-reality ================================================
-TG_REMARK="${EMOJI} trojan-grpc-reality"
-if remark_exists "$TG_REMARK"; then
-  warn "skip: '$TG_REMARK' already exists"
+# === 2) trojan-grpc + TLS ==================================================
+TG_REMARK="${EMOJI} trojan-grpc-tls"
+if [[ "$(sqlr "SELECT COUNT(*) FROM inbounds WHERE protocol='trojan' AND json_extract(stream_settings,'\$.network')='grpc';")" != "0" ]]; then
+  warn "skip: Trojan gRPC inbound already exists"
+elif [[ -z "$CERT_FILE" || -z "$KEY_FILE" ]]; then
+  warn "skip trojan-grpc-tls: no TLS cert found (set WS_CERT=/path/fullchain.pem WS_KEY=/path/privkey.pem)"
+elif [[ "$DRY_RUN" != "1" && ( ! -f "$CERT_FILE" || ! -f "$KEY_FILE" ) ]]; then
+  warn "skip trojan-grpc-tls: cert/key file missing on disk ($CERT_FILE / $KEY_FILE)"
 else
-  # pick a reachable decoy not already used by another inbound
-  decoy="${TROJAN_GRPC_DECOY:-}"
-  if [[ -z "$decoy" ]]; then
-    for cand in mail.ru www.tbank.ru store.steampowered.com www.microsoft.com www.cloudflare.com; do
-      [[ "$(sqlr "SELECT 1 FROM inbounds WHERE json_extract(stream_settings,'\$.realitySettings.serverNames[0]')='$cand' LIMIT 1;")" == "1" ]] && continue
-      decoy_ok "$cand" && { decoy="$cand"; break; }
-    done
-  fi
-  [[ -n "$decoy" ]] || die "no reachable decoy for trojan-grpc; set TROJAN_GRPC_DECOY=<domain>"
-  ok "trojan-grpc decoy: $decoy"
-
   port="$(free_port)"
-  sid1="$(openssl rand -hex 4)"; sid2="$(openssl rand -hex 4)"
+  grpc_service="trojan-grpc-$(openssl rand -hex 6)"
   settings='{"clients":[],"fallbacks":[]}'
   stream="$(jq -cn \
-    --arg dom "$PUBLIC_DOMAIN" --arg decoy "$decoy" \
-    --arg priv "$PRIV" --arg pub "$PUB" \
-    --arg sid1 "$sid1" --arg sid2 "$sid2" --argjson port "$port" '{
+    --arg dom "$PUBLIC_DOMAIN" --arg cert "$CERT_FILE" --arg key "$KEY_FILE" \
+    --arg serviceName "$grpc_service" --argjson port "$port" '{
     network:"grpc",
-    security:"reality",
-    externalProxy:[{forceTls:"same",dest:$dom,port:$port,remark:""}],
-    realitySettings:{
-      show:false,xver:0,
-      target:($decoy+":443"),dest:($decoy+":443"),
-      serverNames:[$decoy],
-      privateKey:$priv,shortIds:[$sid1,$sid2],
-      settings:{publicKey:$pub,fingerprint:"random",serverName:"",spiderX:"/"}
-    },
-    grpcSettings:{serviceName:"trojangrpc",authority:$decoy,multiMode:false}
+    security:"tls",
+    externalProxy:[{forceTls:"tls",dest:$dom,port:$port,remark:""}],
+    grpcSettings:{serviceName:$serviceName,authority:$dom,multiMode:false},
+    tlsSettings:{
+      serverName:$dom,
+      alpn:["h2"],
+      certificates:[{buildChain:false,certificateFile:$cert,keyFile:$key,oneTimeLoading:false,usage:"encipherment"}],
+      cipherSuites:"",
+      disableSystemRoot:false,
+      echForceQuery:"none",
+      echServerKeys:"",
+      enableSessionResumption:false,
+      maxVersion:"1.3",
+      minVersion:"1.2",
+      rejectUnknownSni:false
+    }
   }')"
   insert_inbound trojan "$port" "$TG_REMARK" "$settings" "$stream"
   ADDED=1

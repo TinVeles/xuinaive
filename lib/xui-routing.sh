@@ -81,11 +81,12 @@ xui_normalize_reference_preset_external_proxy_ports() {
       AND (
         lower(COALESCE(remark,'')) LIKE '%vless-tcp-reality-%'
         OR lower(COALESCE(remark,'')) LIKE '%vless-xhttp-reality%'
-        OR lower(COALESCE(remark,'')) LIKE '%vless-grpc-reality%'
+        OR lower(COALESCE(remark,'')) LIKE '%vless-grpc%'
         OR lower(COALESCE(remark,'')) LIKE '%vless-ws%'
         OR lower(COALESCE(remark,'')) LIKE '%shadowsocks-tcp%'
         OR lower(COALESCE(remark,'')) LIKE '%hysteria2-udp%'
         OR lower(COALESCE(remark,'')) LIKE '%trojan-tcp-reality%'
+        OR lower(COALESCE(remark,'')) LIKE '%trojan-grpc%'
       );
 
     SELECT changes();
@@ -181,6 +182,93 @@ xui_normalize_grpc_service_names() {
       AND json_extract(stream_settings,'$.network')='grpc'
       AND COALESCE(json_extract(stream_settings,'$.grpcSettings.serviceName'), '') LIKE '/%';
   " 2>/dev/null || true
+}
+
+xui_normalize_direct_grpc_tls_inbounds() {
+  local db rows inbound_id remark public_domain stream_settings certificate_file key_file new_remark new_stream updated=0
+  db="$(xui_db_path)"
+  [[ -f "$db" ]] || return 0
+
+  rows="$(sqlite3 -separator $'\t' -readonly "$db" "
+    SELECT id,
+           COALESCE(remark,''),
+           COALESCE(json_extract(stream_settings,'$.externalProxy[0].dest'),''),
+           stream_settings
+    FROM inbounds
+    WHERE protocol IN ('vless','trojan')
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='grpc'
+      AND json_extract(stream_settings,'$.security')='reality'
+      AND CAST(COALESCE(json_extract(stream_settings,'$.externalProxy[0].port'),0) AS INTEGER)=port
+      AND COALESCE(json_extract(stream_settings,'$.externalProxy[0].dest'),'') <> ''
+    ORDER BY id;
+  " 2>/dev/null || true)"
+  [[ -n "$rows" ]] || return 0
+
+  while IFS=$'\t' read -r inbound_id remark public_domain stream_settings; do
+    [[ -n "$inbound_id" && -n "$public_domain" ]] || continue
+    certificate_file="/root/cert/${public_domain}/fullchain.pem"
+    key_file="/root/cert/${public_domain}/privkey.pem"
+    if [[ ! -f "$certificate_file" || ! -f "$key_file" ]]; then
+      IFS=$'\t' read -r certificate_file key_file < <(sqlite3 -separator $'\t' -readonly "$db" "
+        SELECT COALESCE(json_extract(stream_settings,'$.tlsSettings.certificates[0].certificateFile'),''),
+               COALESCE(json_extract(stream_settings,'$.tlsSettings.certificates[0].keyFile'),'')
+        FROM inbounds
+        WHERE json_valid(stream_settings)=1
+          AND COALESCE(json_extract(stream_settings,'$.tlsSettings.certificates[0].certificateFile'),'') <> ''
+          AND COALESCE(json_extract(stream_settings,'$.tlsSettings.certificates[0].keyFile'),'') <> ''
+        LIMIT 1;
+      " 2>/dev/null || true)
+    fi
+    certificate_file="${certificate_file%$'\r'}"
+    key_file="${key_file%$'\r'}"
+    if [[ ! -f "$certificate_file" || ! -f "$key_file" ]]; then
+      warn "Cannot convert direct gRPC REALITY inbound id=$inbound_id to TLS: certificate for $public_domain not found"
+      continue
+    fi
+
+    new_remark="${remark//grpc-reality/grpc-tls}"
+    new_stream="$(jq -c \
+      --arg domain "$public_domain" \
+      --arg cert "$certificate_file" \
+      --arg key "$key_file" '
+      .security = "tls"
+      | del(.realitySettings)
+      | .externalProxy[0].forceTls = "tls"
+      | .grpcSettings = (.grpcSettings // {})
+      | .grpcSettings.authority = $domain
+      | .tlsSettings = {
+          serverName:$domain,
+          alpn:["h2"],
+          certificates:[{
+            buildChain:false,
+            certificateFile:$cert,
+            keyFile:$key,
+            oneTimeLoading:false,
+            usage:"encipherment"
+          }],
+          cipherSuites:"",
+          disableSystemRoot:false,
+          echForceQuery:"none",
+          echServerKeys:"",
+          enableSessionResumption:false,
+          maxVersion:"1.3",
+          minVersion:"1.2",
+          rejectUnknownSni:false
+        }
+    ' <<<"$stream_settings")"
+    sqlite3 "$db" "
+      UPDATE inbounds
+      SET remark=$(sql_quote "$new_remark"),
+          stream_settings=$(sql_quote "$new_stream")
+      WHERE id=$inbound_id;
+    "
+    updated=$((updated + 1))
+  done <<<"$rows"
+
+  if [[ "$updated" -gt 0 ]]; then
+    printf 'INFO: Converted direct gRPC REALITY inbound(s) to TLS: %s\n' "$updated"
+  fi
 }
 
 xui_disable_nginx_enabled_backup_configs() {
@@ -468,12 +556,32 @@ xui_install_3dp_reference_presets() {
   xui_3dp_insert vless "$port" "${emoji_flag} vless-xhttp-reality" "$settings" "$stream"
 
   port="$(xui_3dp_random_port)"
-  # gosuslugi.ru geoblocks many hosting/datacenter IPs (reality steal fails when
-  # the decoy is unreachable from the server). dzen.ru is a big TLS1.3+HTTP/2 RU
-  # site that stays reachable from RU datacenters. Override with REALITY_GRPC_DECOY.
-  sni="${REALITY_GRPC_DECOY:-dzen.ru}"
-  stream="$(xui_3dp_reality_stream grpc "$sni" "$port" "$(jq -cn --arg authority "$sni" '{grpcSettings:{serviceName:"myservice",authority:$authority,multiMode:false}}')")"
-  xui_3dp_insert vless "$port" "${emoji_flag} vless-grpc-reality" "$settings" "$stream"
+  stream="$(jq -cn \
+    --arg publicDomain "$public_domain" \
+    --arg certificateFile "$certificate_file" \
+    --arg keyFile "$key_file" \
+    --arg serviceName "grpc-$(openssl rand -hex 6)" \
+    --argjson port "$port" \
+    '{
+      network:"grpc",
+      security:"tls",
+      externalProxy:[{forceTls:"tls",dest:$publicDomain,port:$port,remark:""}],
+      grpcSettings:{serviceName:$serviceName,authority:$publicDomain,multiMode:false},
+      tlsSettings:{
+        serverName:$publicDomain,
+        alpn:["h2"],
+        certificates:[{buildChain:false,certificateFile:$certificateFile,keyFile:$keyFile,oneTimeLoading:false,usage:"encipherment"}],
+        cipherSuites:"",
+        disableSystemRoot:false,
+        echForceQuery:"none",
+        echServerKeys:"",
+        enableSessionResumption:false,
+        maxVersion:"1.3",
+        minVersion:"1.2",
+        rejectUnknownSni:false
+      }
+    }')"
+  xui_3dp_insert vless "$port" "${emoji_flag} vless-grpc-tls" "$settings" "$stream"
 
   port="$(xui_3dp_random_port)"
   stream="$(jq -cn --arg publicDomain "$public_domain" --argjson port "$port" '{

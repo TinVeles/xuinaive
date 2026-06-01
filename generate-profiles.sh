@@ -558,6 +558,7 @@ xui_add_clients() {
   xui_enable_standard_preset_inbounds
   xui_normalize_xhttp_tcp_inbounds
   xui_normalize_grpc_service_names
+  xui_normalize_direct_grpc_tls_inbounds
   xui_ensure_nginx_dynamic_proxy
   xui_ensure_nginx_reality_sni_routes
   xui_enable_preset_domain_sniffing

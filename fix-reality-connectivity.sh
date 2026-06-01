@@ -29,6 +29,11 @@ set -euo pipefail
 DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
 DRY_RUN="${DRY_RUN:-0}"
 CHANGED=0
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+source "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=lib/xui-routing.sh
+source "$SCRIPT_DIR/lib/xui-routing.sh"
 
 # replacement decoys when an inbound's serverName is unreachable from the server.
 # must support TLS1.3 + HTTP/2 and be reachable from the host. override via env:
@@ -73,6 +78,23 @@ if [[ "$DRY_RUN" != "1" ]]; then
   backup="${DB}.bak.$(date +%Y%m%d%H%M%S)"
   cp -a "$DB" "$backup"
   info "DB backed up: $backup"
+fi
+
+direct_grpc_reality="$(sqlr "
+  SELECT COUNT(*)
+  FROM inbounds
+  WHERE protocol IN ('vless','trojan')
+    AND json_valid(stream_settings)=1
+    AND json_extract(stream_settings,'\$.network')='grpc'
+    AND json_extract(stream_settings,'\$.security')='reality'
+    AND CAST(COALESCE(json_extract(stream_settings,'\$.externalProxy[0].port'),0) AS INTEGER)=port;")"
+if [[ "$direct_grpc_reality" != "0" ]]; then
+  if [[ "$DRY_RUN" == "1" ]]; then
+    warn "DRY_RUN: would convert $direct_grpc_reality direct gRPC REALITY inbound(s) to TLS"
+  else
+    XUI_DB="$DB" xui_normalize_direct_grpc_tls_inbounds
+    CHANGED=1
+  fi
 fi
 
 # --- enumerate enabled reality inbounds ------------------------------------

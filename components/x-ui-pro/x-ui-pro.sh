@@ -343,6 +343,7 @@ xui_post_update_db() {
   xui_sanitize_inbound_tags
   xui_enable_preset_xhttp
   xui_normalize_xhttp_tcp_inbounds
+  xui_normalize_direct_grpc_tls_inbounds
   xui_ensure_nginx_dynamic_proxy
   xui_enable_preset_domain_sniffing
   xui_fix_all_vless_decryption
@@ -1490,6 +1491,7 @@ xui_remove_deprecated_vmess_presets
 xui_normalize_reference_preset_external_proxy_ports
 xui_sanitize_inbound_tags
 xui_normalize_grpc_service_names
+xui_normalize_direct_grpc_tls_inbounds
 xui_enable_preset_domain_sniffing
 if [[ "$XUI_ENABLE_WARP_ROUTING" == "1" && "$XUI_AUTO_INSTALL_WARP" == "1" ]]; then
   ensure_warp_local_proxy "$UPM_ROOT_DIR"
