@@ -38,6 +38,35 @@ sudo bash install.sh --mode all \
   --yes
 ```
 
+The default panel line remains the fixed legacy `2.9.4` release for existing
+deployments. For an x-ui-only fresh VPS, choose one installer explicitly:
+
+```bash
+# Existing 2.9.4 schema: clients live inside each inbound.
+sudo bash install-xui-legacy.sh \
+  --xui-domain x.example.com \
+  --reality-dest r.example.com \
+  --install \
+  --yes
+
+# Current upstream v3 release: resolved dynamically during install.
+# SQLite is selected explicitly; one client entity is attached to many inbounds.
+sudo bash install-xui-latest.sh \
+  --xui-domain x.example.com \
+  --reality-dest r.example.com \
+  --install \
+  --yes
+```
+
+`install-xui-latest.sh` does not pin a release number. It resolves the current
+official GitHub release at install time, verifies downloaded artifacts, writes
+`XUI_DB_TYPE=sqlite` to `/etc/default/x-ui`, and runs `generate-xui-v3.sh`.
+Use latest mode on a fresh VPS or after a backup: the x-ui installer recreates
+the existing x-ui and nginx state.
+
+The latest panel line currently supports `--mode xui` only. Keep `--mode all`
+installations on the legacy line, or place NHM on a separate VPS.
+
 This gives you:
 
 - x-ui and NHM on one VPS.
@@ -234,7 +263,19 @@ sudo bash generate-profiles.sh --yes
 
 By default this creates 15 x-ui clients on each selected preset inbound, 15 NaiveProxy profiles, and 15 NHM Hysteria2 profiles. It does not install WARP and does not write WARP routing. Fresh x-ui installs also include a separate 3x-ui-managed Hysteria2 UDP preset.
 
-The default supported x-ui line is `2.9.*`. Profile generation writes clients through the classic `inbounds.settings.clients` model used by 3x-ui `2.9.*`.
+The default supported x-ui line is the fixed legacy `2.9.4` release.
+`generate-profiles.sh` writes clients through its classic
+`inbounds.settings.clients` model. For the latest v3 line use:
+
+```bash
+sudo bash generate-xui-v3.sh \
+  --count 15 \
+  --prefix auto \
+  --yes
+```
+
+The v3 generator writes one row per profile to `clients`, then attaches that
+row to every compatible generated inbound through `client_inbounds`.
 
 Default output:
 
@@ -568,12 +609,13 @@ sudo systemctl daemon-reload
 Useful checks before and after changes:
 
 ```bash
-bash -n install.sh install-unified.sh install-warp.sh generate-profiles.sh repair-xui-inbounds.sh status.sh doctor.sh show-access-info.sh uninstall-stack.sh
+bash -n install.sh install-unified.sh install-xui-legacy.sh install-xui-latest.sh install-warp.sh generate-profiles.sh generate-xui-v3.sh repair-xui-inbounds.sh status.sh doctor.sh show-access-info.sh uninstall-stack.sh
 bash install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email a@example.com --dry-run
 bash install-warp.sh --help
 bash generate-profiles.sh --help
 bash tests/common-regression.sh
 bash tests/xui-routing-regression.sh
+bash tests/xui-v3-regression.sh
 ```
 
 On Windows, use a working WSL or Git/MSYS Bash. The real target is Ubuntu 22.04/24.04 or Debian 12.
@@ -592,10 +634,14 @@ On Windows, use a working WSL or Git/MSYS Bash. The real target is Ubuntu 22.04/
 |   +-- common.sh
 |   +-- warp.sh
 |   +-- xui-routing.sh
+|   +-- xui-v3.sh
 +-- install.sh
 +-- install-unified.sh
++-- install-xui-legacy.sh
++-- install-xui-latest.sh
 +-- install-warp.sh
 +-- generate-profiles.sh
++-- generate-xui-v3.sh
 +-- repair-xui-inbounds.sh
 +-- show-access-info.sh
 +-- status.sh

@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/common.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/warp.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/xui-routing.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/xui-v3.sh"
+
+XUI_DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
+COUNT="${COUNT:-15}"
+PREFIX="${PREFIX:-auto}"
+DOMAIN="${XUI_DOMAIN:-}"
+REALITY_DEST="${REALITY_DEST:-}"
+RESET_INBOUNDS=0
+RESTART_XUI=1
+ASSUME_YES=0
+
+usage() {
+  cat <<EOF
+Usage:
+  sudo bash generate-xui-v3.sh --count 15 --prefix auto --yes
+  sudo bash generate-xui-v3.sh --reset-inbounds --domain x.example.com --reality-dest r.example.com --yes
+
+Creates one v3 client entity per profile and attaches it to every generated
+compatible inbound through client_inbounds. This script is only for 3x-ui v3.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --xui-db) XUI_DB="${2:-}"; shift 2 ;;
+    --count) COUNT="${2:-}"; shift 2 ;;
+    --prefix) PREFIX="${2:-}"; shift 2 ;;
+    --domain|--xui-domain) DOMAIN="${2:-}"; shift 2 ;;
+    --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
+    --reset-inbounds) RESET_INBOUNDS=1; shift ;;
+    --no-restart) RESTART_XUI=0; shift ;;
+    --yes) ASSUME_YES=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) upm_die "Unknown argument: $1" ;;
+  esac
+done
+
+[[ "${EUID:-$(id -u)}" -eq 0 ]] || upm_die "Run as root"
+[[ "$ASSUME_YES" == "1" ]] || upm_die "Add --yes after reading what this script changes"
+[[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -gt 0 ]] || upm_die "--count must be a positive number"
+[[ "$PREFIX" =~ ^[A-Za-z0-9_.-]+$ ]] || upm_die "--prefix may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
+for cmd in sqlite3 jq openssl; do
+  command_exists "$cmd" || upm_die "$cmd is required"
+done
+if [[ "$RESET_INBOUNDS" == "1" ]]; then
+  [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]] || upm_die "--domain is required with --reset-inbounds"
+  [[ "$REALITY_DEST" =~ ^[A-Za-z0-9.-]+$ ]] || upm_die "--reality-dest is required with --reset-inbounds"
+fi
+
+xui_v3_require_schema "$XUI_DB"
+backup_dir="/opt/unified-proxy-manager/backups/xui-v3-$(date '+%Y-%m-%d-%H-%M-%S')"
+mkdir -p "$backup_dir"
+cp -a "$XUI_DB" "$backup_dir/x-ui.db"
+upm_log_ok "Backup directory: $backup_dir"
+
+xui_was_active=0
+restart_xui_after_failure() {
+  local status=$?
+  if [[ "$status" -ne 0 && "$xui_was_active" == "1" ]]; then
+    upm_log_warn "Profile generation failed; restarting the previously active x-ui service"
+    systemctl restart x-ui >/dev/null 2>&1 || true
+  fi
+  exit "$status"
+}
+trap restart_xui_after_failure EXIT
+
+if command_exists systemctl && systemctl is-active --quiet x-ui; then
+  xui_was_active=1
+  systemctl stop x-ui
+fi
+
+if [[ "$RESET_INBOUNDS" == "1" ]]; then
+  sqlite3 "$XUI_DB" "DELETE FROM client_inbounds; DELETE FROM client_traffics; DELETE FROM clients;"
+  xray_binary="$(xui_v3_xray_binary || true)"
+  [[ -n "$xray_binary" ]] || upm_die "Could not find the installed Xray binary"
+  output="$("$xray_binary" x25519)"
+  private_key="$(awk -F': *' 'tolower($1) ~ /^private[ _-]?key$/ {print $2; exit}' <<<"$output")"
+  public_key="$(awk -F': *' 'tolower($1) ~ /^public[ _-]?key$/ || tolower($1) ~ /publickey/ {print $2; exit}' <<<"$output")"
+  [[ -n "$private_key" && -n "$public_key" ]] || upm_die "Could not parse xray x25519 key pair"
+  XUI_DB="$XUI_DB" xui_install_3dp_reference_presets \
+    "$XUI_DB" "$DOMAIN" "$private_key" "$public_key" "UPM" \
+    "/root/cert/${DOMAIN}/fullchain.pem" "/root/cert/${DOMAIN}/privkey.pem"
+fi
+
+XUI_DB="$XUI_DB" xui_repair_invalid_inbound_json
+XUI_DB="$XUI_DB" xui_remove_deprecated_vmess_presets
+XUI_DB="$XUI_DB" xui_disable_experimental_trojan_grpc_presets
+XUI_DB="$XUI_DB" xui_normalize_reference_preset_external_proxy_ports
+XUI_DB="$XUI_DB" xui_sanitize_inbound_tags
+XUI_DB="$XUI_DB" xui_normalize_xhttp_tcp_inbounds
+XUI_DB="$XUI_DB" xui_normalize_grpc_service_names
+XUI_DB="$XUI_DB" xui_restore_reference_vless_grpc_reality_inbounds
+XUI_DB="$XUI_DB" xui_enable_preset_domain_sniffing
+
+report_file="/etc/x-ui/generated-clients-v3.txt"
+mkdir -p "$(dirname "$report_file")"
+XUI_DB="$XUI_DB" xui_v3_replace_generated_clients "$XUI_DB" "$COUNT" "$PREFIX" "$report_file"
+
+XUI_DB="$XUI_DB" xui_ensure_nginx_dynamic_proxy || true
+XUI_DB="$XUI_DB" xui_ensure_nginx_reality_sni_routes || true
+XUI_DB="$XUI_DB" xui_open_public_preset_ports
+
+if [[ "$RESTART_XUI" == "1" ]] && command_exists systemctl; then
+  systemctl restart x-ui
+  systemctl is-active --quiet x-ui || upm_die "x-ui failed to restart"
+fi
+
+upm_log_ok "3x-ui v3 clients generated: $COUNT client entities attached to every preset inbound"
+upm_log_ok "Report: $report_file"

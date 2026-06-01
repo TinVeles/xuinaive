@@ -60,6 +60,7 @@ WARP_ROUTE_PORT="${WARP_ROUTE_PORT:-443}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-0}"
 XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
+XUI_PANEL_LINE="${XUI_PANEL_LINE:-legacy}"
 GENERATE_PROFILES="${GENERATE_PROFILES:-auto}"
 PROFILE_COUNT="${PROFILE_COUNT:-15}"
 PROFILE_PREFIX="${PROFILE_PREFIX:-auto}"
@@ -95,6 +96,7 @@ usage() {
 Usage:
   ./install.sh
   ./install.sh --mode xui --xui-domain x.example.com --reality-dest r.example.com [--dry-run]
+  ./install.sh --mode xui --xui-panel-line latest --xui-domain x.example.com --reality-dest r.example.com --install --yes
   ./install.sh --mode naive --naive-domain n.example.com [--dry-run]
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install --yes
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem --install --yes
@@ -109,6 +111,7 @@ Mode all installs 3x-ui + NHM Panel + NaiveProxy + Hysteria2 on one VPS.
 Real --mode all generates subscriptions by default.
 Use --install-warp only when Cloudflare WARP should be installed and used for AI routing.
 Use --no-generate-profiles only for minimal/manual recovery installs.
+The default x-ui panel line is legacy (fixed 2.9.4). Use --xui-panel-line latest for the current upstream v3 release with SQLite.
 Mode nh installs only the standalone NHM NaiveProxy + Hysteria2 web panel.
 Mieru is disabled by default. Add --with-mieru if you want the optional Mieru module in NHM Panel.
 EOF
@@ -240,7 +243,7 @@ load_config() {
         value="${value//\\\\/\\}"
       fi
       case "$key" in
-        MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NAIVE_EMAIL|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PROXY_EMAIL|PROXY_EMAIL|NH_STACK|NH_ACCESS|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_EMAIL|PANEL_EMAIL|NH_SSH_ONLY|NH_MASQUERADE|NH_MASQUERADE_URL|NH_ALLOW_PORT_CONFLICT|NH_ENABLE_MIERU|TLS_CERT|TLS_KEY|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_AI_DOMAINS|WARP_INBOUND_TAG|WARP_ROUTE_PORT|XUI_CREATE_DIRECT|GENERATE_PROFILES|PROFILE_COUNT|PROFILE_PREFIX|UPM_PROJECT_DIR)
+        MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NAIVE_EMAIL|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PROXY_EMAIL|PROXY_EMAIL|NH_STACK|NH_ACCESS|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_EMAIL|PANEL_EMAIL|NH_SSH_ONLY|NH_MASQUERADE|NH_MASQUERADE_URL|NH_ALLOW_PORT_CONFLICT|NH_ENABLE_MIERU|TLS_CERT|TLS_KEY|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_AI_DOMAINS|WARP_INBOUND_TAG|WARP_ROUTE_PORT|XUI_CREATE_DIRECT|XUI_PANEL_LINE|GENERATE_PROFILES|PROFILE_COUNT|PROFILE_PREFIX|UPM_PROJECT_DIR)
           printf -v "$key" '%s' "$value"
           ;;
       esac
@@ -395,11 +398,13 @@ check_vendored_components() {
     "$PROJECT_DIR/install-unified.sh" \
     "$PROJECT_DIR/install-warp.sh" \
     "$PROJECT_DIR/generate-profiles.sh" \
+    "$PROJECT_DIR/generate-xui-v3.sh" \
     "$PROJECT_DIR/uninstall-stack.sh" \
     "$PROJECT_DIR/show-access-info.sh" \
     "$PROJECT_DIR/lib/common.sh" \
     "$PROJECT_DIR/lib/warp.sh" \
     "$PROJECT_DIR/lib/xui-routing.sh" \
+    "$PROJECT_DIR/lib/xui-v3.sh" \
     "$PROJECT_DIR/components/x-ui-pro/x-ui-pro.sh" \
     "$PROJECT_DIR/components/x-ui-pro/apply-naive-sni-route.sh" \
     "$PROJECT_DIR/components/nh-panel/install.sh" \
@@ -477,6 +482,10 @@ validate_real_install_args() {
   [[ "$WARP_ROUTE_PORT" =~ ^[0-9]+$ ]] || die "--warp-route-port must be numeric"
   [[ "$PROFILE_COUNT" =~ ^[0-9]+$ && "$PROFILE_COUNT" -gt 0 ]] || die "--profile-count must be a positive number"
   [[ "$PROFILE_PREFIX" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--profile-prefix may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
+  [[ "$XUI_PANEL_LINE" == "legacy" || "$XUI_PANEL_LINE" == "latest" ]] || die "--xui-panel-line must be legacy or latest"
+  if [[ "$XUI_PANEL_LINE" == "latest" && "$MODE" != "xui" ]]; then
+    die "--xui-panel-line latest currently supports --mode xui only. Keep --mode all on legacy, or install NHM on a separate VPS."
+  fi
   if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
     [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
     [[ -f "$TLS_KEY" ]] || die "--tls-key file not found: $TLS_KEY"
@@ -529,6 +538,7 @@ TLS key:        ${TLS_KEY:-auto/ACME}
 Install WARP:   ${INSTALL_WARP}
 WARP proxy:     127.0.0.1:${WARP_PROXY_PORT}
 Profiles:       ${GENERATE_PROFILES} (${PROFILE_COUNT} per group, prefix ${PROFILE_PREFIX})
+x-ui line:      ${XUI_PANEL_LINE}
 
 Changes will be made because --install --yes was provided.
 Packages may be installed.
@@ -555,6 +565,7 @@ TLS key:        ${TLS_KEY:-auto/ACME}
 Install WARP:   ${INSTALL_WARP}
 WARP proxy:     127.0.0.1:${WARP_PROXY_PORT}
 Profiles:       ${GENERATE_PROFILES} (${PROFILE_COUNT} per group, prefix ${PROFILE_PREFIX})
+x-ui line:      ${XUI_PANEL_LINE}
 
 No changes will be made.
 No packages will be installed.
@@ -650,6 +661,7 @@ WARP routing:   $xui_install_warp_routing
 WARP auto-install: $xui_auto_install_warp
 WARP template DB apply: $xui_apply_warp_template
 Profiles:       ${GENERATE_PROFILES} (${PROFILE_COUNT}, prefix ${PROFILE_PREFIX})
+x-ui line:      $XUI_PANEL_LINE
 
 This will install only x-ui-pro / 3x-ui / Xray / nginx.
 NHM Panel, NaiveProxy, and Hysteria2 will not be installed.
@@ -669,9 +681,18 @@ EOF
 
     local xui_verifier="$PROJECT_DIR/components/x-ui-pro/verify-upstream-binaries.sh"
     local xui_runtime
+    local xui_release_channel="legacy"
+    local xui_version="v2.9.4"
+    if [[ "$XUI_PANEL_LINE" == "latest" ]]; then
+      xui_release_channel="latest"
+      xui_version=""
+      install -d -m 0755 /etc/default
+      printf 'XUI_DB_TYPE=sqlite\n' > /etc/default/x-ui
+      chmod 0600 /etc/default/x-ui
+    fi
     if [[ -x "$xui_verifier" ]]; then
       info "Pre-fetching and SHA256-verifying x-ui-pro upstream artifacts"
-      xui_runtime="$(bash "$xui_verifier" | tail -n1)"
+      xui_runtime="$(UPM_X_UI_RELEASE_CHANNEL="$xui_release_channel" UPM_X_UI_VERSION_OVERRIDE="$xui_version" bash "$xui_verifier" | tail -n1)"
       [[ -x "$xui_runtime" ]] || die "verify-upstream-binaries.sh did not produce a runnable patched script"
     else
       if [[ "${UPM_SKIP_UPSTREAM_VERIFY:-0}" != "1" ]]; then
@@ -682,6 +703,8 @@ EOF
     fi
 
     XUI_PRINT_ACCESS_INFO=0 \
+    XUI_VERSION="$xui_version" \
+    XUI_DB_TYPE=sqlite \
     XUI_SEED_PROFILES=0 \
     XUI_ENABLE_WARP_ROUTING="$xui_install_warp_routing" \
     XUI_AUTO_INSTALL_WARP="$xui_auto_install_warp" \
@@ -693,7 +716,17 @@ EOF
     upm_assert_xui_creds_rotated /etc/x-ui/x-ui.db
 
     run_warp_install_if_requested
-    run_profile_generation_if_requested
+    if [[ "$XUI_PANEL_LINE" == "latest" && "$GENERATE_PROFILES" == "1" ]]; then
+      bash "$PROJECT_DIR/generate-xui-v3.sh" \
+        --reset-inbounds \
+        --domain "$XUI_DOMAIN" \
+        --reality-dest "$REALITY_DEST" \
+        --count "$PROFILE_COUNT" \
+        --prefix "$PROFILE_PREFIX" \
+        --yes
+    else
+      run_profile_generation_if_requested
+    fi
     show_final_access_info
     return 0
   fi
@@ -924,6 +957,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode) MODE="${2:-}"; shift 2 ;;
     --xui-domain) XUI_DOMAIN="${2:-}"; shift 2 ;;
+    --xui-panel-line) XUI_PANEL_LINE="${2:-}"; shift 2 ;;
     --naive-domain) NAIVE_DOMAIN="${2:-}"; shift 2 ;;
     --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
     --naive-email) NAIVE_EMAIL="${2:-}"; shift 2 ;;

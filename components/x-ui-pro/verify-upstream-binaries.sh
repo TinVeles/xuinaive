@@ -25,6 +25,8 @@ SOURCE_SCRIPT="${UPM_X_UI_PRO_SOURCE:-$SCRIPT_DIR/x-ui-pro.sh}"
 STAGE_DIR="${UPM_X_UI_PRO_STAGE:-/var/tmp/upm-x-ui-prefetch}"
 RUNTIME_SCRIPT="${UPM_X_UI_PRO_RUNTIME:-$STAGE_DIR/x-ui-pro.patched.sh}"
 TOFU_DEFAULT="${UPM_X_UI_PRO_TOFU:-1}"
+X_UI_RELEASE_CHANNEL="${UPM_X_UI_RELEASE_CHANNEL:-legacy}"
+X_UI_VERSION_OVERRIDE="${UPM_X_UI_VERSION_OVERRIDE:-}"
 PRINT_CURRENT=0
 
 while [[ $# -gt 0 ]]; do
@@ -116,8 +118,32 @@ elif [[ -f "$PINS_LOCK" ]]; then
   source "$PINS_LOCK"
 fi
 
-[[ -n "$X_UI_VERSION" ]] || X_UI_VERSION="$(resolve_latest_x_ui)"
+case "$X_UI_RELEASE_CHANNEL" in
+  legacy)
+    [[ -n "$X_UI_VERSION_OVERRIDE" ]] || X_UI_VERSION_OVERRIDE="v2.9.4"
+    X_UI_VERSION="$X_UI_VERSION_OVERRIDE"
+    ;;
+  latest)
+    X_UI_VERSION="$(resolve_latest_x_ui)"
+    ;;
+  *)
+    die "UPM_X_UI_RELEASE_CHANNEL must be legacy or latest"
+    ;;
+esac
 [[ -n "$X_UI_VERSION" ]] || die "Could not resolve x-ui release version"
+
+if [[ ! -f "$PINS_ENV" || "$X_UI_RELEASE_CHANNEL" == "latest" ]]; then
+  VERSION_LOCK="${PINS_LOCK%.lock}-${X_UI_VERSION}.lock"
+  X_UI_TAR_SHA256_AMD64=""
+  X_UI_TAR_SHA256_ARM64=""
+  X_UI_SH_SHA256=""
+  X_UI_RC_SHA256=""
+  if [[ -f "$VERSION_LOCK" ]]; then
+    # shellcheck disable=SC1090
+    source "$VERSION_LOCK"
+  fi
+  PINS_LOCK="$VERSION_LOCK"
+fi
 
 X_UI_TAR_URL="https://github.com/MHSanaei/3x-ui/releases/download/${X_UI_VERSION}/x-ui-linux-${ARCH}.tar.gz"
 X_UI_SH_URL="https://raw.githubusercontent.com/MHSanaei/3x-ui/main/x-ui.sh"
@@ -157,7 +183,7 @@ X_UI_SH_NEW_PIN="$(verify_or_seed "x-ui.sh" "$X_UI_SH_FILE" "$X_UI_SH_SHA256")"
 X_UI_RC_NEW_PIN="$(verify_or_seed "x-ui.rc" "$X_UI_RC_FILE" "$X_UI_RC_SHA256")"
 SUB2SINGBOX_NEW_PIN="$(verify_or_seed "sub2sing-box (${ARCH})" "$SUB2SINGBOX_FILE" "$SUB2SINGBOX_PIN")"
 
-if [[ ! -f "$PINS_ENV" ]]; then
+if [[ ! -f "$PINS_ENV" || "$X_UI_RELEASE_CHANNEL" == "latest" ]]; then
   TMP_LOCK="$(mktemp)"
   {
     printf '# Auto-generated TOFU lock. Review and promote to upstream-pins.env when stable.\n'
@@ -179,6 +205,7 @@ mkdir -p "$(dirname "$RUNTIME_SCRIPT")"
   printf '#!/bin/bash\n'
   printf '# Auto-generated runtime copy with verified prefetched downloads.\n'
   printf 'export UPM_X_UI_VERSION=%q\n' "$X_UI_VERSION"
+  printf 'export XUI_VERSION=%q\n' "$X_UI_VERSION"
   printf 'export UPM_X_UI_PREFETCH=%q\n' "$STAGE_DIR"
   sed \
     -e "s|tag_version=\$(curl[^)]*)|tag_version=\"$X_UI_VERSION\"|" \
