@@ -247,34 +247,8 @@ profile_indices() {
   done
 }
 
-xui_strip_reality_label() {
-  local email="$1"
-  email="${email#reality-}"
-  email="${email%-reality}"
-  printf '%s\n' "$email"
-}
-
 xui_reality_client_base() {
-  local sub_id="$1" email base
-  email="$(sqlite3 -readonly "$XUI_DB" "
-    SELECT settings
-    FROM inbounds
-    WHERE enable=1
-      AND protocol='vless'
-      AND json_valid(settings)=1
-      AND json_valid(stream_settings)=1
-      AND json_extract(stream_settings,'$.security')='reality'
-    ORDER BY id;
-  " 2>/dev/null | jq -r --arg sub_id "$sub_id" '
-    (.clients // [])[]
-    | select((.enable // true) != false)
-    | select((.subId // "") == $sub_id)
-    | (.email // "")
-    | select(. != "")
-  ' 2>/dev/null | head -n 1)"
-  base="$(xui_strip_reality_label "$email")"
-  [[ -n "$base" ]] || base="$sub_id"
-  printf '%s\n' "$base"
+  xui_generated_client_base "$1"
 }
 
 xui_client_email() {
@@ -469,7 +443,7 @@ xui_replace_generated_clients() {
     fi
     base="$(xui_reality_client_base "$sub_id")"
     email="$(xui_client_email "$index" "$mode" "$label" "$base")"
-    existing_json="$(jq -c --arg email "$email" '((.clients // []) | map(select((.email // "") == $email)) | .[0]) // {}' <<<"$settings")"
+    existing_json="$(xui_existing_generated_client_json "$settings" "$email" "$sub_id" "$XUI_SUB_ID_MODE")"
     client_json="$(xui_client_json "$inbound_id" "$protocol" "$email" "$sub_id" "$now" "$existing_json")"
     if [[ -z "$client_json" ]] || ! jq -e . >/dev/null 2>&1 <<<"$client_json"; then
       die "Invalid generated client JSON for inbound=$inbound_id email=$email"
@@ -1447,41 +1421,11 @@ function renameLinkFragment(link, name) {
   return `${body}#${encode(name)}`;
 }
 
-function renameXuiLinks(links, subId, realityBases) {
-  const baseName = realityBases.get(subId) || subId;
-  return links.map(link => renameLinkFragment(link, `${xuiLinkLabel(link)}-${baseName}`));
+function renameXuiLinks(links, subId) {
+  return links.map(link => renameLinkFragment(link, `${xuiLinkLabel(link)}-${subId}`));
 }
 
-function stripRealityLabel(email) {
-  return String(email || '').trim().replace(/^reality-/, '').replace(/-reality$/, '');
-}
-
-function xuiRealityBaseBySubId(rows) {
-  const bases = new Map();
-  const fallback = new Map();
-  for (const row of rows) {
-    let settings;
-    try { settings = JSON.parse(row.settings || '{}'); } catch (_) { continue; }
-    let stream;
-    try { stream = JSON.parse(row.stream_settings || '{}'); } catch (_) { stream = {}; }
-    const isReality = String(stream.security || '') === 'reality';
-    const clients = Array.isArray(settings.clients) ? settings.clients : [];
-    for (const client of clients) {
-      if (!client || client.enable === false) continue;
-      const subId = String(client.subId || '');
-      const email = String(client.email || '').trim();
-      if (!subId || !email) continue;
-      if (!fallback.has(subId)) fallback.set(subId, stripRealityLabel(email));
-      if (isReality && !bases.has(subId)) bases.set(subId, stripRealityLabel(email));
-    }
-  }
-  for (const [subId, base] of fallback) {
-    if (!bases.has(subId)) bases.set(subId, base);
-  }
-  return bases;
-}
-
-function nhLinksBySubId(realityBases) {
+function nhLinksBySubId() {
   const cfg = JSON.parse(fs.readFileSync(nhConfig, 'utf8'));
   const domain = cfg.domain || 'DOMAIN_NOT_SET';
   const bySubId = new Map();
@@ -1498,9 +1442,8 @@ function nhLinksBySubId(realityBases) {
       || naive.find(u => String(u.username || '') === `${prefix}-naive-${n}`);
     const hUser = hy2.find(u => String(u.username || '') === String(profile.hy2Username || ''))
       || hy2.find(u => String(u.username || '') === `${prefix}-hy2-${n}`);
-    const baseName = realityBases.get(subId) || subId;
-    if (nUser) links.push(`naive+https://${encode(nUser.username)}:${encode(nUser.password)}@${domain}:443#${encode(`naive-${baseName}`)}`);
-    if (hUser) links.push(`hysteria2://${encode(hUser.username)}:${encode(hUser.password)}@${domain}:443?sni=${domain}&insecure=0#${encode(`hy2-${baseName}`)}`);
+    if (nUser) links.push(`naive+https://${encode(nUser.username)}:${encode(nUser.password)}@${domain}:443#${encode(`naive-${subId}`)}`);
+    if (hUser) links.push(`hysteria2://${encode(hUser.username)}:${encode(hUser.password)}@${domain}:443?sni=${domain}&insecure=0#${encode(`hy2-${subId}`)}`);
     bySubId.set(subId, links);
   }
   return bySubId;
@@ -1510,7 +1453,6 @@ const rows = xuiRows();
 const discoveredSubIds = discoverXuiSubIds(rows);
 const profileMap = ensureProfileMap(loadProfileMap(), discoveredSubIds);
 const profilesBySubId = new Map(profileMap.profiles.map(p => [String(p.subId), p]));
-const realityBases = xuiRealityBaseBySubId(rows);
 const bySubId = new Map();
 for (const profile of profileMap.profiles) {
   bySubId.set(String(profile.subId), []);
@@ -1527,7 +1469,7 @@ for (const row of rows) {
   }
 }
 
-const nhBySubId = nhLinksBySubId(realityBases);
+const nhBySubId = nhLinksBySubId();
 const combinedAll = [];
 const xrayAll = [];
 const stableXrayAll = [];
@@ -1538,7 +1480,7 @@ for (const [subId, links] of bySubId) {
   const subscriptionId = String(profile.subscriptionId || subId);
   const officialXuiText = links.length ? '' : fetchXuiSubscription(subId);
   const officialXuiLinks = officialXuiText ? officialXuiText.split(/\n/).filter(Boolean) : [];
-  const xuiLinks = renameXuiLinks(links.length ? links : officialXuiLinks, subId, realityBases);
+  const xuiLinks = renameXuiLinks(links.length ? links : officialXuiLinks, subId);
   const combined = [...xuiLinks, ...(nhBySubId.get(subId) || [])];
   const text = combined.join('\n');
   const xrayText = xuiLinks.join('\n');

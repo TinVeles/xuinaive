@@ -4,6 +4,24 @@ xui_db_path() {
   printf '%s\n' "${XUI_DB:-${XUIDB:-/etc/x-ui/x-ui.db}}"
 }
 
+xui_generated_client_base() {
+  printf '%s\n' "$1"
+}
+
+xui_existing_generated_client_json() {
+  local settings="$1" email="$2" sub_id="$3" sub_id_mode="${4:-per-client}"
+  jq -c \
+    --arg email "$email" \
+    --arg sub_id "$sub_id" \
+    --argjson match_sub_id "$([[ "$sub_id_mode" == "per-client" ]] && printf true || printf false)" '
+    ((.clients // []) | map(select((.email // "") == $email)) | .[0])
+    // (if $match_sub_id then
+          ((.clients // []) | map(select((.subId // "") == $sub_id)) | .[0])
+        else null end)
+    // {}
+  ' <<<"$settings"
+}
+
 xui_preset_inbound_filter_sql() {
   cat <<'SQL'
        AND (

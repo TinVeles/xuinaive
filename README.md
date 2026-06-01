@@ -214,7 +214,9 @@ sudo bash repair-xui-inbounds.sh
 This is the normal x-ui repair entrypoint. It creates a backup, repairs the
 generated presets, refreshes x-ui-only subscriptions, and runs `doctor.sh`.
 Internal scripts remain separate modules so installation, diagnostics, and
-profile generation can still be tested independently.
+profile generation can still be tested independently. It also rewrites
+recursively expanded legacy profile names to stable short names without
+rotating per-client credentials.
 
 For NHM Panel, open `Bypass` and enable `AI through WARP for Hy2`. The panel writes Hysteria2 `outbounds` and ACL rules so matching AI domains use the same local WARP proxy. NaiveProxy cannot do this server-side because Caddy `forward_proxy` has no per-domain outbound ACL; configure NaiveProxy split routing in the client instead.
 

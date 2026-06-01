@@ -66,4 +66,10 @@ XUI_DB="$db" xui_disable_experimental_trojan_grpc_presets
 [[ "$(sqlite3 -readonly "$db" "SELECT remark FROM inbounds WHERE id=3;")" == "trojan-grpc-tls" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT enable FROM inbounds WHERE id=3;")" == "0" ]]
 
+legacy_settings='{"clients":[{"email":"tcp-reality-5-tcp-reality-5-tcp-reality-5-auto-01","subId":"auto-01","id":"keep-this-uuid"}]}'
+[[ "$(xui_generated_client_base "auto-01")" == "auto-01" ]]
+existing_client="$(xui_existing_generated_client_json "$legacy_settings" "tcp-reality-5-auto-01" "auto-01" "per-client")"
+[[ "$(jq -r '.id' <<<"$existing_client")" == "keep-this-uuid" ]]
+[[ "$(xui_existing_generated_client_json "$legacy_settings" "tcp-reality-5-auto-01" "first" "common")" == "{}" ]]
+
 printf 'xui-routing regression OK\n'
