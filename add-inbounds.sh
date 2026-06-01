@@ -62,6 +62,17 @@ SAMPLE_REMARK="$(sqlr "SELECT remark FROM inbounds WHERE remark LIKE '%vless-tcp
 EMOJI="${SAMPLE_REMARK%% *}"
 [[ "$EMOJI" == "$SAMPLE_REMARK" || -z "$EMOJI" ]] && EMOJI="🏳"
 
+# TLS cert/key reused from an existing TLS inbound (hysteria2) so vless-ws can be
+# masked as real HTTPS for ${PUBLIC_DOMAIN}. Override with WS_CERT / WS_KEY.
+read -r CERT_FILE KEY_FILE < <(sqlr "
+  SELECT COALESCE(json_extract(stream_settings,'\$.tlsSettings.certificates[0].certificateFile'),'') || ' ' ||
+         COALESCE(json_extract(stream_settings,'\$.tlsSettings.certificates[0].keyFile'),'')
+  FROM inbounds
+  WHERE json_extract(stream_settings,'\$.tlsSettings.certificates[0].certificateFile') IS NOT NULL
+  LIMIT 1;")
+CERT_FILE="${WS_CERT:-$CERT_FILE}"
+KEY_FILE="${WS_KEY:-$KEY_FILE}"
+
 SNIFFING='{"enabled":true,"destOverride":["http","tls","quic","fakedns"],"metadataOnly":false,"routeOnly":true}'
 
 info "public domain : $PUBLIC_DOMAIN"
@@ -102,18 +113,35 @@ fi
 
 ADDED=0
 
-# === 1) vless-ws (plain WebSocket) =========================================
-WS_REMARK="${EMOJI} vless-ws"
+# === 1) vless-ws + TLS (masked as real HTTPS) ==============================
+WS_REMARK="${EMOJI} vless-ws-tls"
 if remark_exists "$WS_REMARK"; then
   warn "skip: '$WS_REMARK' already exists"
+elif [[ -z "$CERT_FILE" || -z "$KEY_FILE" ]]; then
+  warn "skip vless-ws-tls: no TLS cert found (set WS_CERT=/path/fullchain.pem WS_KEY=/path/privkey.pem)"
+elif [[ "$DRY_RUN" != "1" && ( ! -f "$CERT_FILE" || ! -f "$KEY_FILE" ) ]]; then
+  warn "skip vless-ws-tls: cert/key file missing on disk ($CERT_FILE / $KEY_FILE)"
 else
+  ok "vless-ws-tls cert: $CERT_FILE"
   port="$(free_port)"
+  # random path so it does not collide / look generic
+  wspath="/$(openssl rand -hex 4)"
   settings='{"clients":[],"decryption":"none","encryption":"none","fallbacks":[]}'
-  stream="$(jq -cn --arg dom "$PUBLIC_DOMAIN" --argjson port "$port" '{
+  stream="$(jq -cn \
+    --arg dom "$PUBLIC_DOMAIN" --arg cert "$CERT_FILE" --arg key "$KEY_FILE" \
+    --arg path "$wspath" --argjson port "$port" '{
     network:"ws",
-    security:"none",
-    externalProxy:[{forceTls:"none",dest:$dom,port:$port,remark:""}],
-    wsSettings:{host:$dom,path:"/",acceptProxyProtocol:false,heartbeatPeriod:0,headers:{}}
+    security:"tls",
+    externalProxy:[{forceTls:"tls",dest:$dom,port:$port,remark:""}],
+    wsSettings:{host:$dom,path:$path,acceptProxyProtocol:false,heartbeatPeriod:0,headers:{}},
+    tlsSettings:{
+      serverName:$dom,
+      alpn:["http/1.1"],
+      certificates:[{buildChain:false,certificateFile:$cert,keyFile:$key,oneTimeLoading:false,usage:"encipherment"}],
+      minVersion:"1.2",maxVersion:"1.3",
+      cipherSuites:"",rejectUnknownSni:false,disableSystemRoot:false,
+      enableSessionResumption:false,settings:{allowInsecure:false,fingerprint:"chrome"}
+    }
   }')"
   insert_inbound vless "$port" "$WS_REMARK" "$settings" "$stream"
   ADDED=1

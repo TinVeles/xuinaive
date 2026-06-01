@@ -1163,7 +1163,15 @@ function vlessLink(row, client) {
     addParam(params, 'spx', settings.spiderX || '/');
     addParam(params, 'flow', client.flow);
   } else {
-    params.set('security', ep.tls === 'tls' || ep.tls === 'same' || [443, 8443].includes(ep.port) ? 'tls' : security);
+    const sec = ep.tls === 'tls' || ep.tls === 'same' || [443, 8443].includes(ep.port) ? 'tls' : security;
+    params.set('security', sec);
+    if (sec === 'tls') {
+      // uTLS masking params so the client mimics a real browser TLS handshake
+      const tls = stream.tlsSettings || {};
+      addParam(params, 'sni', tls.serverName || stream.wsSettings?.host || ep.server);
+      addParam(params, 'fp', tls.fingerprint || 'chrome');
+      addParam(params, 'alpn', Array.isArray(tls.alpn) ? tls.alpn.join(',') : '');
+    }
   }
 
   if (network === 'ws') {
@@ -1205,7 +1213,14 @@ function trojanLink(row, client) {
     addParam(params, 'sid', Array.isArray(reality.shortIds) ? reality.shortIds[0] : '');
     addParam(params, 'spx', settings.spiderX || '/');
   } else {
-    params.set('security', ep.tls === 'tls' || ep.tls === 'same' || [443, 8443].includes(ep.port) ? 'tls' : security);
+    const sec = ep.tls === 'tls' || ep.tls === 'same' || [443, 8443].includes(ep.port) ? 'tls' : security;
+    params.set('security', sec);
+    if (sec === 'tls') {
+      const tls = stream.tlsSettings || {};
+      addParam(params, 'sni', tls.serverName || stream.wsSettings?.host || ep.server);
+      addParam(params, 'fp', tls.fingerprint || 'chrome');
+      addParam(params, 'alpn', Array.isArray(tls.alpn) ? tls.alpn.join(',') : '');
+    }
   }
 
   if (network === 'grpc') {
