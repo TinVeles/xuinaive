@@ -14,19 +14,19 @@ if ! declare -F command_exists >/dev/null 2>&1; then
 fi
 
 upm_port_details() {
-  local port="$1"
+  local port="$1" protocol="${2:-}"
   if command_exists ss; then
-    ss -H -ltnup 2>/dev/null | awk -v port="$port" '
+    ss -H -ltnup 2>/dev/null | awk -v port="$port" -v protocol="$protocol" '
       {
         local_address=$5
-        if (local_address ~ (":" port "$")) {
+        if ((protocol == "" || $1 == protocol) && local_address ~ (":" port "$")) {
           print
         }
       }
     '
   elif command_exists lsof; then
-    lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
-    lsof -nP -iUDP:"$port" 2>/dev/null || true
+    [[ -z "$protocol" || "$protocol" == "tcp" ]] && lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
+    [[ -z "$protocol" || "$protocol" == "udp" ]] && lsof -nP -iUDP:"$port" 2>/dev/null || true
   fi
 }
 

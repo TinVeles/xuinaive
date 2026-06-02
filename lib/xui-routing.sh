@@ -87,6 +87,101 @@ xui_clear_trojan_client_flows() {
   fi
 }
 
+xui_shadowsocks_2022_key_bytes() {
+  case "$1" in
+    2022-blake3-aes-128-gcm) printf '16\n' ;;
+    2022-blake3-aes-256-gcm|2022-blake3-chacha20-poly1305) printf '32\n' ;;
+    *) printf '0\n' ;;
+  esac
+}
+
+xui_shadowsocks_2022_key_valid() {
+  local key="$1" expected_bytes="$2" decoded_bytes
+  [[ "$expected_bytes" =~ ^[0-9]+$ && "$expected_bytes" -gt 0 ]] || return 1
+  decoded_bytes="$(printf '%s' "$key" | base64 -d 2>/dev/null | wc -c | tr -d '[:space:]')" || return 1
+  [[ "$decoded_bytes" == "$expected_bytes" ]]
+}
+
+xui_new_shadowsocks_2022_key() {
+  openssl rand -base64 "$1" | tr -d '\r\n'
+}
+
+xui_repair_shadowsocks_2022_keys() {
+  local db rows inbound_id settings method key_bytes server_key new_settings new_key
+  local client_count index client_key client_id email has_client_inbounds
+  local fixed_settings=0 fixed_records=0
+  db="$(xui_db_path)"
+  [[ -f "$db" ]] || return 0
+  for command_name in sqlite3 jq openssl base64; do
+    command -v "$command_name" >/dev/null 2>&1 || return 0
+  done
+
+  has_client_inbounds="$(sqlite3 -readonly "$db" "
+    SELECT COUNT(*)
+    FROM sqlite_master
+    WHERE type='table' AND name='client_inbounds';
+  ")"
+  rows="$(sqlite3 -readonly -separator $'\t' "$db" "
+    SELECT id, settings
+    FROM inbounds
+    WHERE protocol='shadowsocks' AND json_valid(settings)=1
+    ORDER BY id;
+  ")"
+  while IFS=$'\t' read -r inbound_id settings; do
+    [[ -n "$inbound_id" && -n "$settings" ]] || continue
+    method="$(jq -r '.method // ""' <<<"$settings")"
+    key_bytes="$(xui_shadowsocks_2022_key_bytes "$method")"
+    [[ "$key_bytes" -gt 0 ]] || continue
+    new_settings="$settings"
+
+    server_key="$(jq -r '.password // ""' <<<"$new_settings")"
+    if ! xui_shadowsocks_2022_key_valid "$server_key" "$key_bytes"; then
+      new_key="$(xui_new_shadowsocks_2022_key "$key_bytes")"
+      new_settings="$(jq -c --arg password "$new_key" '.password=$password' <<<"$new_settings")"
+      fixed_settings=$((fixed_settings + 1))
+    fi
+
+    client_count="$(jq '(.clients // []) | length' <<<"$new_settings")"
+    for ((index = 0; index < client_count; index++)); do
+      client_key="$(jq -r --argjson index "$index" '.clients[$index].password // ""' <<<"$new_settings")"
+      if ! xui_shadowsocks_2022_key_valid "$client_key" "$key_bytes"; then
+        new_key="$(xui_new_shadowsocks_2022_key "$key_bytes")"
+        new_settings="$(jq -c --argjson index "$index" --arg password "$new_key" '.clients[$index].password=$password' <<<"$new_settings")"
+        fixed_settings=$((fixed_settings + 1))
+      fi
+    done
+
+    if [[ "$has_client_inbounds" == "1" ]]; then
+      while IFS=$'\t' read -r client_id email client_key; do
+        [[ -n "$client_id" ]] || continue
+        client_key="${client_key//$'\r'/}"
+        if ! xui_shadowsocks_2022_key_valid "$client_key" "$key_bytes"; then
+          new_key="$(xui_new_shadowsocks_2022_key "$key_bytes")"
+          sqlite3 "$db" "UPDATE clients SET password=$(sql_quote "$new_key") WHERE id=$client_id;"
+          new_settings="$(jq -c --arg email "$email" --arg password "$new_key" '
+            .clients = [(.clients // [])[] | if ((.email // "") == $email) then .password=$password else . end]
+          ' <<<"$new_settings")"
+          fixed_records=$((fixed_records + 1))
+        fi
+      done < <(sqlite3 -readonly -separator $'\t' "$db" "
+        SELECT c.id, COALESCE(c.email, ''), COALESCE(c.password, '')
+        FROM clients c
+        JOIN client_inbounds ci ON ci.client_id=c.id
+        WHERE ci.inbound_id=$inbound_id
+        ORDER BY c.id;
+      ")
+    fi
+
+    [[ "$new_settings" == "$settings" ]] || \
+      sqlite3 "$db" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
+  done <<<"$rows"
+
+  if (( fixed_settings + fixed_records > 0 )); then
+    printf 'INFO: Repaired Shadowsocks 2022 key(s): %s inbound JSON value(s), %s v3 client record(s)\n' \
+      "$fixed_settings" "$fixed_records"
+  fi
+}
+
 xui_xray_core_running() {
   command -v ps >/dev/null 2>&1 || return 0
   ps -eo comm= 2>/dev/null | awk '
@@ -95,10 +190,20 @@ xui_xray_core_running() {
   '
 }
 
+xui_xray_core_listening() {
+  command -v ss >/dev/null 2>&1 || return 0
+  ss -H -ltnup 2>/dev/null | grep -Eq 'users:\(\("xray(-linux-[^"]*)?"'
+}
+
 xui_wait_for_xray_core() {
-  local timeout_seconds="${1:-10}" waited=0
+  local timeout_seconds="${1:-10}" waited=0 stable_seconds=0
   while (( waited < timeout_seconds )); do
-    xui_xray_core_running && return 0
+    if xui_xray_core_running && xui_xray_core_listening; then
+      stable_seconds=$((stable_seconds + 1))
+      (( stable_seconds >= 3 )) && return 0
+    else
+      stable_seconds=0
+    fi
     sleep 1
     ((waited += 1))
   done

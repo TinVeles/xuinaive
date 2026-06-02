@@ -478,6 +478,7 @@ xui_add_clients() {
   : > "$report_file"
   xui_repair_invalid_inbound_json
   xui_clear_trojan_client_flows
+  xui_repair_shadowsocks_2022_keys
   xui_remove_deprecated_vmess_presets
   xui_disable_experimental_trojan_grpc_presets
   xui_sanitize_inbound_tags

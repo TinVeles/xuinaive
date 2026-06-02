@@ -16,5 +16,8 @@ ss() {
 [[ "$(upm_port_details 10659 | wc -l)" == "1" ]]
 [[ "$(upm_port_details 443 | wc -l)" == "1" ]]
 [[ "$(upm_port_details 9999 | wc -l)" == "0" ]]
+[[ "$(upm_port_details 443 tcp | wc -l)" == "1" ]]
+[[ "$(upm_port_details 443 udp | wc -l)" == "0" ]]
+[[ "$(upm_port_details 10659 udp | wc -l)" == "1" ]]
 
 printf 'common regression OK\n'

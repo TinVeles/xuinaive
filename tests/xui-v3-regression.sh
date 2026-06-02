@@ -73,7 +73,8 @@ INSERT INTO inbounds VALUES
   (1, 'vless-tcp-reality-ya.ru', 'vless', 11366, 1, '{"network":"tcp","security":"reality"}', 'not-json', 'bad tag', ''),
   (2, 'vless-ws', 'vless', 26591, 1, '{"network":"ws","security":"none"}', '{"clients":[{"id":"manual-uuid","security":"auto","email":"manual@example.com","enable":true}],"decryption":"none"}', 'inbound-26591', '{}'),
   (3, 'hysteria2-udp', 'hysteria', 10659, 1, '{"network":"hysteria","security":"tls"}', '{"clients":[],"version":2}', 'inbound-10659', '{}'),
-  (4, 'trojan-tcp-reality', 'trojan', 45364, 1, '{"network":"tcp","security":"reality"}', '{"clients":[{"id":"manual-trojan","password":"manual-trojan","email":"manual-trojan@example.com","enable":true,"flow":"xtls-rprx-vision"}]}', 'inbound-45364', '{}');
+  (4, 'trojan-tcp-reality', 'trojan', 45364, 1, '{"network":"tcp","security":"reality"}', '{"clients":[{"id":"manual-trojan","password":"manual-trojan","email":"manual-trojan@example.com","enable":true,"flow":"xtls-rprx-vision"}]}', 'inbound-45364', '{}'),
+  (5, 'shadowsocks-tcp', 'shadowsocks', 8388, 1, '{"network":"tcp","security":"none"}', '{"clients":[{"password":"bad","email":"manual-ss@example.com","enable":true}],"method":"2022-blake3-aes-256-gcm","password":"bad"}', 'inbound-8388', '{}');
 SQL
 
 XUI_DB="$db" xui_repair_invalid_inbound_json
@@ -91,7 +92,7 @@ uuid_counter=0
 XUI_DB="$db" xui_v3_replace_generated_clients "$db" 2 auto "$report"
 
 [[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM clients;')" == "2" ]]
-[[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM client_inbounds;')" == "8" ]]
+[[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM client_inbounds;')" == "10" ]]
 [[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM client_traffics;')" == "2" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT flow_override FROM client_inbounds WHERE client_id=1 AND inbound_id=1;")" == "xtls-rprx-vision" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT flow_override FROM client_inbounds WHERE client_id=1 AND inbound_id=2;")" == "" ]]
@@ -103,10 +104,16 @@ XUI_DB="$db" xui_v3_replace_generated_clients "$db" 2 auto "$report"
 [[ "$(sqlite3 -readonly "$db" "SELECT json_extract(j.value, '$.flow') FROM inbounds i, json_each(i.settings, '$.clients') j WHERE i.id=2 AND json_extract(j.value, '$.email')='auto-01';")" == "" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT json_extract(j.value, '$.flow') FROM inbounds i, json_each(i.settings, '$.clients') j WHERE i.id=4 AND json_extract(j.value, '$.email')='manual-trojan@example.com';")" == "" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT json_extract(j.value, '$.flow') FROM inbounds i, json_each(i.settings, '$.clients') j WHERE i.id=4 AND json_extract(j.value, '$.email')='auto-01';")" == "" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT json_extract(settings, '$.password') FROM inbounds WHERE id=5;" | tr -d '\r' | base64 -d | wc -c | tr -d '[:space:]')" == "32" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT json_extract(j.value, '$.password') FROM inbounds i, json_each(i.settings, '$.clients') j WHERE i.id=5 AND json_extract(j.value, '$.email')='manual-ss@example.com';" | tr -d '\r' | base64 -d | wc -c | tr -d '[:space:]')" == "32" ]]
 
 sqlite3 "$db" "UPDATE client_inbounds SET flow_override='xtls-rprx-vision' WHERE client_id=1 AND inbound_id=4;"
 XUI_DB="$db" xui_clear_trojan_client_flows
 [[ "$(sqlite3 -readonly "$db" "SELECT flow_override FROM client_inbounds WHERE client_id=1 AND inbound_id=4;")" == "" ]]
+sqlite3 "$db" "UPDATE clients SET password='bad' WHERE id=1;"
+XUI_DB="$db" xui_repair_shadowsocks_2022_keys
+[[ "$(sqlite3 -readonly "$db" "SELECT password FROM clients WHERE id=1;" | tr -d '\r' | base64 -d | wc -c | tr -d '[:space:]')" == "32" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT json_extract(j.value, '$.password') FROM inbounds i, json_each(i.settings, '$.clients') j WHERE i.id=5 AND json_extract(j.value, '$.email')='auto-01';")" == "$(sqlite3 -readonly "$db" "SELECT password FROM clients WHERE id=1;")" ]]
 
 sqlite3 "$db" <<'SQL'
 INSERT INTO clients
@@ -126,7 +133,7 @@ XUI_DB="$db" xui_v3_remove_orphan_client_traffics "$db"
 old_password="$(sqlite3 -readonly "$db" "SELECT password FROM clients WHERE email='auto-01';")"
 XUI_DB="$db" xui_v3_replace_generated_clients "$db" 1 auto "$report"
 [[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM clients;')" == "2" ]]
-[[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM client_inbounds;')" == "5" ]]
+[[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM client_inbounds;')" == "6" ]]
 [[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM client_traffics;')" == "1" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT password FROM clients WHERE email='auto-01';")" == "$old_password" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT json_array_length(settings, '$.clients') FROM inbounds WHERE id=2;")" == "3" ]]

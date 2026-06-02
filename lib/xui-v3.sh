@@ -169,6 +169,7 @@ xui_v3_replace_generated_clients() {
 
   xui_v3_require_schema "$db"
   XUI_DB="$db" xui_clear_trojan_client_flows
+  XUI_DB="$db" xui_repair_shadowsocks_2022_keys
   rows="$(xui_v3_selected_inbounds "$db")"
   [[ -n "$rows" ]] || upm_die "No enabled x-ui preset inbounds found in $db"
   now="$(date +%s)000"

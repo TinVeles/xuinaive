@@ -104,7 +104,7 @@ domain_a_records() {
 }
 
 port_details() {
-  upm_port_details "$1"
+  upm_port_details "$@"
 }
 
 xui_inbound_check() {
@@ -131,7 +131,7 @@ xui_inbound_check() {
     [[ "$port" =~ ^[0-9]+$ && "$port" -gt 0 ]] || continue
     socket_type="tcp"
     [[ "$protocol" == "hysteria" || "$protocol" == "hysteria2" ]] && socket_type="udp"
-    details="$(port_details "$port")"
+    details="$(port_details "$port" "$socket_type")"
     if [[ -n "$details" ]]; then
       ok "x-ui inbound id=$id protocol=$protocol network=${network:-none} security=${security:-none} listens on ${port}/${socket_type}"
     else
@@ -190,6 +190,11 @@ xray_core_running() {
     $1 == "xray" || $1 ~ /^xray-linux-/ { found=1 }
     END { exit(found ? 0 : 1) }
   '
+}
+
+xray_core_listening() {
+  command_exists ss || return 0
+  ss -H -ltnup 2>/dev/null | grep -Eq 'users:\(\("xray(-linux-[^"]*)?"'
 }
 
 tls_check() {
@@ -361,9 +366,11 @@ done
 echo
 echo "x-ui enabled inbounds:"
 if service_active x-ui; then
-  xray_core_running \
-    && ok "x-ui Xray core subprocess is running" \
-    || bad "x-ui panel service is active but Xray core subprocess is not running"
+  if xray_core_running && xray_core_listening; then
+    ok "x-ui Xray core subprocess has active listener sockets"
+  else
+    bad "x-ui panel service is active but Xray core has no active listener sockets"
+  fi
 fi
 xui_inbound_check
 
