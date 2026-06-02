@@ -4,6 +4,62 @@ xui_db_path() {
   printf '%s\n' "${XUI_DB:-${XUIDB:-/etc/x-ui/x-ui.db}}"
 }
 
+xui_repair_invalid_inbound_settings() {
+  local db
+  db="$(xui_db_path)"
+  [[ -f "$db" ]] || return 0
+
+  sqlite3 "$db" "
+    UPDATE inbounds
+    SET settings = CASE
+      WHEN protocol='vless' THEN '{\"clients\":[],\"decryption\":\"none\",\"fallbacks\":[]}'
+      WHEN protocol='trojan' THEN '{\"clients\":[],\"fallbacks\":[]}'
+      ELSE settings
+    END
+    WHERE protocol IN ('vless','trojan')
+      AND json_valid(settings)=0;
+  "
+}
+
+xui_repair_invalid_inbound_json() {
+  local db
+  db="$(xui_db_path)"
+  [[ -f "$db" ]] || return 0
+
+  xui_repair_invalid_inbound_settings
+  sqlite3 "$db" "
+    UPDATE inbounds
+    SET sniffing='{\"enabled\":false,\"destOverride\":[\"http\",\"tls\",\"quic\",\"fakedns\"],\"metadataOnly\":false,\"routeOnly\":true}'
+    WHERE sniffing IS NULL OR sniffing='' OR json_valid(sniffing)=0;
+
+    UPDATE inbounds
+    SET stream_settings='{\"network\":\"tcp\",\"security\":\"none\"}'
+    WHERE stream_settings IS NULL OR stream_settings='' OR json_valid(stream_settings)=0;
+  "
+}
+
+xui_sanitize_inbound_tags() {
+  local db
+  db="$(xui_db_path)"
+  [[ -f "$db" ]] || return 0
+
+  sqlite3 "$db" "
+    UPDATE inbounds
+    SET tag = 'inbound-' ||
+      CASE
+        WHEN port IS NOT NULL AND port > 0 THEN port
+        ELSE id
+      END
+    WHERE tag IS NULL
+       OR tag = ''
+       OR tag LIKE '%/%'
+       OR tag LIKE '%,%'
+       OR tag LIKE '%:%'
+       OR tag LIKE '%|%'
+       OR tag LIKE '% %';
+  "
+}
+
 xui_generated_client_base() {
   printf '%s\n' "$1"
 }

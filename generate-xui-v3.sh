@@ -53,6 +53,10 @@ done
 for cmd in sqlite3 jq openssl; do
   command_exists "$cmd" || upm_die "$cmd is required"
 done
+for function_name in xui_repair_invalid_inbound_json xui_sanitize_inbound_tags; do
+  declare -F "$function_name" >/dev/null || \
+    upm_die "Shared x-ui helper is missing: $function_name. Pull a complete repository update."
+done
 if [[ "$RESET_INBOUNDS" == "1" ]]; then
   [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]] || upm_die "--domain is required with --reset-inbounds"
   [[ "$REALITY_DEST" =~ ^[A-Za-z0-9.-]+$ ]] || upm_die "--reality-dest is required with --reset-inbounds"

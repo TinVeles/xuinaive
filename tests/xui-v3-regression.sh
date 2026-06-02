@@ -27,7 +27,8 @@ CREATE TABLE inbounds (
   enable INTEGER,
   stream_settings TEXT,
   settings TEXT,
-  tag TEXT
+  tag TEXT,
+  sniffing TEXT
 );
 CREATE TABLE clients (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,10 +70,17 @@ CREATE TABLE client_traffics (
   reset INTEGER
 );
 INSERT INTO inbounds VALUES
-  (1, 'vless-tcp-reality-ya.ru', 'vless', 11366, 1, '{"network":"tcp","security":"reality"}', '{"clients":[],"decryption":"none"}', 'inbound-11366'),
-  (2, 'vless-ws', 'vless', 26591, 1, '{"network":"ws","security":"none"}', '{"clients":[],"decryption":"none"}', 'inbound-26591'),
-  (3, 'hysteria2-udp', 'hysteria', 10659, 1, '{"network":"hysteria","security":"tls"}', '{"clients":[],"version":2}', 'inbound-10659');
+  (1, 'vless-tcp-reality-ya.ru', 'vless', 11366, 1, '{"network":"tcp","security":"reality"}', 'not-json', 'bad tag', ''),
+  (2, 'vless-ws', 'vless', 26591, 1, '{"network":"ws","security":"none"}', '{"clients":[],"decryption":"none"}', 'inbound-26591', '{}'),
+  (3, 'hysteria2-udp', 'hysteria', 10659, 1, '{"network":"hysteria","security":"tls"}', '{"clients":[],"version":2}', 'inbound-10659', '{}');
 SQL
+
+XUI_DB="$db" xui_repair_invalid_inbound_json
+XUI_DB="$db" xui_sanitize_inbound_tags
+
+[[ "$(sqlite3 "$db" "SELECT json_valid(settings) FROM inbounds WHERE id=1;")" == "1" ]]
+[[ "$(sqlite3 "$db" "SELECT tag FROM inbounds WHERE id=1;")" == "inbound-11366" ]]
+[[ "$(sqlite3 "$db" "SELECT json_valid(sniffing) FROM inbounds WHERE id=1;")" == "1" ]]
 
 xui_v3_uuid() {
   printf '00000000-0000-4000-8000-%012d\n' "$((uuid_counter += 1))"
