@@ -66,10 +66,106 @@ $(xui_preset_inbound_filter_sql)
   "
 }
 
+xui_v3_remove_generated_json_clients() {
+  local db="$1" inbound_id="$2" prefix="$3" settings new_settings
+  settings="$(sqlite3 -readonly "$db" "SELECT settings FROM inbounds WHERE id=$inbound_id;")"
+  new_settings="$(jq -c --arg prefix "$prefix" '
+    .clients = [
+      (.clients // [])[]
+      | select((((.email // "") | tostring) | startswith($prefix + "-")) | not)
+    ]
+  ' <<<"$settings")"
+  sqlite3 "$db" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
+}
+
+xui_v3_client_json() {
+  local db="$1" client_id="$2" flow_override="$3"
+  sqlite3 -readonly "$db" "
+    SELECT json_object(
+      'id', uuid,
+      'security', security,
+      'password', password,
+      'flow', $(sql_quote "$flow_override"),
+      'auth', auth,
+      'email', email,
+      'limitIp', limit_ip,
+      'totalGB', total_gb,
+      'expiryTime', expiry_time,
+      'enable', json(CASE WHEN enable=0 THEN 'false' ELSE 'true' END),
+      'tgId', tg_id,
+      'subId', sub_id,
+      'group', group_name,
+      'comment', comment,
+      'reset', reset,
+      'created_at', created_at,
+      'updated_at', updated_at
+    )
+    FROM clients
+    WHERE id=$client_id;
+  "
+}
+
+xui_v3_append_json_client() {
+  local db="$1" inbound_id="$2" client_json="$3" settings new_settings email
+  settings="$(sqlite3 -readonly "$db" "SELECT settings FROM inbounds WHERE id=$inbound_id;")"
+  email="$(jq -r '.email // empty' <<<"$client_json")"
+  [[ -n "$email" ]] || upm_die "Cannot append x-ui v3 JSON client without email"
+  if jq -e --arg email "$email" '
+    any((.clients // [])[]; (((.email // "") | tostring) == $email))
+  ' <<<"$settings" >/dev/null; then
+    return 0
+  fi
+  new_settings="$(jq -c --argjson client "$client_json" '
+    .clients = ((.clients // []) + [$client])
+  ' <<<"$settings")"
+  sqlite3 "$db" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
+}
+
+xui_v3_restore_attached_json_clients() {
+  local db="$1" inbound_id client_id flow_override client_json
+  while IFS=$'\t' read -r inbound_id client_id flow_override; do
+    [[ -n "$inbound_id" && -n "$client_id" ]] || continue
+    flow_override="${flow_override//$'\r'/}"
+    client_json="$(xui_v3_client_json "$db" "$client_id" "$flow_override")"
+    [[ -n "$client_json" ]] || continue
+    xui_v3_append_json_client "$db" "$inbound_id" "$client_json"
+  done < <(sqlite3 -readonly -separator $'\t' "$db" "
+    SELECT ci.inbound_id, ci.client_id, COALESCE(ci.flow_override, '')
+    FROM client_inbounds ci
+    JOIN clients c ON c.id=ci.client_id
+    JOIN inbounds i ON i.id=ci.inbound_id
+    WHERE json_valid(i.settings)=1
+    ORDER BY ci.inbound_id, ci.client_id;
+  ")
+}
+
+xui_v3_remove_orphan_client_traffics() {
+  local db="$1" removed
+  removed="$(sqlite3 "$db" "
+    DELETE FROM client_traffics
+    WHERE NOT EXISTS (
+      SELECT 1 FROM clients c WHERE c.email=client_traffics.email
+    )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM inbounds i,
+             json_each(
+               CASE WHEN json_valid(i.settings)=1 THEN i.settings ELSE '{\"clients\":[]}' END,
+               '$.clients'
+             ) j
+        WHERE json_extract(j.value, '$.email')=client_traffics.email
+      );
+    SELECT changes();
+  ")"
+  if [[ "$removed" =~ ^[0-9]+$ && "$removed" -gt 0 ]]; then
+    printf 'INFO: Removed orphaned x-ui v3 traffic row(s): %s\n' "$removed"
+  fi
+}
+
 xui_v3_replace_generated_clients() {
   local db="${1:-$(xui_v3_db_path)}" count="$2" prefix="$3" report_file="$4"
   local rows index email sub_id uuid password auth client_id first_inbound_id="" desired_clients=""
-  local inbound_id protocol network security flow_override now
+  local inbound_id protocol network security flow_override client_json now
 
   xui_v3_require_schema "$db"
   rows="$(xui_v3_selected_inbounds "$db")"
@@ -93,6 +189,11 @@ xui_v3_replace_generated_clients() {
       AND email NOT IN ($desired_clients);
   "
   : > "$report_file"
+
+  while IFS=$'\t' read -r inbound_id protocol network security; do
+    [[ -n "$inbound_id" ]] || continue
+    XUI_DB="$db" xui_v3_remove_generated_json_clients "$db" "$inbound_id" "$prefix"
+  done <<<"$rows"
 
   for index in $(xui_v3_profile_indices "$count"); do
     email="${prefix}-${index}"
@@ -125,6 +226,9 @@ xui_v3_replace_generated_clients() {
         INSERT INTO client_inbounds (client_id, inbound_id, flow_override, created_at)
         VALUES ($client_id, $inbound_id, $(sql_quote "$flow_override"), $now);
       "
+      client_json="$(xui_v3_client_json "$db" "$client_id" "$flow_override")"
+      [[ -n "$client_json" ]] || upm_die "Generated x-ui v3 client record is missing: id=$client_id"
+      xui_v3_append_json_client "$db" "$inbound_id" "$client_json"
       printf 'client=%s subId=%s inbound=%s protocol=%s network=%s flow=%s\n' \
         "$email" "$sub_id" "$inbound_id" "$protocol" "$network" "$flow_override" >> "$report_file"
     done <<<"$rows"
@@ -135,11 +239,6 @@ xui_v3_replace_generated_clients() {
     "
   done
 
-  sqlite3 "$db" "
-    UPDATE inbounds
-    SET settings=json_set(settings, '$.clients', json('[]'))
-    WHERE enable=1
-      AND protocol IN ('vless','trojan','shadowsocks','hysteria','hysteria2')
-      AND json_valid(settings)=1;
-  "
+  xui_v3_restore_attached_json_clients "$db"
+  xui_v3_remove_orphan_client_traffics "$db"
 }

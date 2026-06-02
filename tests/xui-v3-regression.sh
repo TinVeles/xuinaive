@@ -71,7 +71,7 @@ CREATE TABLE client_traffics (
 );
 INSERT INTO inbounds VALUES
   (1, 'vless-tcp-reality-ya.ru', 'vless', 11366, 1, '{"network":"tcp","security":"reality"}', 'not-json', 'bad tag', ''),
-  (2, 'vless-ws', 'vless', 26591, 1, '{"network":"ws","security":"none"}', '{"clients":[],"decryption":"none"}', 'inbound-26591', '{}'),
+  (2, 'vless-ws', 'vless', 26591, 1, '{"network":"ws","security":"none"}', '{"clients":[{"id":"manual-uuid","security":"auto","email":"manual@example.com","enable":true}],"decryption":"none"}', 'inbound-26591', '{}'),
   (3, 'hysteria2-udp', 'hysteria', 10659, 1, '{"network":"hysteria","security":"tls"}', '{"clients":[],"version":2}', 'inbound-10659', '{}');
 SQL
 
@@ -94,12 +94,35 @@ XUI_DB="$db" xui_v3_replace_generated_clients "$db" 2 auto "$report"
 [[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM client_traffics;')" == "2" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT flow_override FROM client_inbounds WHERE client_id=1 AND inbound_id=1;")" == "xtls-rprx-vision" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT flow_override FROM client_inbounds WHERE client_id=1 AND inbound_id=2;")" == "" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT json_array_length(settings, '$.clients') FROM inbounds WHERE id=1;")" == "2" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT json_array_length(settings, '$.clients') FROM inbounds WHERE id=2;")" == "3" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds i, json_each(i.settings, '$.clients') j WHERE i.id=2 AND json_extract(j.value, '$.email')='manual@example.com';")" == "1" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM client_inbounds ci JOIN clients c ON c.id=ci.client_id WHERE NOT EXISTS (SELECT 1 FROM inbounds i, json_each(i.settings, '$.clients') j WHERE i.id=ci.inbound_id AND json_extract(j.value, '$.email')=c.email);")" == "0" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT json_extract(j.value, '$.flow') FROM inbounds i, json_each(i.settings, '$.clients') j WHERE i.id=1 AND json_extract(j.value, '$.email')='auto-01';")" == "xtls-rprx-vision" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT json_extract(j.value, '$.flow') FROM inbounds i, json_each(i.settings, '$.clients') j WHERE i.id=2 AND json_extract(j.value, '$.email')='auto-01';")" == "" ]]
+
+sqlite3 "$db" <<'SQL'
+INSERT INTO clients
+  (email, sub_id, uuid, password, auth, flow, security, reverse, limit_ip, total_gb, expiry_time, enable, tg_id, group_name, comment, reset, created_at, updated_at)
+VALUES
+  ('linked@example.com', 'linked-sub', 'linked-uuid', '', '', '', 'auto', '', 0, 0, 0, 1, 0, '', '', 0, 1, 1);
+INSERT INTO client_inbounds (client_id, inbound_id, flow_override, created_at)
+VALUES ((SELECT id FROM clients WHERE email='linked@example.com'), 2, '', 1);
+INSERT INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset)
+VALUES (2, 1, 'orphan@example.com', 0, 0, 0, 0, 0);
+SQL
+XUI_DB="$db" xui_v3_restore_attached_json_clients "$db"
+XUI_DB="$db" xui_v3_remove_orphan_client_traffics "$db"
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds i, json_each(i.settings, '$.clients') j WHERE i.id=2 AND json_extract(j.value, '$.email')='linked@example.com';")" == "1" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM client_traffics WHERE email='orphan@example.com';")" == "0" ]]
 
 old_password="$(sqlite3 -readonly "$db" "SELECT password FROM clients WHERE email='auto-01';")"
 XUI_DB="$db" xui_v3_replace_generated_clients "$db" 1 auto "$report"
-[[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM clients;')" == "1" ]]
-[[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM client_inbounds;')" == "3" ]]
+[[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM clients;')" == "2" ]]
+[[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM client_inbounds;')" == "4" ]]
 [[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM client_traffics;')" == "1" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT password FROM clients WHERE email='auto-01';")" == "$old_password" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT json_array_length(settings, '$.clients') FROM inbounds WHERE id=2;")" == "3" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds i, json_each(i.settings, '$.clients') j WHERE i.id=2 AND json_extract(j.value, '$.email')='auto-02';")" == "0" ]]
 
 printf 'xui-v3 regression OK\n'
