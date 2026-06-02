@@ -168,6 +168,7 @@ xui_v3_replace_generated_clients() {
   local inbound_id protocol network security flow_override client_json now
 
   xui_v3_require_schema "$db"
+  XUI_DB="$db" xui_clear_trojan_client_flows
   rows="$(xui_v3_selected_inbounds "$db")"
   [[ -n "$rows" ]] || upm_die "No enabled x-ui preset inbounds found in $db"
   now="$(date +%s)000"
@@ -219,7 +220,7 @@ xui_v3_replace_generated_clients() {
       security="${security//$'\r'/}"
       [[ -n "$first_inbound_id" ]] || first_inbound_id="$inbound_id"
       flow_override=""
-      if [[ "$network" == "tcp" && "$security" == "reality" && ( "$protocol" == "vless" || "$protocol" == "trojan" ) ]]; then
+      if [[ "$protocol" == "vless" && "$network" == "tcp" && "$security" == "reality" ]]; then
         flow_override="xtls-rprx-vision"
       fi
       sqlite3 "$db" "

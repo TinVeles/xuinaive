@@ -38,6 +38,73 @@ xui_repair_invalid_inbound_json() {
   "
 }
 
+xui_clear_trojan_client_flows() {
+  local db fixed_settings=0 fixed_links=0 has_client_inbounds
+  db="$(xui_db_path)"
+  [[ -f "$db" ]] || return 0
+
+  fixed_settings="$(sqlite3 "$db" "
+    UPDATE inbounds
+    SET settings=json_set(
+      settings,
+      '$.clients',
+      json(COALESCE((
+        SELECT json_group_array(json_set(j.value, '$.flow', ''))
+        FROM json_each(inbounds.settings, '$.clients') AS j
+      ), '[]'))
+    )
+    WHERE protocol='trojan'
+      AND json_valid(settings)=1
+      AND EXISTS (
+        SELECT 1
+        FROM json_each(inbounds.settings, '$.clients') AS j
+        WHERE COALESCE(json_extract(j.value, '$.flow'), '') <> ''
+      );
+    SELECT changes();
+  ")"
+
+  has_client_inbounds="$(sqlite3 -readonly "$db" "
+    SELECT COUNT(*)
+    FROM sqlite_master
+    WHERE type='table' AND name='client_inbounds';
+  ")"
+  if [[ "$has_client_inbounds" == "1" ]]; then
+    fixed_links="$(sqlite3 "$db" "
+      UPDATE client_inbounds
+      SET flow_override=''
+      WHERE COALESCE(flow_override, '') <> ''
+        AND inbound_id IN (
+          SELECT id FROM inbounds WHERE protocol='trojan'
+        );
+      SELECT changes();
+    ")"
+  fi
+
+  if [[ "$fixed_settings" =~ ^[0-9]+$ && "$fixed_links" =~ ^[0-9]+$ ]] \
+    && (( fixed_settings + fixed_links > 0 )); then
+    printf 'INFO: Cleared unsupported Trojan flow from %s inbound JSON record(s) and %s v3 link(s)\n' \
+      "$fixed_settings" "$fixed_links"
+  fi
+}
+
+xui_xray_core_running() {
+  command -v ps >/dev/null 2>&1 || return 0
+  ps -eo comm= 2>/dev/null | awk '
+    $1 == "xray" || $1 ~ /^xray-linux-/ { found=1 }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
+xui_wait_for_xray_core() {
+  local timeout_seconds="${1:-10}" waited=0
+  while (( waited < timeout_seconds )); do
+    xui_xray_core_running && return 0
+    sleep 1
+    ((waited += 1))
+  done
+  return 1
+}
+
 xui_sanitize_inbound_tags() {
   local db
   db="$(xui_db_path)"

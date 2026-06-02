@@ -124,6 +124,8 @@ XUI_DB="$XUI_DB" xui_open_public_preset_ports
 if [[ "$RESTART_XUI" == "1" ]] && command_exists systemctl; then
   systemctl restart x-ui
   systemctl is-active --quiet x-ui || upm_die "x-ui failed to restart"
+  xui_wait_for_xray_core 10 || \
+    upm_die "x-ui service is active but Xray core did not start. Run: journalctl -u x-ui -n 120 --no-pager -l"
 fi
 
 upm_log_ok "3x-ui v3 clients generated: $COUNT client entities attached to every preset inbound"

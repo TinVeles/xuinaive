@@ -184,6 +184,14 @@ service_active() {
   command_exists systemctl && systemctl is-active --quiet "$svc" 2>/dev/null
 }
 
+xray_core_running() {
+  command_exists ps || return 0
+  ps -eo comm= 2>/dev/null | awk '
+    $1 == "xray" || $1 ~ /^xray-linux-/ { found=1 }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
 tls_check() {
   local target="$1"
   local server_name="$2"
@@ -352,6 +360,11 @@ done
 
 echo
 echo "x-ui enabled inbounds:"
+if service_active x-ui; then
+  xray_core_running \
+    && ok "x-ui Xray core subprocess is running" \
+    || bad "x-ui panel service is active but Xray core subprocess is not running"
+fi
 xui_inbound_check
 
 echo
