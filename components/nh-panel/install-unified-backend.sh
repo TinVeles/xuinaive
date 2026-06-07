@@ -4,6 +4,8 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UPSTREAM_DIR="$SCRIPT_DIR/upstream"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck disable=SC1091
+source "$PROJECT_DIR/lib/fake-site.sh"
 
 DOMAIN=""
 EMAIL=""
@@ -348,9 +350,7 @@ NODE
 )"
 
 mkdir -p /var/www/html "$CADDY_DIR"
-cat > /var/www/html/index.html <<'EOF'
-<!DOCTYPE html><html><head><meta charset="utf-8"><title>Loading</title></head><body>Loading</body></html>
-EOF
+upm_install_fake_site /var/www/html
 
 if [[ -z "$TLS_CERT" && -z "$TLS_KEY" ]]; then
   info "Issuing TLS certificate for $DOMAIN through nginx HTTP-01"

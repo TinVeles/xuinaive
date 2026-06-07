@@ -22,13 +22,16 @@ XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-0}"
 XUI_AUTO_INSTALL_WARP="${XUI_AUTO_INSTALL_WARP:-0}"
 XUI_PRINT_ACCESS_INFO="${XUI_PRINT_ACCESS_INFO:-1}"
 XUI_PRO_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-UPM_ROOT_DIR="$(cd "${XUI_PRO_SCRIPT_DIR}/../.." 2>/dev/null && pwd || echo "")"
+UPM_ROOT_DIR="${UPM_PROJECT_DIR:-}"
+[[ -n "$UPM_ROOT_DIR" ]] || UPM_ROOT_DIR="$(cd "${XUI_PRO_SCRIPT_DIR}/../.." 2>/dev/null && pwd || echo "")"
 # shellcheck disable=SC1091
 source "${UPM_ROOT_DIR}/lib/common.sh"
 # shellcheck disable=SC1091
 source "${UPM_ROOT_DIR}/lib/warp.sh"
 # shellcheck disable=SC1091
 source "${UPM_ROOT_DIR}/lib/xui-routing.sh"
+# shellcheck disable=SC1091
+source "${UPM_ROOT_DIR}/lib/fake-site.sh"
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 WARP_OUTBOUND_TAG="${WARP_OUTBOUND_TAG:-warp-cli}"
@@ -837,7 +840,7 @@ server {
 	if (\$ssl_server_name !~* ^(.+\.)?$domain\$ ) {set \$safe "\${safe}0"; }
 	if (\$safe = 10){return 444;}
 	if (\$request_uri ~ "(\"|'|\`|~|,|:|--|;|%|\\$|&&|\?\?|0x00|0X00|\||\\|\{|\}|\[|\]|<|>|\.\.\.|\.\.\/|\/\/\/)"){set \$hack 1;}
-	error_page 400 401 402 403 500 501 502 503 504 =404 /404;
+	error_page 400 401 402 403 404 500 501 502 503 504 /internal-server-error.html;
 	proxy_intercept_errors on;
 	#X-UI Admin Panel
 	location /${panel_path}/ {
@@ -1005,7 +1008,7 @@ cat > "/etc/nginx/snippets/includes.conf" << EOF
 			break;
 		}
 	}
-	location / { try_files \$uri \$uri/ =404; }
+	location / { try_files \$uri \$uri/ /internal-server-error.html; }
 EOF
 
 cat > "/etc/nginx/sites-available/${reality_domain}" << EOF
@@ -1025,7 +1028,7 @@ server {
 	if (\$ssl_server_name !~* ^(.+\.)?${reality_domain}\$ ) {set \$safe "\${safe}0"; }
 	if (\$safe = 10){return 444;}
 	if (\$request_uri ~ "(\"|'|\`|~|,|:|--|;|%|\\$|&&|\?\?|0x00|0X00|\||\\|\{|\}|\[|\]|<|>|\.\.\.|\.\.\/|\/\/\/)"){set \$hack 1;}
-	error_page 400 401 402 403 500 501 502 503 504 =404 /404;
+	error_page 400 401 402 403 404 500 501 502 503 504 /internal-server-error.html;
 	proxy_intercept_errors on;
 	#X-UI Admin Panel
 	location /${panel_path}/ {
@@ -1696,19 +1699,7 @@ su -c "/usr/bin/sub2sing-box server --bind 127.0.0.1 --port 8080 & disown" root
 
 ######################install_fake_site#################################################################
 
-cat > /var/www/html/index.html <<EOF
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Welcome</title>
-</head>
-<body>
-  <h1>Welcome</h1>
-</body>
-</html>
-EOF
+upm_install_fake_site /var/www/html
 
 ######################install_web_sub_page##############################################################
 

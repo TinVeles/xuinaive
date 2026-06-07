@@ -703,6 +703,7 @@ EOF
     fi
 
     XUI_PRINT_ACCESS_INFO=0 \
+    UPM_PROJECT_DIR="$PROJECT_DIR" \
     XUI_VERSION="$xui_version" \
     XUI_DB_TYPE=sqlite \
     XUI_SEED_PROFILES=0 \

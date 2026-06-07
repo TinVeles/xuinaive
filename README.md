@@ -426,6 +426,18 @@ sudo cat access-info.txt
 
 The access summary includes panel URLs, generated credentials, service hints, WARP details when configured, and a profiles section when generated files are present.
 
+## Fake Error Site
+
+Install or refresh the local static fallback site without reinstalling the stack:
+
+```bash
+sudo bash install-fake-site.sh --patch-nginx --yes
+```
+
+The page is served from `/var/www/html` and reads the current browser hostname,
+path, protocol, request time, and request id in the browser, so the same file can
+be reused for any installed domain.
+
 ## Operations
 
 Status:
