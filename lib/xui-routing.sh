@@ -1131,7 +1131,7 @@ xui_ensure_v3_manual_warp_presets() {
       | .externalProxy[0].forceTls = "same"
       | .externalProxy[0].dest = $publicDomain
       | .externalProxy[0].port = 443
-      | .externalProxy[0].remark = "manual-warp"
+      | .externalProxy[0].remark = "-warp"
       | .sockopt = (.sockopt // {})
       | .sockopt.acceptProxyProtocol = true
       | .realitySettings = (.realitySettings // {})
@@ -1167,7 +1167,7 @@ xui_ensure_v3_manual_warp_presets() {
       | .externalProxy[0].forceTls = "same"
       | .externalProxy[0].dest = $publicDomain
       | .externalProxy[0].port = 443
-      | .externalProxy[0].remark = "manual-warp"
+      | .externalProxy[0].remark = "-warp"
       | .sockopt = (.sockopt // {})
       | .sockopt.acceptProxyProtocol = true
       | .xhttpSettings = (.xhttpSettings // {})
@@ -1202,7 +1202,7 @@ xui_ensure_v3_manual_warp_presets() {
       | .externalProxy[0].forceTls = "tls"
       | .externalProxy[0].dest = $publicDomain
       | .externalProxy[0].port = $publicPort
-      | .externalProxy[0].remark = "manual-warp"
+      | .externalProxy[0].remark = "-warp"
       | .tlsSettings = (.tlsSettings // {})
       | .tlsSettings.serverName = $publicDomain
     ' <<<"$base_stream")"
