@@ -145,4 +145,9 @@ XUI_DB="$db" XUI_V3_INCLUDE_WARP_PRESETS=1 xui_v3_replace_generated_clients "$db
 [[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM client_inbounds;')" == "7" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT json_array_length(settings, '$.clients') FROM inbounds WHERE id=6;")" == "1" ]]
 
+sqlite3 "$db" "UPDATE clients SET uuid='', password='', auth='' WHERE email='auto-01';"
+XUI_DB="$db" XUI_V3_INCLUDE_WARP_PRESETS=1 xui_v3_replace_generated_clients "$db" 1 auto "$report"
+[[ "$(sqlite3 -readonly "$db" "SELECT COALESCE(uuid,'') <> '' FROM clients WHERE email='auto-01';")" == "1" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds i, json_each(i.settings, '$.clients') j WHERE json_extract(j.value, '$.email')='auto-01' AND COALESCE(json_extract(j.value, '$.id'),'')='';")" == "0" ]]
+
 printf 'xui-v3 regression OK\n'

@@ -129,6 +129,27 @@ xui_v3_append_json_client() {
   sqlite3 "$db" "UPDATE inbounds SET settings=$(sql_quote "$new_settings") WHERE id=$inbound_id;"
 }
 
+xui_v3_ensure_client_identity() {
+  local db="$1" client_id="$2" now="$3"
+  local uuid password auth
+  uuid="$(sqlite3 -readonly "$db" "SELECT COALESCE(uuid,'') FROM clients WHERE id=$client_id;" 2>/dev/null || true)"
+  password="$(sqlite3 -readonly "$db" "SELECT COALESCE(password,'') FROM clients WHERE id=$client_id;" 2>/dev/null || true)"
+  auth="$(sqlite3 -readonly "$db" "SELECT COALESCE(auth,'') FROM clients WHERE id=$client_id;" 2>/dev/null || true)"
+
+  if [[ -z "$uuid" ]]; then
+    uuid="$(xui_v3_uuid | tr -d '[:space:]')"
+    sqlite3 "$db" "UPDATE clients SET uuid=$(sql_quote "$uuid"), updated_at=$now WHERE id=$client_id;"
+  fi
+  if [[ -z "$password" ]]; then
+    password="$(openssl rand -base64 32 | tr -d '\r\n')"
+    sqlite3 "$db" "UPDATE clients SET password=$(sql_quote "$password"), updated_at=$now WHERE id=$client_id;"
+  fi
+  if [[ -z "$auth" ]]; then
+    auth="$(openssl rand -hex 16 | tr -d '\r\n')"
+    sqlite3 "$db" "UPDATE clients SET auth=$(sql_quote "$auth"), updated_at=$now WHERE id=$client_id;"
+  fi
+}
+
 xui_v3_restore_attached_json_clients() {
   local db="$1" inbound_id client_id flow_override client_json
   while IFS=$'\t' read -r inbound_id client_id flow_override; do
@@ -220,6 +241,8 @@ xui_v3_replace_generated_clients() {
           ($(sql_quote "$email"), $(sql_quote "$sub_id"), $(sql_quote "$uuid"), $(sql_quote "$password"), $(sql_quote "$auth"), '', 'auto', '', 0, 0, 0, 1, 0, '', '', 0, $now, $now);
         SELECT last_insert_rowid();
       ")"
+    else
+      xui_v3_ensure_client_identity "$db" "$client_id" "$now"
     fi
 
     while IFS=$'\t' read -r inbound_id protocol network security; do
