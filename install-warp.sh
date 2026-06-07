@@ -19,6 +19,7 @@ WARP_INBOUND_TAG="${WARP_INBOUND_TAG:-all}"
 WARP_ROUTE_PORT="${WARP_ROUTE_PORT:-443}"
 WARP_AI_DOMAINS="${WARP_AI_DOMAINS:-$UPM_DEFAULT_AI_DOMAINS}"
 WARP_SNIPPET_DIR="${WARP_SNIPPET_DIR:-/etc/x-ui}"
+WARP_REPO_CODENAME="${WARP_REPO_CODENAME:-}"
 ASSUME_YES=0
 
 usage() {
@@ -26,6 +27,7 @@ usage() {
 Usage:
   sudo bash install-warp.sh --yes
   sudo bash install-warp.sh --proxy-port 40000 --outbound-tag warp-cli --inbound-tag all --route-port 443 --yes
+  sudo bash install-warp.sh --repo-codename noble --yes
 
 Installs Cloudflare WARP in local proxy mode and prepares 3x-ui/Xray snippets:
   SOCKS/HTTP proxy: 127.0.0.1:${WARP_PROXY_PORT}
@@ -43,6 +45,7 @@ while [[ $# -gt 0 ]]; do
     --route-port) WARP_ROUTE_PORT="${2:-}"; shift 2 ;;
     --warp-ai-domains|--ai-domains) WARP_AI_DOMAINS="${2:-}"; shift 2 ;;
     --snippet-dir) WARP_SNIPPET_DIR="${2:-}"; shift 2 ;;
+    --repo-codename) WARP_REPO_CODENAME="${2:-}"; shift 2 ;;
     --yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
@@ -69,6 +72,20 @@ if [[ -z "$codename" ]] && command_exists lsb_release; then
   codename="$(lsb_release -cs)"
 fi
 [[ -n "$codename" ]] || die "Could not detect distro codename"
+repo_codename="${WARP_REPO_CODENAME:-$codename}"
+if [[ -z "${WARP_REPO_CODENAME:-}" ]]; then
+  case "${ID:-}:${repo_codename}" in
+    ubuntu:resolute|ubuntu:plucky)
+      warn "Cloudflare WARP apt repo has no ${repo_codename} release; using noble repo packages"
+      repo_codename="noble"
+      ;;
+    debian:trixie)
+      warn "Cloudflare WARP apt repo has no trixie release; using bookworm repo packages"
+      repo_codename="bookworm"
+      ;;
+  esac
+fi
+[[ "$repo_codename" =~ ^[A-Za-z0-9._-]+$ ]] || die "--repo-codename has invalid characters"
 
 info "Installing Cloudflare WARP apt repository"
 apt-get update
@@ -77,7 +94,7 @@ install -d -m 0755 /usr/share/keyrings /etc/apt/sources.list.d
 curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg \
   | gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
 cat > /etc/apt/sources.list.d/cloudflare-client.list <<EOF
-deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ ${codename} main
+deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ ${repo_codename} main
 EOF
 
 info "Installing cloudflare-warp package"
