@@ -1120,6 +1120,17 @@ xui_ensure_v3_manual_warp_presets() {
   [[ "${XUI_CREATE_WARP_PRESETS:-0}" == "1" ]] || return 0
   public_domain="$(xui_v3_warp_base_public_domain "$db" "$public_domain")"
   [[ "$public_domain" =~ ^[A-Za-z0-9.-]+$ ]] || upm_die "Cannot create WARP presets: --domain is required or no externalProxy.dest exists"
+  sqlite3 "$db" "
+    UPDATE inbounds
+    SET stream_settings=json_set(stream_settings, '$.externalProxy[0].remark', '')
+    WHERE json_valid(stream_settings)=1
+      AND json_type(stream_settings, '$.externalProxy')='array'
+      AND (
+        COALESCE(tag,'') LIKE 'upm-v3-warp-%'
+        OR COALESCE(tag,'') LIKE '%-warp'
+        OR lower(COALESCE(remark,'')) LIKE '%warp%'
+      );
+  "
 
   tag="upm-v3-warp-reality"
   base_id="$(sqlite3 -readonly "$db" "
@@ -1142,7 +1153,7 @@ xui_ensure_v3_manual_warp_presets() {
       | .externalProxy[0].forceTls = "same"
       | .externalProxy[0].dest = $publicDomain
       | .externalProxy[0].port = 443
-      | .externalProxy[0].remark = "-warp"
+      | .externalProxy[0].remark = ""
       | .sockopt = (.sockopt // {})
       | .sockopt.acceptProxyProtocol = true
       | .realitySettings = (.realitySettings // {})
@@ -1178,7 +1189,7 @@ xui_ensure_v3_manual_warp_presets() {
       | .externalProxy[0].forceTls = "same"
       | .externalProxy[0].dest = $publicDomain
       | .externalProxy[0].port = 443
-      | .externalProxy[0].remark = "-warp"
+      | .externalProxy[0].remark = ""
       | .sockopt = (.sockopt // {})
       | .sockopt.acceptProxyProtocol = true
       | .xhttpSettings = (.xhttpSettings // {})
@@ -1213,7 +1224,7 @@ xui_ensure_v3_manual_warp_presets() {
       | .externalProxy[0].forceTls = "tls"
       | .externalProxy[0].dest = $publicDomain
       | .externalProxy[0].port = $publicPort
-      | .externalProxy[0].remark = "-warp"
+      | .externalProxy[0].remark = ""
       | .tlsSettings = (.tlsSettings // {})
       | .tlsSettings.serverName = $publicDomain
     ' <<<"$base_stream")"

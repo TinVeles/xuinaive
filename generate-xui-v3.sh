@@ -125,6 +125,7 @@ XUI_DB="$XUI_DB" xui_normalize_grpc_service_names
 XUI_DB="$XUI_DB" xui_restore_reference_vless_grpc_reality_inbounds
 XUI_DB="$XUI_DB" xui_normalize_reference_preset_external_proxy_ports
 XUI_DB="$XUI_DB" xui_enable_preset_domain_sniffing
+upm_sqlite_setting_set "$XUI_DB" "subEmailInRemark" "false"
 
 report_file="/etc/x-ui/generated-clients-v3.txt"
 mkdir -p "$(dirname "$report_file")"
