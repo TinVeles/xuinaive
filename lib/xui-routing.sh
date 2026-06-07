@@ -98,9 +98,15 @@ xui_shadowsocks_2022_key_bytes() {
 }
 
 xui_shadowsocks_2022_key_valid() {
-  local key="$1" expected_bytes="$2" decoded_bytes
+  local key="$1" expected_bytes="$2" decoded_bytes tmp
   [[ "$expected_bytes" =~ ^[0-9]+$ && "$expected_bytes" -gt 0 ]] || return 1
-  decoded_bytes="$(printf '%s' "$key" | base64 -d 2>/dev/null | wc -c | tr -d '[:space:]')" || return 1
+  tmp="$(mktemp)"
+  if ! printf '%s' "$key" | base64 -d >"$tmp" 2>/dev/null; then
+    rm -f "$tmp"
+    return 1
+  fi
+  decoded_bytes="$(wc -c < "$tmp" | tr -d '[:space:]')"
+  rm -f "$tmp"
   [[ "$decoded_bytes" == "$expected_bytes" ]]
 }
 
@@ -124,7 +130,7 @@ xui_repair_shadowsocks_2022_keys() {
     WHERE type='table' AND name='client_inbounds';
   ")"
   rows="$(sqlite3 -readonly -separator $'\t' "$db" "
-    SELECT id, settings
+    SELECT id, json(settings)
     FROM inbounds
     WHERE protocol='shadowsocks' AND json_valid(settings)=1
     ORDER BY id;
@@ -454,7 +460,7 @@ xui_normalize_xhttp_tcp_inbounds() {
     [[ -n "$inbound_id" ]] || continue
     port="$(sqlite3 -readonly "$db" "SELECT COALESCE(port,0) FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo 0)"
     listen="$(sqlite3 -readonly "$db" "SELECT COALESCE(listen,'') FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo '')"
-    stream_settings="$(sqlite3 -readonly "$db" "SELECT stream_settings FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo '{}')"
+    stream_settings="$(sqlite3 -readonly "$db" "SELECT CASE WHEN json_valid(stream_settings)=1 THEN json(stream_settings) ELSE '{}' END FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo '{}')"
     if [[ "$port" =~ ^[0-9]+$ && "$port" -gt 0 && "$listen" != /* ]]; then
       continue
     fi
@@ -507,7 +513,7 @@ xui_restore_reference_vless_grpc_reality_inbounds() {
     SELECT id,
            COALESCE(remark,''),
            COALESCE(json_extract(stream_settings,'$.externalProxy[0].dest'),''),
-           stream_settings
+           json(stream_settings)
     FROM inbounds
     WHERE protocol='vless'
       AND json_valid(stream_settings)=1
@@ -1345,8 +1351,8 @@ $(xui_preset_inbound_filter_sql)
     total="$(sqlite3 -readonly "$db" "SELECT COALESCE(total,0) FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo 0)"
     expiry_time="$(sqlite3 -readonly "$db" "SELECT COALESCE(expiry_time,0) FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo 0)"
     listen="$(sqlite3 -readonly "$db" "SELECT COALESCE(listen,'') FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo '')"
-    settings="$(sqlite3 -readonly "$db" "SELECT settings FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo '{}')"
-    stream_settings="$(sqlite3 -readonly "$db" "SELECT stream_settings FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo '{}')"
+    settings="$(sqlite3 -readonly "$db" "SELECT CASE WHEN json_valid(settings)=1 THEN json(settings) ELSE '{\"clients\":[]}' END FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo '{}')"
+    stream_settings="$(sqlite3 -readonly "$db" "SELECT CASE WHEN json_valid(stream_settings)=1 THEN json(stream_settings) ELSE '{}' END FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo '{}')"
     sniffing="$(sqlite3 -readonly "$db" "SELECT sniffing FROM inbounds WHERE id=$inbound_id;" 2>/dev/null || echo '{}')"
 
     if [[ -n "$mirror_id" ]]; then
