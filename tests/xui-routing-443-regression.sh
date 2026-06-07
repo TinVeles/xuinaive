@@ -153,6 +153,11 @@ grep -q '^allow 8388/tcp$' "$ufw_log"
 grep -q '^allow 24443/udp$' "$ufw_log"
 
 install_presets 443
+sqlite3 "$db" "
+  UPDATE inbounds
+  SET settings='{\"clients\":['
+  WHERE remark LIKE '%hysteria2-udp';
+"
 : > "$stream_conf"
 cat > "$stream_conf" <<'EOF'
 map $ssl_preread_server_name $sni_name {

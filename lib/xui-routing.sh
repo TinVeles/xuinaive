@@ -14,9 +14,11 @@ xui_repair_invalid_inbound_settings() {
     SET settings = CASE
       WHEN protocol='vless' THEN '{\"clients\":[],\"decryption\":\"none\",\"fallbacks\":[]}'
       WHEN protocol='trojan' THEN '{\"clients\":[],\"fallbacks\":[]}'
+      WHEN protocol='shadowsocks' THEN '{\"clients\":[],\"ivCheck\":false,\"method\":\"2022-blake3-aes-256-gcm\",\"network\":\"tcp\",\"password\":\"\"}'
+      WHEN protocol IN ('hysteria','hysteria2') THEN '{\"clients\":[],\"version\":2}'
       ELSE settings
     END
-    WHERE protocol IN ('vless','trojan')
+    WHERE protocol IN ('vless','trojan','shadowsocks','hysteria','hysteria2')
       AND json_valid(settings)=0;
   "
 }
@@ -1076,6 +1078,15 @@ xui_v3_warp_clone_insert_or_update() {
   protocol="$(sqlite3 -readonly "$db" "SELECT protocol FROM inbounds WHERE id=$base_id;" 2>/dev/null || true)"
   settings="$(sqlite3 -readonly "$db" "SELECT settings FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{"clients":[]}')"
   sniffing="$(sqlite3 -readonly "$db" "SELECT sniffing FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
+  if ! jq -e . >/dev/null 2>&1 <<<"$settings"; then
+    case "$protocol" in
+      vless) settings='{"clients":[],"decryption":"none","fallbacks":[]}' ;;
+      trojan) settings='{"clients":[],"fallbacks":[]}' ;;
+      shadowsocks) settings='{"clients":[],"ivCheck":false,"method":"2022-blake3-aes-256-gcm","network":"tcp","password":""}' ;;
+      hysteria|hysteria2) settings='{"clients":[],"version":2}' ;;
+      *) settings='{"clients":[]}' ;;
+    esac
+  fi
   settings="$(jq -c '.clients = []' <<<"$settings")"
 
   if [[ -n "$mirror_id" ]]; then
