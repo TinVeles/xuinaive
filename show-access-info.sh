@@ -492,6 +492,8 @@ append_profiles_summary() {
   local xui_report="/etc/x-ui/generated-clients.txt"
   local sub_dir="/opt/panel-naive-hy2/subscriptions/${token}"
   local generated_links="/opt/panel-naive-hy2/generated-profiles.txt"
+  local backend_kind
+  backend_kind="$(config_value NH_BACKEND_KIND)"
 
   {
     printf '\nGenerated profiles\n'
@@ -503,7 +505,10 @@ append_profiles_summary() {
       printf 'x-ui report: not generated\n'
     fi
 
-    if [[ -n "$token" && -d "$sub_dir" ]]; then
+    if [[ "$backend_kind" == "rixxx-naive-mieru" ]]; then
+      printf '\nRIXXX Panel users: managed in http://127.0.0.1:3000/\n'
+      printf 'NaiveProxy/Mieru subscriptions: managed by RIXXX Panel\n'
+    elif [[ -n "$token" && -d "$sub_dir" ]]; then
       printf '\nSubscription files: %s\n' "$sub_dir"
       if [[ -n "$base_url" ]]; then
         printf 'naive:     %s/naive.txt\n' "$base_url"
@@ -529,6 +534,8 @@ print_profiles_summary() {
   local xui_report="/etc/x-ui/generated-clients.txt"
   local sub_dir="/opt/panel-naive-hy2/subscriptions/${token}"
   local generated_links="/opt/panel-naive-hy2/generated-profiles.txt"
+  local backend_kind
+  backend_kind="$(config_value NH_BACKEND_KIND)"
 
   echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"
   echo -e "${PURPLE}${BOLD}║   📦  Profiles                                              ║${RESET}"
@@ -539,7 +546,10 @@ print_profiles_summary() {
     echo -e "${PURPLE}${BOLD}║   x-ui report:${RESET} not generated"
   fi
 
-  if [[ -n "$token" && -d "$sub_dir" ]]; then
+  if [[ "$backend_kind" == "rixxx-naive-mieru" ]]; then
+    echo -e "${PURPLE}${BOLD}║   RIXXX users:${RESET} managed in panel"
+    echo -e "${PURPLE}${BOLD}║   Naive/Mieru:${RESET} managed by RIXXX Panel"
+  elif [[ -n "$token" && -d "$sub_dir" ]]; then
     echo -e "${PURPLE}${BOLD}║   Subscriptions:${RESET} ${CYAN}${sub_dir}${RESET}"
     if [[ -n "$base_url" ]]; then
       echo -e "${CYAN}   ${base_url}/all.txt${RESET}"
@@ -555,11 +565,18 @@ print_profiles_summary() {
   fi
 }
 
+nh_backend_kind="$(config_value NH_BACKEND_KIND)"
 XUI_DOMAIN="$(first_nonempty "$(config_value XUI_DOMAIN)" "$(xui_setting webDomain)" "$(xui_setting subDomain)" "$(xui_domain_from_cert)")"
 nh_panel_port="$(first_nonempty "$(config_value NH_PANEL_PORT)" "8081")"
-nh_panel_url="$(first_nonempty "$(config_value NH_PANEL_URL)" "$(json_value panelUrl)")"
-nh_panel_login="$(first_nonempty "$(config_value NH_PANEL_LOGIN)" "$(json_value panelLogin)" "$(nh_panel_initial_login)" "$(nh_panel_login_from_users)")"
-nh_panel_password="$(first_nonempty "$(config_value NH_PANEL_PASSWORD)" "$(json_value panelPassword)" "$(nh_panel_initial_password)")"
+if [[ "$nh_backend_kind" == "rixxx-naive-mieru" ]]; then
+  nh_panel_url="$(first_nonempty "$(config_value NH_PANEL_URL)" "http://127.0.0.1:3000/")"
+  nh_panel_login="$(config_value NH_PANEL_LOGIN)"
+  nh_panel_password="$(config_value NH_PANEL_PASSWORD)"
+else
+  nh_panel_url="$(first_nonempty "$(config_value NH_PANEL_URL)" "$(json_value panelUrl)")"
+  nh_panel_login="$(first_nonempty "$(config_value NH_PANEL_LOGIN)" "$(json_value panelLogin)" "$(nh_panel_initial_login)" "$(nh_panel_login_from_users)")"
+  nh_panel_password="$(first_nonempty "$(config_value NH_PANEL_PASSWORD)" "$(json_value panelPassword)" "$(nh_panel_initial_password)")"
+fi
 [[ "$nh_panel_url" == "null" ]] && nh_panel_url=""
 [[ "$nh_panel_login" == "null" ]] && nh_panel_login=""
 [[ "$nh_panel_password" == "null" ]] && nh_panel_password=""
@@ -591,13 +608,17 @@ else
 fi
 
 reset_xui_password_if_missing
-reset_nh_panel_password_if_missing
-sync_nh_naive_config_from_caddy
-persist_nh_naive_access
-ensure_nh_panel_nginx_proxy
+if [[ "$nh_backend_kind" != "rixxx-naive-mieru" ]]; then
+  reset_nh_panel_password_if_missing
+  sync_nh_naive_config_from_caddy
+  persist_nh_naive_access
+  ensure_nh_panel_nginx_proxy
+fi
 ensure_nh_naive_sni_route
 sub_token="$(subscription_token)"
 sub_base_url="$(subscription_base_url "$nh_panel_url" "$sub_token")"
+nh_panel_label="NHM Panel"
+[[ "$nh_backend_kind" == "rixxx-naive-mieru" ]] && nh_panel_label="RIXXX Panel"
 
 reset_terminal_style
 cat > "$SUMMARY_FILE" <<EOF
@@ -609,7 +630,7 @@ Install access
   Login:    ${xui_user:-check with: x-ui settings}
   Password: ${xui_pass:-check with: x-ui settings}
 
-NHM Panel
+${nh_panel_label}
   URL:      ${nh_panel_url:-check config.env}
   Login:    ${nh_panel_login:-check config.env}
   Password: ${nh_panel_password:-check config.env}
@@ -627,7 +648,11 @@ echo -e "${CYAN}   ${xui_url}${RESET}"
 echo -e "${PURPLE}${BOLD}║   Login:    ${xui_user:-check with: x-ui settings}${RESET}"
 echo -e "${PURPLE}${BOLD}║   Password: $(redact "${xui_pass:-check with: x-ui settings}")${RESET}"
 echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"
-echo -e "${PURPLE}${BOLD}║   🖥  NHM Panel                               ║${RESET}"
+if [[ "$nh_backend_kind" == "rixxx-naive-mieru" ]]; then
+  echo -e "${PURPLE}${BOLD}║   🖥  RIXXX Panel                             ║${RESET}"
+else
+  echo -e "${PURPLE}${BOLD}║   🖥  NHM Panel                               ║${RESET}"
+fi
 echo -e "${PURPLE}${BOLD}║   URL:${RESET}"
 echo -e "${CYAN}   ${nh_panel_url:-check config.env}${RESET}"
 echo -e "${PURPLE}${BOLD}║   Login:    ${nh_panel_login:-check config.env}${RESET}"
@@ -638,6 +663,12 @@ echo -e "${PURPLE}${BOLD}╠═════════════════�
 echo -e "${PURPLE}${BOLD}║   📌  Команды                                               ║${RESET}"
 echo -e "${PURPLE}${BOLD}║   x-ui                           — меню x-ui                ║${RESET}"
 echo -e "${PURPLE}${BOLD}║   systemctl status x-ui          — статус x-ui              ║${RESET}"
-echo -e "${PURPLE}${BOLD}║   systemctl status panel-naive-hy2 — статус NHM панели      ║${RESET}"
+if [[ "$nh_backend_kind" == "rixxx-naive-mieru" ]]; then
+  echo -e "${PURPLE}${BOLD}║   pm2 logs panel-naive-mieru     — логи RIXXX панели        ║${RESET}"
+  echo -e "${PURPLE}${BOLD}║   systemctl status caddy-naive   — статус NaiveProxy        ║${RESET}"
+  echo -e "${PURPLE}${BOLD}║   systemctl status mita          — статус Mieru             ║${RESET}"
+else
+  echo -e "${PURPLE}${BOLD}║   systemctl status panel-naive-hy2 — статус NHM панели      ║${RESET}"
+fi
 echo -e "${PURPLE}${BOLD}╚══════════════════════════════════════════════════════════════╝${RESET}"
 echo ""

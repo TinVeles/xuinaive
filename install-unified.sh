@@ -54,7 +54,7 @@ Usage:
 
 This is the explicit real installer. It runs vendored component scripts.
 It generates profiles/subscriptions by default. Add --install-warp to install WARP and enable AI routing through it.
-Mieru is disabled by default. Add --with-mieru to expose the optional Mieru module in NHM Panel.
+Naive+Mieru is installed through RIXXX Panel. Hysteria2 panel backend is no longer installed.
 For dry-run checks use ./install.sh.
 EOF
 }
@@ -245,7 +245,7 @@ fi
 
 XUI_SCRIPT="$SCRIPT_DIR/components/x-ui-pro/x-ui-pro.sh"
 SNI_PATCH="$SCRIPT_DIR/components/x-ui-pro/apply-naive-sni-route.sh"
-NH_BACKEND_INSTALL="$SCRIPT_DIR/components/nh-panel/install-unified-backend.sh"
+NH_BACKEND_INSTALL="$SCRIPT_DIR/components/rixxx-panel/install-unified-backend.sh"
 
 [[ -f "$XUI_SCRIPT" ]] || die "Missing $XUI_SCRIPT"
 [[ -f "$SNI_PATCH" ]] || die "Missing $SNI_PATCH"
@@ -255,13 +255,13 @@ cat <<EOF
 Final configuration
 -------------------
 XUI domain:          ${XUI_DOMAIN}
-NHM/Naive domain: ${NH_DOMAIN}
+RIXXX domain:       ${NH_DOMAIN}
 Reality dest:        ${REALITY_DEST}
-NHM email:         ${NH_EMAIL}
+RIXXX email:        ${NH_EMAIL}
 Panel port:          ${PANEL_PUBLIC_PORT}
 Backend listen:      ${NH_BACKEND}
 x-ui Hysteria2 UDP:  ${XUI_HY2_PUBLIC_PORT}
-Mieru module:        $([[ "$NH_ENABLE_MIERU" == "1" ]] && printf enabled || printf disabled)
+Mieru module:        enabled
 TLS cert:            ${TLS_CERT:-auto/ACME}
 TLS key:             ${TLS_KEY:-auto/ACME}
 
@@ -271,13 +271,13 @@ Unified all-in-one real install plan
    Public nginx stream will own 0.0.0.0:443.
 2. Patch /etc/nginx/stream-enabled/stream.conf:
    ${NH_DOMAIN} -> ${NH_BACKEND}
-3. Install NHM Panel + NaiveProxy + Hysteria2:
-   caddy-nh binds ${NH_BACKEND} for TCP NaiveProxy.
-   hysteria-server binds 0.0.0.0:443/udp.
+3. Install RIXXX Panel + NaiveProxy + Mieru:
+   caddy-naive binds backend port ${NH_BACKEND##*:} for TCP NaiveProxy.
+   Mieru binds its own public TCP/UDP port range.
    x-ui Hysteria2 keeps its separate ${XUI_HY2_PUBLIC_PORT}/udp listener.
-   panel-naive-hy2 is exposed with panel access mode ${PANEL_ACCESS} on port ${PANEL_PUBLIC_PORT}.
+   panel-naive-mieru is exposed with panel access mode ${PANEL_ACCESS} on port ${PANEL_PUBLIC_PORT}.
 4. Install WARP local proxy only when --install-warp is enabled.
-5. Generate x-ui, NaiveProxy, Hysteria2, and combined subscriptions when enabled.
+5. Generate x-ui profiles when enabled. RIXXX users are managed by its panel.
 
 WARNING:
 The vendored x-ui-pro script is still destructive like upstream:
@@ -286,7 +286,7 @@ EOF
 
 backup_dir="/opt/unified-proxy-manager/backups/$(date '+%Y-%m-%d-%H-%M-%S')"
 mkdir -p "$backup_dir"
-for path in /etc/nginx /etc/x-ui /usr/local/x-ui /etc/caddy-nh /etc/hysteria /opt/panel-naive-hy2 /etc/systemd/system/x-ui.service /etc/systemd/system/caddy-nh.service /etc/systemd/system/hysteria-server.service /etc/systemd/system/panel-naive-hy2.service; do
+for path in /etc/nginx /etc/x-ui /usr/local/x-ui /etc/caddy-nh /etc/hysteria /opt/panel-naive-hy2 /etc/caddy-naive /etc/rixxx-panel /opt/panel-naive-mieru /var/lib/rixxx-panel /etc/systemd/system/x-ui.service /etc/systemd/system/caddy-nh.service /etc/systemd/system/hysteria-server.service /etc/systemd/system/panel-naive-hy2.service /etc/systemd/system/caddy-naive.service /etc/systemd/system/mita.service; do
   if [[ -e "$path" || -L "$path" ]]; then
     parent_dir="$(dirname "$path")"
     mkdir -p "$backup_dir$parent_dir"
@@ -331,10 +331,10 @@ if [[ "$AUTO_INSTALL_WARP" == "1" && "$XUI_ENABLE_WARP_ROUTING" == "1" ]]; then
   ensure_warp_local_proxy "$SCRIPT_DIR"
 fi
 
-info "Adding nginx stream route for NHM NaiveProxy"
+info "Adding nginx stream route for RIXXX NaiveProxy"
 bash "$SNI_PATCH" --domain "$NH_DOMAIN" --backend "$NH_BACKEND" --name nh_naive
 
-info "Installing NHM Panel + NaiveProxy + Hysteria2 backend"
+info "Installing RIXXX Panel + NaiveProxy + Mieru backend"
 nh_args=(
   --domain "$NH_DOMAIN"
   --email "$NH_EMAIL"
@@ -344,16 +344,23 @@ nh_args=(
 )
 [[ -n "$TLS_CERT" ]] && nh_args+=(--tls-cert "$TLS_CERT")
 [[ -n "$TLS_KEY" ]] && nh_args+=(--tls-key "$TLS_KEY")
-[[ "$NH_ENABLE_MIERU" == "1" ]] && nh_args+=(--with-mieru)
+nh_args+=(--with-mieru)
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}" \
 WARP_PROXY_PORT="$WARP_PROXY_PORT" \
 WARP_OUTBOUND_TAG="$WARP_OUTBOUND_TAG" \
 WARP_AI_DOMAINS="$WARP_AI_DOMAINS" \
 bash "$NH_BACKEND_INSTALL" "${nh_args[@]}"
 
-require_active caddy-nh
-require_active hysteria-server
-require_active panel-naive-hy2
+require_active caddy-naive
+if systemctl is-active --quiet mita; then
+  ok "mita is active"
+else
+  warn "mita is not active yet; RIXXX starts it after first Mieru user is created"
+fi
+if command -v pm2 >/dev/null 2>&1; then
+  pm2 describe panel-naive-mieru >/dev/null 2>&1 || die "PM2 process panel-naive-mieru is missing"
+  ok "panel-naive-mieru PM2 process exists"
+fi
 
 NH_TLS_CERT_FINAL="${TLS_CERT}"
 NH_TLS_KEY_FINAL="${TLS_KEY}"
@@ -385,7 +392,8 @@ config_set NH_PANEL_DOMAIN ""
 config_set NH_EMAIL "$NH_EMAIL"
 config_set NH_PANEL_PORT "$PANEL_PUBLIC_PORT"
 config_set NH_BACKEND_LISTEN "$NH_BACKEND"
-config_set NH_ENABLE_MIERU "$NH_ENABLE_MIERU"
+config_set NH_BACKEND_KIND "rixxx-naive-mieru"
+config_set NH_ENABLE_MIERU "1"
 config_set NH_TLS_CERT "$NH_TLS_CERT_FINAL"
 config_set NH_TLS_KEY "$NH_TLS_KEY_FINAL"
 config_set NH_PANEL_URL "$NH_PANEL_URL_FINAL"
@@ -419,6 +427,7 @@ if [[ "$GENERATE_PROFILES" == "1" ]]; then
   XUI_AUTO_INSTALL_WARP="$AUTO_INSTALL_WARP" \
   XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
   bash "$SCRIPT_DIR/generate-profiles.sh" \
+    --xui-only \
     --count "${PROFILE_COUNT:-15}" \
     --prefix "${PROFILE_PREFIX:-auto}" \
     --warp-port "${WARP_PROXY_PORT:-40000}" \

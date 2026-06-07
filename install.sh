@@ -107,13 +107,12 @@ Usage:
 Default mode is dry-run only. Real install requires --install --yes.
 When values are omitted in an interactive terminal, the script asks for them.
 When run from a URL, relative paths are resolved from the current directory or --project-dir.
-Mode all installs 3x-ui + NHM Panel + NaiveProxy + Hysteria2 on one VPS.
+Mode all installs 3x-ui + RIXXX Panel + NaiveProxy + Mieru on one VPS.
 Real --mode all generates subscriptions by default.
 Use --install-warp only when Cloudflare WARP should be installed and used for AI routing.
 Use --no-generate-profiles only for minimal/manual recovery installs.
 The default x-ui panel line is legacy (fixed 2.9.4). Use --xui-panel-line latest for the current upstream v3 release with SQLite.
-Mode nh installs only the standalone NHM NaiveProxy + Hysteria2 web panel.
-Mieru is disabled by default. Add --with-mieru if you want the optional Mieru module in NHM Panel.
+Mode nh installs only the standalone RIXXX NaiveProxy + Mieru web panel.
 EOF
 }
 
@@ -142,9 +141,9 @@ prompt_mode() {
     echo "Choose install planning mode:"
     echo "  1) xui   - x-ui-pro / 3x-ui only"
     echo "  2) naive - NaiveProxy / Caddy only"
-    echo "  3) all   - 3x-ui + NHM Panel + NaiveProxy + Hysteria2"
+    echo "  3) all   - 3x-ui + RIXXX Panel + NaiveProxy + Mieru"
     echo "  4) both  - legacy x-ui + NaiveProxy plan"
-    echo "  5) nh - NHM NaiveProxy + Hysteria2 web panel only"
+    echo "  5) nh - RIXXX NaiveProxy + Mieru web panel only"
     read -r -p "Mode [xui/naive/all/both/nh or 1/2/3/4/5]: " input
     case "$input" in
       1|xui) MODE="xui" ;;
@@ -407,11 +406,7 @@ check_vendored_components() {
     "$PROJECT_DIR/lib/xui-v3.sh" \
     "$PROJECT_DIR/components/x-ui-pro/x-ui-pro.sh" \
     "$PROJECT_DIR/components/x-ui-pro/apply-naive-sni-route.sh" \
-    "$PROJECT_DIR/components/nh-panel/install.sh" \
-    "$PROJECT_DIR/components/nh-panel/install-unified-backend.sh" \
-    "$PROJECT_DIR/components/nh-panel/update.sh" \
-    "$PROJECT_DIR/components/nh-panel/upstream/install.sh" \
-    "$PROJECT_DIR/components/nh-panel/upstream/update.sh"; do
+    "$PROJECT_DIR/components/rixxx-panel/install-unified-backend.sh"; do
     if [[ -f "$path" ]]; then
       ok "Vendored component found: ${path#$PROJECT_DIR/}"
     else
@@ -590,8 +585,8 @@ EOF
 
 Legacy NaiveProxy-only mode:
 - the old standalone NaiveProxy component has been removed;
-- use --mode nh for NHM Panel + NaiveProxy + Hysteria2;
-- use --mode all for 3x-ui + NHM Panel + NaiveProxy + Hysteria2.
+- use --mode nh for RIXXX Panel + NaiveProxy + Mieru;
+- use --mode all for 3x-ui + RIXXX Panel + NaiveProxy + Mieru.
 EOF
       ;;
     both)
@@ -742,11 +737,11 @@ Real all-in-one install requested
 ---------------------------------
 Installer:      $installer
 x-ui domain:    $XUI_DOMAIN
-NHM domain:   $NH_PROXY_DOMAIN
+RIXXX domain: $NH_PROXY_DOMAIN
 REALITY dest:   $REALITY_DEST
-NHM email:    $NH_PROXY_EMAIL
+RIXXX email:  $NH_PROXY_EMAIL
 
-This will install 3x-ui + NHM Panel + NaiveProxy + Hysteria2.
+This will install 3x-ui + RIXXX Panel + NaiveProxy + Mieru.
 WARP install: $INSTALL_WARP
 Profile generation: $GENERATE_PROFILES
 EOF
@@ -785,12 +780,12 @@ EOF
   fi
 
   if [[ "$MODE" == "nh" ]]; then
-    local nh_installer="$PROJECT_DIR/components/nh-panel/install.sh"
-    [[ -f "$nh_installer" ]] || die "NHM installer not found: $nh_installer. Pull latest repository version."
+    local nh_installer="$PROJECT_DIR/components/rixxx-panel/install-unified-backend.sh"
+    [[ -f "$nh_installer" ]] || die "RIXXX installer wrapper not found: $nh_installer. Pull latest repository version."
 
     cat <<EOF
 
-Real NHM Panel install requested
+Real RIXXX Panel install requested
 ----------------------------------
 Installer:      $nh_installer
 Stack:          $NH_STACK
@@ -801,19 +796,14 @@ Panel domain:   ${NH_PANEL_DOMAIN:-not used}
 EOF
 
     local -a nh_args=(
-      --stack "$NH_STACK"
-      --access "$NH_ACCESS"
       --domain "$NH_PROXY_DOMAIN"
       --email "$NH_PROXY_EMAIL"
-      --masquerade "$NH_MASQUERADE"
-      --yes
+      --listen "0.0.0.0:443"
+      --panel-access "$NH_ACCESS"
     )
-    [[ -n "$NH_PANEL_DOMAIN" ]] && nh_args+=(--panel-domain "$NH_PANEL_DOMAIN")
-    [[ -n "$NH_PANEL_EMAIL" ]] && nh_args+=(--panel-email "$NH_PANEL_EMAIL")
-    [[ "$NH_SSH_ONLY" == "1" ]] && nh_args+=(--ssh-only)
-    [[ -n "$NH_MASQUERADE_URL" ]] && nh_args+=(--masquerade-url "$NH_MASQUERADE_URL")
-    [[ "$NH_ALLOW_PORT_CONFLICT" == "1" ]] && nh_args+=(--allow-port-conflict)
-    [[ "$NH_ENABLE_MIERU" == "1" ]] && nh_args+=(--with-mieru)
+    [[ "$NH_ACCESS" != "ssh-tunnel" ]] && nh_args+=(--panel-public-port "8081")
+    [[ -n "$NH_MASQUERADE_URL" ]] && nh_args+=(--fake-site-url "$NH_MASQUERADE_URL")
+    nh_args+=(--with-mieru)
 
     WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}" \
     WARP_PROXY_PORT="$WARP_PROXY_PORT" \
