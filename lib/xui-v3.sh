@@ -76,7 +76,10 @@ $(xui_preset_inbound_filter_sql)
 
 xui_v3_remove_generated_json_clients() {
   local db="$1" inbound_id="$2" prefix="$3" settings new_settings
-  settings="$(sqlite3 -readonly "$db" "SELECT settings FROM inbounds WHERE id=$inbound_id;")"
+  settings="$(sqlite3 -readonly "$db" "SELECT CASE WHEN json_valid(settings)=1 THEN json(settings) ELSE '' END FROM inbounds WHERE id=$inbound_id;")"
+  if ! jq -e . >/dev/null 2>&1 <<<"$settings"; then
+    settings='{"clients":[]}'
+  fi
   new_settings="$(jq -c --arg prefix "$prefix" '
     .clients = [
       (.clients // [])[]
@@ -115,7 +118,10 @@ xui_v3_client_json() {
 
 xui_v3_append_json_client() {
   local db="$1" inbound_id="$2" client_json="$3" settings new_settings email
-  settings="$(sqlite3 -readonly "$db" "SELECT settings FROM inbounds WHERE id=$inbound_id;")"
+  settings="$(sqlite3 -readonly "$db" "SELECT CASE WHEN json_valid(settings)=1 THEN json(settings) ELSE '' END FROM inbounds WHERE id=$inbound_id;")"
+  if ! jq -e . >/dev/null 2>&1 <<<"$settings"; then
+    settings='{"clients":[]}'
+  fi
   email="$(jq -r '.email // empty' <<<"$client_json")"
   [[ -n "$email" ]] || upm_die "Cannot append x-ui v3 JSON client without email"
   if jq -e --arg email "$email" '

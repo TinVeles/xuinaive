@@ -1076,7 +1076,7 @@ xui_v3_warp_clone_insert_or_update() {
   total="$(sqlite3 -readonly "$db" "SELECT COALESCE(total,0) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo 0)"
   expiry_time="$(sqlite3 -readonly "$db" "SELECT COALESCE(expiry_time,0) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo 0)"
   protocol="$(sqlite3 -readonly "$db" "SELECT protocol FROM inbounds WHERE id=$base_id;" 2>/dev/null || true)"
-  settings="$(sqlite3 -readonly "$db" "SELECT settings FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{"clients":[]}')"
+  settings="$(sqlite3 -readonly "$db" "SELECT CASE WHEN json_valid(settings)=1 THEN json(settings) ELSE '' END FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '')"
   sniffing="$(sqlite3 -readonly "$db" "SELECT sniffing FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
   if ! jq -e . >/dev/null 2>&1 <<<"$settings"; then
     case "$protocol" in
@@ -1134,7 +1134,7 @@ xui_ensure_v3_manual_warp_presets() {
   " 2>/dev/null || true)"
   if [[ -n "$base_id" ]]; then
     base_port="$(sqlite3 -readonly "$db" "SELECT COALESCE(port,0) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo 30000)"
-    base_stream="$(sqlite3 -readonly "$db" "SELECT stream_settings FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
+    base_stream="$(sqlite3 -readonly "$db" "SELECT json(stream_settings) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
     new_port="$(xui_v3_warp_clone_port "$db" "$tag" "$((base_port + 1000))")"
     decoy="${REALITY_WARP_TCP_DECOY:-www.microsoft.com}"
     new_stream="$(jq -c --arg publicDomain "$public_domain" --arg decoy "$decoy" '
@@ -1170,7 +1170,7 @@ xui_ensure_v3_manual_warp_presets() {
   " 2>/dev/null || true)"
   if [[ -n "$base_id" ]]; then
     base_port="$(sqlite3 -readonly "$db" "SELECT COALESCE(port,0) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo 30000)"
-    base_stream="$(sqlite3 -readonly "$db" "SELECT stream_settings FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
+    base_stream="$(sqlite3 -readonly "$db" "SELECT json(stream_settings) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
     new_port="$(xui_v3_warp_clone_port "$db" "$tag" "$((base_port + 1000))")"
     decoy="${REALITY_WARP_XHTTP_DECOY:-www.cloudflare.com}"
     new_stream="$(jq -c --arg publicDomain "$public_domain" --arg decoy "$decoy" '
@@ -1206,7 +1206,7 @@ xui_ensure_v3_manual_warp_presets() {
     ORDER BY id LIMIT 1;
   " 2>/dev/null || true)"
   if [[ -n "$base_id" ]]; then
-    base_stream="$(sqlite3 -readonly "$db" "SELECT stream_settings FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
+    base_stream="$(sqlite3 -readonly "$db" "SELECT json(stream_settings) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
     new_port="$(xui_v3_warp_clone_port "$db" "$tag" "${HY2_WARP_PUBLIC_PORT:-24443}")"
     new_stream="$(jq -c --arg publicDomain "$public_domain" --argjson publicPort "$new_port" '
       .externalProxy = (if ((.externalProxy // []) | length) > 0 then .externalProxy else [{forceTls:"tls",dest:"",port:$publicPort,remark:""}] end)
