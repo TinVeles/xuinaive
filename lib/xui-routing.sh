@@ -906,6 +906,15 @@ xui_install_3dp_reference_presets() {
     "
   }
 
+  xui_3dp_remark() {
+    local name="$1"
+    if [[ -n "$emoji_flag" ]]; then
+      printf '%s %s' "$emoji_flag" "$name"
+    else
+      printf '%s' "$name"
+    fi
+  }
+
   xui_3dp_reality_stream() {
     local network="$1" decoy="$2" inbound_port="$3" transport_json="$4"
     jq -cn \
@@ -947,20 +956,20 @@ xui_install_3dp_reference_presets() {
     reality_index=$((reality_index + 1))
     port="$(xui_3dp_random_port)"
     stream="$(xui_3dp_reality_stream tcp "$sni" "$port" '{"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}')"
-    xui_3dp_insert vless "$port" "${emoji_flag} vless-tcp-reality-${reality_index}" "$settings" "$stream"
+    xui_3dp_insert vless "$port" "$(xui_3dp_remark "vless-tcp-reality-${reality_index}")" "$settings" "$stream"
   done
 
   port="$(xui_3dp_random_port)"
   sni="avito.ru"
   stream="$(xui_3dp_reality_stream xhttp "$sni" "$port" '{"xhttpSettings":{"host":"avito.ru","path":"/","mode":"auto","noSSEHeader":false,"scMaxBufferedPosts":30,"scMaxEachPostBytes":"1000000","scStreamUpServerSecs":"20-80","xPaddingBytes":"100-1000"}}')"
-  xui_3dp_insert vless "$port" "${emoji_flag} vless-xhttp-reality" "$settings" "$stream"
+  xui_3dp_insert vless "$port" "$(xui_3dp_remark "vless-xhttp-reality")" "$settings" "$stream"
 
   port="$(xui_3dp_random_port)"
   # gosuslugi.ru geoblocks many hosting/datacenter IPs. Keep the gRPC REALITY
   # preset on a reachable TLS 1.3 decoy and allow an operator override.
   sni="${REALITY_GRPC_DECOY:-dzen.ru}"
   stream="$(xui_3dp_reality_stream grpc "$sni" "$port" "$(jq -cn --arg authority "$sni" '{grpcSettings:{serviceName:"myservice",authority:$authority,multiMode:false}}')")"
-  xui_3dp_insert vless "$port" "${emoji_flag} vless-grpc-reality" "$settings" "$stream"
+  xui_3dp_insert vless "$port" "$(xui_3dp_remark "vless-grpc-reality")" "$settings" "$stream"
 
   port="$(xui_3dp_random_port)"
   # vless-ws is fronted on public 443 by the nginx domain vhost (www upstream),
@@ -974,7 +983,7 @@ xui_install_3dp_reference_presets() {
     externalProxy:[{forceTls:"tls",dest:$publicDomain,port:443,remark:""}],
     wsSettings:{host:$publicDomain,path:("/" + ($port|tostring) + "/"),acceptProxyProtocol:false,heartbeatPeriod:0,headers:{}}
   }')"
-  xui_3dp_insert vless "$port" "${emoji_flag} vless-ws" "$settings" "$stream"
+  xui_3dp_insert vless "$port" "$(xui_3dp_remark "vless-ws")" "$settings" "$stream"
 
   # shadowsocks-tcp has no SNI/TLS, so it cannot share nginx's 443. It keeps a
   # stable dedicated port (default 8388, override SS_PUBLIC_PORT) that you open
@@ -988,7 +997,7 @@ xui_install_3dp_reference_presets() {
     externalProxy:[{forceTls:"none",dest:$publicDomain,port:$port,remark:""}],
     tcpSettings:{acceptProxyProtocol:false,header:{type:"none"}}
   }')"
-  xui_3dp_insert shadowsocks "$port" "${emoji_flag} shadowsocks-tcp" "$settings" "$stream"
+  xui_3dp_insert shadowsocks "$port" "$(xui_3dp_remark "shadowsocks-tcp")" "$settings" "$stream"
 
   # hysteria2 is QUIC/UDP and cannot share nginx's TCP 443. In xui-only mode it
   # binds public UDP 443. Unified installs override HY2_PUBLIC_PORT because the
@@ -1015,13 +1024,13 @@ xui_install_3dp_reference_presets() {
       hysteriaSettings:{auth:$auth,masquerade:{content:"",dir:"",headers:{},insecure:true,rewriteHost:false,statusCode:0,type:"proxy",url:"https://google.com"},udpIdleTimeout:60,version:2},
       tlsSettings:{serverName:$publicDomain,alpn:["h3"],certificates:[{buildChain:false,certificateFile:$certificateFile,keyFile:$keyFile,oneTimeLoading:false,usage:"encipherment"}],cipherSuites:"",disableSystemRoot:false,echForceQuery:"none",echServerKeys:"",enableSessionResumption:false,maxVersion:"1.3",minVersion:"1.2",rejectUnknownSni:false}
     }')"
-  xui_3dp_insert hysteria "$port" "${emoji_flag} hysteria2-udp" "$settings" "$stream"
+  xui_3dp_insert hysteria "$port" "$(xui_3dp_remark "hysteria2-udp")" "$settings" "$stream"
 
   port="$(xui_3dp_random_port)"
   sni="kinopoisk.ru"
   settings='{"clients":[],"fallbacks":[]}'
   stream="$(xui_3dp_reality_stream tcp "$sni" "$port" '{"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}')"
-  xui_3dp_insert trojan "$port" "${emoji_flag} trojan-tcp-reality" "$settings" "$stream"
+  xui_3dp_insert trojan "$port" "$(xui_3dp_remark "trojan-tcp-reality")" "$settings" "$stream"
 }
 
 xui_open_warp_reality_ports() {

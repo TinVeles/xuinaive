@@ -99,7 +99,7 @@ if [[ "$RESET_INBOUNDS" == "1" ]]; then
   public_key="$(awk -F': *' 'tolower($1) ~ /^public[ _-]?key$/ || tolower($1) ~ /publickey/ {print $2; exit}' <<<"$output")"
   [[ -n "$private_key" && -n "$public_key" ]] || upm_die "Could not parse xray x25519 key pair"
   XUI_DB="$XUI_DB" xui_install_3dp_reference_presets \
-    "$XUI_DB" "$DOMAIN" "$private_key" "$public_key" "UPM" \
+    "$XUI_DB" "$DOMAIN" "$private_key" "$public_key" "" \
     "/root/cert/${DOMAIN}/fullchain.pem" "/root/cert/${DOMAIN}/privkey.pem"
 fi
 
