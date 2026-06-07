@@ -1113,6 +1113,15 @@ xui_v3_warp_clone_insert_or_update() {
   fi
 }
 
+xui_json_or_empty_object() {
+  local value="${1:-}"
+  if jq -e . >/dev/null 2>&1 <<<"$value"; then
+    printf '%s\n' "$value"
+  else
+    printf '{}\n'
+  fi
+}
+
 xui_ensure_v3_manual_warp_presets() {
   local db="$1" public_domain="${2:-}" report_file="${3:-}"
   local base_id base_port base_stream new_port new_stream decoy tag
@@ -1145,7 +1154,8 @@ xui_ensure_v3_manual_warp_presets() {
   " 2>/dev/null || true)"
   if [[ -n "$base_id" ]]; then
     base_port="$(sqlite3 -readonly "$db" "SELECT COALESCE(port,0) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo 30000)"
-    base_stream="$(sqlite3 -readonly "$db" "SELECT json(stream_settings) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
+    base_stream="$(sqlite3 -readonly "$db" "SELECT CASE WHEN json_valid(stream_settings)=1 THEN json(stream_settings) ELSE '{}' END FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
+    base_stream="$(xui_json_or_empty_object "$base_stream")"
     new_port="$(xui_v3_warp_clone_port "$db" "$tag" "$((base_port + 1000))")"
     decoy="${REALITY_WARP_TCP_DECOY:-www.microsoft.com}"
     new_stream="$(jq -c --arg publicDomain "$public_domain" --arg decoy "$decoy" '
@@ -1163,6 +1173,7 @@ xui_ensure_v3_manual_warp_presets() {
       | .realitySettings.settings = (.realitySettings.settings // {})
       | .realitySettings.settings.serverName = ""
     ' <<<"$base_stream")"
+    [[ -n "$new_stream" ]] || upm_die "Cannot build WARP REALITY stream settings from inbound id=$base_id"
     xui_v3_warp_clone_insert_or_update "$db" "$base_id" "$tag" "vless-tcp-reality-warp" "$new_port" "$new_stream" "$report_file"
   else
     warn "Cannot create WARP REALITY preset: base vless tcp reality inbound not found"
@@ -1181,7 +1192,8 @@ xui_ensure_v3_manual_warp_presets() {
   " 2>/dev/null || true)"
   if [[ -n "$base_id" ]]; then
     base_port="$(sqlite3 -readonly "$db" "SELECT COALESCE(port,0) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo 30000)"
-    base_stream="$(sqlite3 -readonly "$db" "SELECT json(stream_settings) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
+    base_stream="$(sqlite3 -readonly "$db" "SELECT CASE WHEN json_valid(stream_settings)=1 THEN json(stream_settings) ELSE '{}' END FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
+    base_stream="$(xui_json_or_empty_object "$base_stream")"
     new_port="$(xui_v3_warp_clone_port "$db" "$tag" "$((base_port + 1000))")"
     decoy="${REALITY_WARP_XHTTP_DECOY:-www.cloudflare.com}"
     new_stream="$(jq -c --arg publicDomain "$public_domain" --arg decoy "$decoy" '
@@ -1201,6 +1213,7 @@ xui_ensure_v3_manual_warp_presets() {
       | .realitySettings.settings = (.realitySettings.settings // {})
       | .realitySettings.settings.serverName = ""
     ' <<<"$base_stream")"
+    [[ -n "$new_stream" ]] || upm_die "Cannot build WARP XHTTP stream settings from inbound id=$base_id"
     xui_v3_warp_clone_insert_or_update "$db" "$base_id" "$tag" "vless-xhttp-reality-warp" "$new_port" "$new_stream" "$report_file"
   else
     warn "Cannot create WARP XHTTP preset: base vless xhttp reality inbound not found"
@@ -1217,7 +1230,8 @@ xui_ensure_v3_manual_warp_presets() {
     ORDER BY id LIMIT 1;
   " 2>/dev/null || true)"
   if [[ -n "$base_id" ]]; then
-    base_stream="$(sqlite3 -readonly "$db" "SELECT json(stream_settings) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
+    base_stream="$(sqlite3 -readonly "$db" "SELECT CASE WHEN json_valid(stream_settings)=1 THEN json(stream_settings) ELSE '{}' END FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
+    base_stream="$(xui_json_or_empty_object "$base_stream")"
     new_port="$(xui_v3_warp_clone_port "$db" "$tag" "${HY2_WARP_PUBLIC_PORT:-24443}")"
     new_stream="$(jq -c --arg publicDomain "$public_domain" --argjson publicPort "$new_port" '
       .externalProxy = (if ((.externalProxy // []) | length) > 0 then .externalProxy else [{forceTls:"tls",dest:"",port:$publicPort,remark:""}] end)
@@ -1228,6 +1242,7 @@ xui_ensure_v3_manual_warp_presets() {
       | .tlsSettings = (.tlsSettings // {})
       | .tlsSettings.serverName = $publicDomain
     ' <<<"$base_stream")"
+    [[ -n "$new_stream" ]] || upm_die "Cannot build WARP Hysteria2 stream settings from inbound id=$base_id"
     xui_v3_warp_clone_insert_or_update "$db" "$base_id" "$tag" "hysteria2-udp-warp" "$new_port" "$new_stream" "$report_file"
   else
     warn "Cannot create WARP Hysteria2 preset: base hysteria2 inbound not found"
