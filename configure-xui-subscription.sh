@@ -105,7 +105,7 @@ show_current_subscription() {
   current_enable="$(setting_get subEnable)"
 
   printf 'Current x-ui subscription settings\n'
-  printf '----------------------------------\n'
+  printf '%s\n' '----------------------------------'
   printf 'subEnable|%s\n' "${current_enable:-<empty>}"
   printf 'subPort|%s\n' "${current_port:-<empty>}"
   printf 'subPath|%s\n' "${current_path:-<empty>}"
@@ -114,7 +114,7 @@ show_current_subscription() {
 
   if sqlite3 -readonly "$XUI_DB" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='clients' LIMIT 1;" 2>/dev/null | grep -q 1; then
     printf 'Latest-line 3x-ui clients\n'
-    printf '-------------------------\n'
+    printf '%s\n' '-------------------------'
     sqlite3 -readonly -separator '|' "$XUI_DB" "
       SELECT id, email, COALESCE(sub_id,'')
       FROM clients
