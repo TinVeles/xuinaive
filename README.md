@@ -392,6 +392,13 @@ Use `v2rayn-stable.txt` first for v2rayN. It is base64 and excludes newer XHTTP 
 The default install does not expose a custom x-ui subscription domain. If you need a dedicated HTTPS subscription URL for x-ui clients, use the separate module:
 
 ```bash
+sudo bash configure-xui-subscription.sh --show
+sudo bash configure-xui-subscription.sh --interactive
+```
+
+Non-interactive example:
+
+```bash
 sudo bash configure-xui-subscription.sh \
   --domain SUB_DOMAIN \
   --port SUB_PORT \
@@ -399,6 +406,10 @@ sudo bash configure-xui-subscription.sh \
   --sub-id SUB_ID \
   --yes
 ```
+
+For the latest 3x-ui line, add `--client-email CLIENT_EMAIL` to set that
+client's `sub_id` to `--sub-id`. Example: `--client-email auto-01 --sub-id Tin`
+serves the client at `/Tin`.
 
 Do not use the same domain for this subscription endpoint and Reality SNI/serverName. nginx stream routes public `443/tcp` by SNI, so reusing the subscription SNI for Reality sends Reality traffic to the subscription backend.
 

@@ -19,10 +19,13 @@ SUB_PORT="${XUI_SUB_PORT:-}"
 SUB_PATH="${XUI_SUB_PATH:-}"
 SUB_URI="${XUI_SUB_URI:-}"
 SUB_ID="${XUI_SUB_ID:-}"
+CLIENT_EMAIL="${XUI_SUB_CLIENT_EMAIL:-}"
 BACKEND_PORT="${XUI_SUB_BACKEND_PORT:-9444}"
 STREAM_CONF="${NGINX_STREAM_CONF:-/etc/nginx/stream-enabled/stream.conf}"
 SITES_DIR="${NGINX_SITES_DIR:-/etc/nginx/sites-enabled}"
 ASSUME_YES=0
+SHOW_ONLY=0
+INTERACTIVE=0
 ALLOW_REALITY_SNI_CONFLICT="${XUI_SUB_ALLOW_REALITY_SNI_CONFLICT:-0}"
 REALITY_SNI="${XUI_REALITY_SNI:-}"
 REALITY_TARGET="${XUI_REALITY_TARGET:-}"
@@ -30,11 +33,14 @@ REALITY_TARGET="${XUI_REALITY_TARGET:-}"
 usage() {
   cat <<EOF
 Usage:
+  sudo bash configure-xui-subscription.sh --show
+  sudo bash configure-xui-subscription.sh --interactive
   sudo bash configure-xui-subscription.sh --domain SUB_DOMAIN --port SUB_PORT --path /SUB_PATH/ --sub-id SUB_ID --yes
   sudo bash configure-xui-subscription.sh --sub-port SUB_PORT --sub-path /SUB_PATH/ --sub-uri https://SUB_DOMAIN/SUB_PATH/ --sub-id SUB_ID --yes
 
 What it does:
   - updates x-ui subscription settings: subPort, subPath, subURI
+  - can update a latest-line 3x-ui client sub_id when --client-email is provided
   - creates a dedicated nginx HTTPS backend on 127.0.0.1:${BACKEND_PORT}
   - maps the public subscription SNI/domain in nginx stream to that backend
   - reloads nginx and x-ui
@@ -52,8 +58,11 @@ Options:
   --sub-path /PATH/        alias for --path
   --sub-uri URL            alias for --uri
   --sub-id ID              test subscription id
+  --client-email EMAIL     latest-line 3x-ui client email whose sub_id should become --sub-id
   --backend-port PORT      local nginx HTTPS backend port, default: ${BACKEND_PORT}
   --xui-db PATH            x-ui sqlite DB, default: ${XUI_DB}
+  --show                   print current x-ui subscription settings and clients, then exit
+  --interactive            prompt for values in the terminal
   --reality-sni DOMAIN     move non-WARP Reality serverNames to DOMAIN before configuring subscription
   --reality-target HOST:PORT
                            Reality target when --reality-sni is used; default DOMAIN:443
@@ -61,6 +70,110 @@ Options:
                            allow DOMAIN to appear in Reality serverNames anyway
   --yes                    apply changes
 EOF
+}
+
+setting_get() {
+  local key="$1"
+  sqlite3 -readonly "$XUI_DB" "SELECT value FROM settings WHERE key=$(sql_quote "$key") LIMIT 1;" 2>/dev/null || true
+}
+
+first_client_email() {
+  sqlite3 -readonly "$XUI_DB" "
+    SELECT email
+    FROM clients
+    WHERE COALESCE(email,'') <> ''
+    ORDER BY id
+    LIMIT 1;
+  " 2>/dev/null || true
+}
+
+first_client_sub_id() {
+  sqlite3 -readonly "$XUI_DB" "
+    SELECT COALESCE(NULLIF(sub_id,''), email)
+    FROM clients
+    WHERE COALESCE(email,'') <> ''
+    ORDER BY id
+    LIMIT 1;
+  " 2>/dev/null || true
+}
+
+show_current_subscription() {
+  local current_port current_path current_uri current_enable
+  current_port="$(setting_get subPort)"
+  current_path="$(setting_get subPath)"
+  current_uri="$(setting_get subURI)"
+  current_enable="$(setting_get subEnable)"
+
+  printf 'Current x-ui subscription settings\n'
+  printf '----------------------------------\n'
+  printf 'subEnable|%s\n' "${current_enable:-<empty>}"
+  printf 'subPort|%s\n' "${current_port:-<empty>}"
+  printf 'subPath|%s\n' "${current_path:-<empty>}"
+  printf 'subURI|%s\n' "${current_uri:-<empty>}"
+  printf '\n'
+
+  if sqlite3 -readonly "$XUI_DB" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='clients' LIMIT 1;" 2>/dev/null | grep -q 1; then
+    printf 'Latest-line 3x-ui clients\n'
+    printf '-------------------------\n'
+    sqlite3 -readonly -separator '|' "$XUI_DB" "
+      SELECT id, email, COALESCE(sub_id,'')
+      FROM clients
+      ORDER BY id
+      LIMIT 50;
+    " 2>/dev/null || true
+    printf '\n'
+  fi
+}
+
+prompt_keep() {
+  local var_name="$1" prompt="$2" current_value="${3:-}" input
+  if [[ -n "$current_value" ]]; then
+    read -r -p "$prompt [$current_value]: " input
+    input="${input:-$current_value}"
+  else
+    while [[ -z "${input:-}" ]]; do
+      read -r -p "$prompt: " input
+    done
+  fi
+  printf -v "$var_name" '%s' "$input"
+}
+
+configure_interactive() {
+  local current_port current_path current_uri current_domain current_sub_id current_email reply
+  current_port="$(setting_get subPort)"
+  current_path="$(setting_get subPath)"
+  current_uri="$(setting_get subURI)"
+  current_sub_id="$(first_client_sub_id)"
+  current_email="$(first_client_email)"
+
+  if [[ -n "$current_uri" && "$current_uri" == https://*/* ]]; then
+    local uri_rest="${current_uri#https://}"
+    current_domain="${uri_rest%%/*}"
+  else
+    current_domain="$DOMAIN"
+  fi
+
+  show_current_subscription
+  prompt_keep DOMAIN "Subscription domain" "$current_domain"
+  prompt_keep SUB_PORT "x-ui subscription service port" "${current_port:-$SUB_PORT}"
+  prompt_keep SUB_PATH "Subscription URI path, must start and end with /" "${current_path:-$SUB_PATH}"
+  [[ "$SUB_PATH" == /* ]] || SUB_PATH="/$SUB_PATH"
+  [[ "$SUB_PATH" == */ ]] || SUB_PATH="$SUB_PATH/"
+  SUB_URI="https://$DOMAIN$SUB_PATH"
+  prompt_keep SUB_ID "Subscription id for test URL" "${SUB_ID:-$current_sub_id}"
+  read -r -p "Client email to update sub_id to '$SUB_ID' (blank to skip${current_email:+, for example $current_email}): " CLIENT_EMAIL
+  CLIENT_EMAIL="${CLIENT_EMAIL:-}"
+  prompt_keep BACKEND_PORT "Local nginx backend port" "$BACKEND_PORT"
+
+  if [[ "$ASSUME_YES" != "1" ]]; then
+    printf '\nWill configure: %s%s\n' "$SUB_URI" "$SUB_ID"
+    if [[ -n "$CLIENT_EMAIL" ]]; then
+      printf 'Will set clients.sub_id=%s where email=%s\n' "$SUB_ID" "$CLIENT_EMAIL"
+    fi
+    read -r -p "Type APPLY to continue: " reply
+    [[ "$reply" == "APPLY" ]] || die "Cancelled"
+    ASSUME_YES=1
+  fi
 }
 
 while [[ $# -gt 0 ]]; do
@@ -73,8 +186,11 @@ while [[ $# -gt 0 ]]; do
     --sub-path) SUB_PATH="${2:-}"; shift 2 ;;
     --sub-uri) SUB_URI="${2:-}"; shift 2 ;;
     --sub-id) SUB_ID="${2:-}"; shift 2 ;;
+    --client-email) CLIENT_EMAIL="${2:-}"; shift 2 ;;
     --backend-port) BACKEND_PORT="${2:-}"; shift 2 ;;
     --xui-db) XUI_DB="${2:-}"; shift 2 ;;
+    --show) SHOW_ONLY=1; shift ;;
+    --interactive) INTERACTIVE=1; shift ;;
     --reality-sni) REALITY_SNI="${2:-}"; shift 2 ;;
     --reality-target) REALITY_TARGET="${2:-}"; shift 2 ;;
     --allow-reality-sni-conflict) ALLOW_REALITY_SNI_CONFLICT=1; shift ;;
@@ -85,7 +201,19 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "Run as root"
-[[ "$ASSUME_YES" == "1" ]] || die "Add --yes after reading what this script changes"
+command_exists sqlite3 || die "sqlite3 is required"
+[[ -f "$XUI_DB" ]] || die "x-ui database not found: $XUI_DB"
+
+if [[ "$SHOW_ONLY" == "1" ]]; then
+  show_current_subscription
+  exit 0
+fi
+
+if [[ "$INTERACTIVE" == "1" ]]; then
+  configure_interactive
+fi
+
+[[ "$ASSUME_YES" == "1" ]] || die "Add --yes after reading what this script changes, or use --interactive"
 
 if [[ -n "$SUB_URI" ]]; then
   [[ "$SUB_URI" =~ ^https://[^/]+/.+ ]] || die "--uri/--sub-uri must look like https://domain/path/"
@@ -115,9 +243,10 @@ esac
 [[ "$SUB_URI" == "https://$DOMAIN$SUB_PATH" ]] || die "--uri/--sub-uri must equal https://DOMAIN/PATH/ from --domain and --path"
 [[ -n "$SUB_ID" ]] || die "--sub-id is required for the post-change test"
 [[ "$SUB_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--sub-id may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
-command_exists sqlite3 || die "sqlite3 is required"
+if [[ -n "$CLIENT_EMAIL" ]]; then
+  [[ "$CLIENT_EMAIL" =~ ^[A-Za-z0-9_.@+-]+$ ]] || die "--client-email may contain only A-Z, a-z, 0-9, dot, underscore, plus, at, and dash"
+fi
 command_exists nginx || die "nginx is required"
-[[ -f "$XUI_DB" ]] || die "x-ui database not found: $XUI_DB"
 
 if [[ -n "$REALITY_SNI" ]]; then
   [[ "$REALITY_SNI" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$ ]] || die "Invalid --reality-sni: $REALITY_SNI"
@@ -206,6 +335,40 @@ upm_sqlite_setting_set "$XUI_DB" "subPort" "$SUB_PORT"
 upm_sqlite_setting_set "$XUI_DB" "subPath" "$SUB_PATH"
 upm_sqlite_setting_set "$XUI_DB" "subURI" "$sub_uri"
 upm_sqlite_setting_set "$XUI_DB" "subEnable" "true"
+
+if [[ -n "$CLIENT_EMAIL" ]]; then
+  info "Updating latest-line 3x-ui client sub_id: $CLIENT_EMAIL -> $SUB_ID"
+  changed="$(sqlite3 "$XUI_DB" "
+    UPDATE clients
+    SET sub_id=$(sql_quote "$SUB_ID")
+    WHERE email=$(sql_quote "$CLIENT_EMAIL");
+    SELECT changes();
+  " 2>/dev/null || printf '0')"
+  [[ "${changed:-0}" != "0" ]] || die "No v3 client found with email=$CLIENT_EMAIL"
+  sqlite3 "$XUI_DB" "
+    UPDATE inbounds
+    SET settings = json_set(
+      settings,
+      '$.clients',
+      (
+        SELECT json_group_array(
+          CASE
+            WHEN json_extract(value,'$.email')=$(sql_quote "$CLIENT_EMAIL")
+            THEN json_set(value,'$.subId',$(sql_quote "$SUB_ID"))
+            ELSE value
+          END
+        )
+        FROM json_each(settings,'$.clients')
+      )
+    )
+    WHERE json_valid(settings)=1
+      AND EXISTS (
+        SELECT 1
+        FROM json_each(settings,'$.clients')
+        WHERE json_extract(value,'$.email')=$(sql_quote "$CLIENT_EMAIL")
+      );
+  "
+fi
 
 info "Writing nginx subscription backend: $backend_conf"
 cat > "$backend_conf" <<EOF
