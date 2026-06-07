@@ -19,15 +19,22 @@ REALITY_DEST="${REALITY_DEST:-}"
 RESET_INBOUNDS=0
 RESTART_XUI=1
 ASSUME_YES=0
+XUI_CREATE_WARP_PRESETS="${XUI_CREATE_WARP_PRESETS:-0}"
+HY2_WARP_PUBLIC_PORT="${HY2_WARP_PUBLIC_PORT:-24443}"
 
 usage() {
   cat <<EOF
 Usage:
   sudo bash generate-xui-v3.sh --count 15 --prefix auto --yes
   sudo bash generate-xui-v3.sh --reset-inbounds --domain x.example.com --reality-dest r.example.com --yes
+  sudo bash generate-xui-v3.sh --xui-warp-presets --hy2-warp-port 24443 --yes
 
 Creates one v3 client entity per profile and attaches it to every generated
 compatible inbound through client_inbounds. This script is only for 3x-ui v3.
+
+--xui-warp-presets creates enabled manual WARP prep inbounds:
+  vless tcp reality, vless xhttp reality, hysteria2 udp.
+It does not create WARP outbound or routing rules.
 EOF
 }
 
@@ -39,6 +46,11 @@ while [[ $# -gt 0 ]]; do
     --domain|--xui-domain) DOMAIN="${2:-}"; shift 2 ;;
     --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
     --reset-inbounds) RESET_INBOUNDS=1; shift ;;
+    --xui-warp-presets) XUI_CREATE_WARP_PRESETS=1; shift ;;
+    --no-xui-warp-presets) XUI_CREATE_WARP_PRESETS=0; shift ;;
+    --hy2-warp-port) HY2_WARP_PUBLIC_PORT="${2:-}"; shift 2 ;;
+    --warp-reality-decoy) REALITY_WARP_TCP_DECOY="${2:-}"; shift 2 ;;
+    --warp-xhttp-decoy) REALITY_WARP_XHTTP_DECOY="${2:-}"; shift 2 ;;
     --no-restart) RESTART_XUI=0; shift ;;
     --yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -50,6 +62,7 @@ done
 [[ "$ASSUME_YES" == "1" ]] || upm_die "Add --yes after reading what this script changes"
 [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -gt 0 ]] || upm_die "--count must be a positive number"
 [[ "$PREFIX" =~ ^[A-Za-z0-9_.-]+$ ]] || upm_die "--prefix may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
+[[ "$HY2_WARP_PUBLIC_PORT" =~ ^[0-9]+$ && "$HY2_WARP_PUBLIC_PORT" -gt 0 && "$HY2_WARP_PUBLIC_PORT" -le 65535 ]] || upm_die "--hy2-warp-port must be 1..65535"
 for cmd in sqlite3 jq openssl; do
   command_exists "$cmd" || upm_die "$cmd is required"
 done
@@ -115,10 +128,18 @@ XUI_DB="$XUI_DB" xui_enable_preset_domain_sniffing
 
 report_file="/etc/x-ui/generated-clients-v3.txt"
 mkdir -p "$(dirname "$report_file")"
-XUI_DB="$XUI_DB" xui_v3_replace_generated_clients "$XUI_DB" "$COUNT" "$PREFIX" "$report_file"
+XUI_DB="$XUI_DB" \
+XUI_CREATE_WARP_PRESETS="$XUI_CREATE_WARP_PRESETS" \
+HY2_WARP_PUBLIC_PORT="$HY2_WARP_PUBLIC_PORT" \
+REALITY_WARP_TCP_DECOY="${REALITY_WARP_TCP_DECOY:-}" \
+REALITY_WARP_XHTTP_DECOY="${REALITY_WARP_XHTTP_DECOY:-}" \
+  xui_ensure_v3_manual_warp_presets "$XUI_DB" "$DOMAIN" "$report_file"
+XUI_DB="$XUI_DB" \
+XUI_V3_INCLUDE_WARP_PRESETS="$XUI_CREATE_WARP_PRESETS" \
+  xui_v3_replace_generated_clients "$XUI_DB" "$COUNT" "$PREFIX" "$report_file"
 
 XUI_DB="$XUI_DB" xui_ensure_nginx_dynamic_proxy
-XUI_DB="$XUI_DB" xui_ensure_nginx_reality_sni_routes
+XUI_DB="$XUI_DB" XUI_CREATE_WARP_PRESETS="$XUI_CREATE_WARP_PRESETS" xui_ensure_nginx_reality_sni_routes
 XUI_DB="$XUI_DB" xui_open_public_preset_ports
 
 if [[ "$RESTART_XUI" == "1" ]] && command_exists systemctl; then
@@ -129,4 +150,7 @@ if [[ "$RESTART_XUI" == "1" ]] && command_exists systemctl; then
 fi
 
 upm_log_ok "3x-ui v3 clients generated: $COUNT client entities attached to every preset inbound"
+if [[ "$XUI_CREATE_WARP_PRESETS" == "1" ]]; then
+  upm_log_ok "Manual WARP prep inbounds: vless reality, vless xhttp, hysteria2"
+fi
 upm_log_ok "Report: $report_file"

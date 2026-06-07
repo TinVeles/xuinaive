@@ -615,8 +615,10 @@ xui_ensure_nginx_reality_sni_routes() {
         AND json_valid(stream_settings)=1
         AND json_extract(stream_settings,'$.network') IN ('tcp','xhttp','grpc')
         AND json_extract(stream_settings,'$.security')='reality'
-        AND COALESCE(tag,'') NOT LIKE '%-warp'
-        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+        AND (
+          COALESCE(tag,'') LIKE 'upm-v3-warp-%'
+          OR (COALESCE(tag,'') NOT LIKE '%-warp' AND lower(COALESCE(remark,'')) NOT LIKE '%warp%')
+        )
     ),
     names AS (
       SELECT reality_inbounds.id, reality_inbounds.port, trim(server_name.value) AS name
@@ -1031,6 +1033,183 @@ xui_install_3dp_reference_presets() {
   settings='{"clients":[],"fallbacks":[]}'
   stream="$(xui_3dp_reality_stream tcp "$sni" "$port" '{"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}')"
   xui_3dp_insert trojan "$port" "$(xui_3dp_remark "trojan-tcp-reality")" "$settings" "$stream"
+}
+
+xui_v3_warp_base_public_domain() {
+  local db="$1" fallback="$2" domain
+  if [[ -n "$fallback" ]]; then
+    printf '%s\n' "$fallback"
+    return 0
+  fi
+  domain="$(sqlite3 -readonly "$db" "
+    SELECT COALESCE(json_extract(stream_settings,'$.externalProxy[0].dest'),'')
+    FROM inbounds
+    WHERE json_valid(stream_settings)=1
+      AND COALESCE(json_extract(stream_settings,'$.externalProxy[0].dest'),'') <> ''
+      AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+    ORDER BY id
+    LIMIT 1;
+  " 2>/dev/null || true)"
+  printf '%s\n' "$domain"
+}
+
+xui_v3_warp_clone_port() {
+  local db="$1" tag="$2" candidate="$3" existing
+  existing="$(sqlite3 -readonly "$db" "SELECT COALESCE(port,0) FROM inbounds WHERE tag=$(sql_quote "$tag") LIMIT 1;" 2>/dev/null || true)"
+  if [[ "$existing" =~ ^[0-9]+$ && "$existing" -gt 0 ]]; then
+    printf '%s\n' "$existing"
+  else
+    xui_next_free_inbound_port "$db" "$candidate"
+  fi
+}
+
+xui_v3_warp_clone_insert_or_update() {
+  local db="$1" base_id="$2" tag="$3" remark="$4" new_port="$5" new_stream="$6" report_file="$7"
+  local mirror_id user_id up down total expiry_time protocol settings sniffing
+  mirror_id="$(sqlite3 -readonly "$db" "SELECT id FROM inbounds WHERE tag=$(sql_quote "$tag") LIMIT 1;" 2>/dev/null || true)"
+  user_id="$(sqlite3 -readonly "$db" "SELECT COALESCE(user_id,1) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo 1)"
+  up="$(sqlite3 -readonly "$db" "SELECT COALESCE(up,0) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo 0)"
+  down="$(sqlite3 -readonly "$db" "SELECT COALESCE(down,0) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo 0)"
+  total="$(sqlite3 -readonly "$db" "SELECT COALESCE(total,0) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo 0)"
+  expiry_time="$(sqlite3 -readonly "$db" "SELECT COALESCE(expiry_time,0) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo 0)"
+  protocol="$(sqlite3 -readonly "$db" "SELECT protocol FROM inbounds WHERE id=$base_id;" 2>/dev/null || true)"
+  settings="$(sqlite3 -readonly "$db" "SELECT settings FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{"clients":[]}')"
+  sniffing="$(sqlite3 -readonly "$db" "SELECT sniffing FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
+  settings="$(jq -c '.clients = []' <<<"$settings")"
+
+  if [[ -n "$mirror_id" ]]; then
+    sqlite3 "$db" "
+      UPDATE inbounds
+      SET remark=$(sql_quote "$remark"),
+          enable=1,
+          listen='',
+          port=$new_port,
+          protocol=$(sql_quote "$protocol"),
+          settings=$(sql_quote "$settings"),
+          stream_settings=$(sql_quote "$new_stream"),
+          sniffing=$(sql_quote "$sniffing")
+      WHERE id=$mirror_id;
+    "
+    [[ -n "$report_file" ]] && printf 'warp-preset=%s id=%s action=updated\n' "$tag" "$mirror_id" >> "$report_file"
+  else
+    sqlite3 "$db" "
+      INSERT INTO inbounds (user_id, up, down, total, remark, enable, expiry_time, listen, port, protocol, settings, stream_settings, tag, sniffing)
+      VALUES ($user_id, $up, $down, $total, $(sql_quote "$remark"), 1, $expiry_time, '', $new_port, $(sql_quote "$protocol"), $(sql_quote "$settings"), $(sql_quote "$new_stream"), $(sql_quote "$tag"), $(sql_quote "$sniffing"));
+    "
+    mirror_id="$(sqlite3 -readonly "$db" "SELECT id FROM inbounds WHERE tag=$(sql_quote "$tag") LIMIT 1;" 2>/dev/null || true)"
+    [[ -n "$report_file" ]] && printf 'warp-preset=%s id=%s action=created\n' "$tag" "$mirror_id" >> "$report_file"
+  fi
+}
+
+xui_ensure_v3_manual_warp_presets() {
+  local db="$1" public_domain="${2:-}" report_file="${3:-}"
+  local base_id base_port base_stream new_port new_stream decoy tag
+  [[ -f "$db" ]] || return 0
+  [[ "${XUI_CREATE_WARP_PRESETS:-0}" == "1" ]] || return 0
+  public_domain="$(xui_v3_warp_base_public_domain "$db" "$public_domain")"
+  [[ "$public_domain" =~ ^[A-Za-z0-9.-]+$ ]] || upm_die "Cannot create WARP presets: --domain is required or no externalProxy.dest exists"
+
+  tag="upm-v3-warp-reality"
+  base_id="$(sqlite3 -readonly "$db" "
+    SELECT id FROM inbounds
+    WHERE protocol='vless'
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='tcp'
+      AND json_extract(stream_settings,'$.security')='reality'
+      AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+    ORDER BY id LIMIT 1;
+  " 2>/dev/null || true)"
+  if [[ -n "$base_id" ]]; then
+    base_port="$(sqlite3 -readonly "$db" "SELECT COALESCE(port,0) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo 30000)"
+    base_stream="$(sqlite3 -readonly "$db" "SELECT stream_settings FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
+    new_port="$(xui_v3_warp_clone_port "$db" "$tag" "$((base_port + 1000))")"
+    decoy="${REALITY_WARP_TCP_DECOY:-www.microsoft.com}"
+    new_stream="$(jq -c --arg publicDomain "$public_domain" --arg decoy "$decoy" '
+      .externalProxy = (if ((.externalProxy // []) | length) > 0 then .externalProxy else [{forceTls:"same",dest:"",port:443,remark:""}] end)
+      | .externalProxy[0].forceTls = "same"
+      | .externalProxy[0].dest = $publicDomain
+      | .externalProxy[0].port = 443
+      | .externalProxy[0].remark = "manual-warp"
+      | .sockopt = (.sockopt // {})
+      | .sockopt.acceptProxyProtocol = true
+      | .realitySettings = (.realitySettings // {})
+      | .realitySettings.target = ($decoy + ":443")
+      | .realitySettings.dest = ($decoy + ":443")
+      | .realitySettings.serverNames = [$decoy]
+      | .realitySettings.settings = (.realitySettings.settings // {})
+      | .realitySettings.settings.serverName = ""
+    ' <<<"$base_stream")"
+    xui_v3_warp_clone_insert_or_update "$db" "$base_id" "$tag" "vless-tcp-reality-warp" "$new_port" "$new_stream" "$report_file"
+  else
+    warn "Cannot create WARP REALITY preset: base vless tcp reality inbound not found"
+  fi
+
+  tag="upm-v3-warp-xhttp"
+  base_id="$(sqlite3 -readonly "$db" "
+    SELECT id FROM inbounds
+    WHERE protocol='vless'
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='xhttp'
+      AND json_extract(stream_settings,'$.security')='reality'
+      AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+    ORDER BY id LIMIT 1;
+  " 2>/dev/null || true)"
+  if [[ -n "$base_id" ]]; then
+    base_port="$(sqlite3 -readonly "$db" "SELECT COALESCE(port,0) FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo 30000)"
+    base_stream="$(sqlite3 -readonly "$db" "SELECT stream_settings FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
+    new_port="$(xui_v3_warp_clone_port "$db" "$tag" "$((base_port + 1000))")"
+    decoy="${REALITY_WARP_XHTTP_DECOY:-www.cloudflare.com}"
+    new_stream="$(jq -c --arg publicDomain "$public_domain" --arg decoy "$decoy" '
+      .externalProxy = (if ((.externalProxy // []) | length) > 0 then .externalProxy else [{forceTls:"same",dest:"",port:443,remark:""}] end)
+      | .externalProxy[0].forceTls = "same"
+      | .externalProxy[0].dest = $publicDomain
+      | .externalProxy[0].port = 443
+      | .externalProxy[0].remark = "manual-warp"
+      | .sockopt = (.sockopt // {})
+      | .sockopt.acceptProxyProtocol = true
+      | .xhttpSettings = (.xhttpSettings // {})
+      | .xhttpSettings.host = $decoy
+      | .realitySettings = (.realitySettings // {})
+      | .realitySettings.target = ($decoy + ":443")
+      | .realitySettings.dest = ($decoy + ":443")
+      | .realitySettings.serverNames = [$decoy]
+      | .realitySettings.settings = (.realitySettings.settings // {})
+      | .realitySettings.settings.serverName = ""
+    ' <<<"$base_stream")"
+    xui_v3_warp_clone_insert_or_update "$db" "$base_id" "$tag" "vless-xhttp-reality-warp" "$new_port" "$new_stream" "$report_file"
+  else
+    warn "Cannot create WARP XHTTP preset: base vless xhttp reality inbound not found"
+  fi
+
+  tag="upm-v3-warp-hysteria2"
+  base_id="$(sqlite3 -readonly "$db" "
+    SELECT id FROM inbounds
+    WHERE protocol IN ('hysteria','hysteria2')
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='hysteria'
+      AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+    ORDER BY id LIMIT 1;
+  " 2>/dev/null || true)"
+  if [[ -n "$base_id" ]]; then
+    base_stream="$(sqlite3 -readonly "$db" "SELECT stream_settings FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
+    new_port="$(xui_v3_warp_clone_port "$db" "$tag" "${HY2_WARP_PUBLIC_PORT:-24443}")"
+    new_stream="$(jq -c --arg publicDomain "$public_domain" --argjson publicPort "$new_port" '
+      .externalProxy = (if ((.externalProxy // []) | length) > 0 then .externalProxy else [{forceTls:"tls",dest:"",port:$publicPort,remark:""}] end)
+      | .externalProxy[0].forceTls = "tls"
+      | .externalProxy[0].dest = $publicDomain
+      | .externalProxy[0].port = $publicPort
+      | .externalProxy[0].remark = "manual-warp"
+      | .tlsSettings = (.tlsSettings // {})
+      | .tlsSettings.serverName = $publicDomain
+    ' <<<"$base_stream")"
+    xui_v3_warp_clone_insert_or_update "$db" "$base_id" "$tag" "hysteria2-udp-warp" "$new_port" "$new_stream" "$report_file"
+  else
+    warn "Cannot create WARP Hysteria2 preset: base hysteria2 inbound not found"
+  fi
 }
 
 xui_open_warp_reality_ports() {

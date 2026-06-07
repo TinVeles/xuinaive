@@ -48,7 +48,16 @@ xui_v3_profile_indices() {
 }
 
 xui_v3_selected_inbounds() {
-  local db="${1:-$(xui_v3_db_path)}"
+  local db="${1:-$(xui_v3_db_path)}" warp_filter
+  if [[ "${XUI_V3_INCLUDE_WARP_PRESETS:-${XUI_CREATE_WARP_PRESETS:-0}}" == "1" ]]; then
+    warp_filter="AND (
+        COALESCE(tag,'') LIKE 'upm-v3-warp-%'
+        OR (COALESCE(tag,'') NOT LIKE '%-warp' AND lower(COALESCE(remark,'')) NOT LIKE '%warp%')
+      )"
+  else
+    warp_filter="AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'"
+  fi
   sqlite3 -readonly -separator $'\t' "$db" "
     SELECT id,
            protocol,
@@ -59,8 +68,7 @@ xui_v3_selected_inbounds() {
       AND protocol IN ('vless','trojan','shadowsocks','hysteria','hysteria2')
       AND json_valid(settings)=1
       AND json_valid(stream_settings)=1
-      AND COALESCE(tag,'') NOT LIKE '%-warp'
-      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+      $warp_filter
 $(xui_preset_inbound_filter_sql)
     ORDER BY id;
   "

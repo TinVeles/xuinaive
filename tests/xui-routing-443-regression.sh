@@ -152,4 +152,33 @@ grep -q '^allow 443/tcp$' "$ufw_log"
 grep -q '^allow 8388/tcp$' "$ufw_log"
 grep -q '^allow 24443/udp$' "$ufw_log"
 
+install_presets 443
+: > "$stream_conf"
+cat > "$stream_conf" <<'EOF'
+map $ssl_preread_server_name $sni_name {
+    hostnames;
+    vpn.example.com www;
+    default xray;
+}
+
+upstream xray {
+    server 127.0.0.1:8443;
+}
+EOF
+XUI_DB="$db" \
+XUI_CREATE_WARP_PRESETS=1 \
+HY2_WARP_PUBLIC_PORT=24443 \
+  xui_ensure_v3_manual_warp_presets "$db" vpn.example.com "$tmp_dir/warp-report.txt"
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE tag LIKE 'upm-v3-warp-%';")" == "3" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT json_extract(stream_settings,'$.realitySettings.serverNames[0]') FROM inbounds WHERE tag='upm-v3-warp-reality';")" == "www.microsoft.com" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT json_extract(stream_settings,'$.realitySettings.serverNames[0]') FROM inbounds WHERE tag='upm-v3-warp-xhttp';")" == "www.cloudflare.com" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT port || ':' || json_extract(stream_settings,'$.externalProxy[0].port') FROM inbounds WHERE tag='upm-v3-warp-hysteria2';")" == "24443:24443" ]]
+XUI_DB="$db" \
+NGINX_STREAM_CONF="$stream_conf" \
+NGINX_XUI_REALITY_UPSTREAM_CONF="$upstream_conf" \
+  xui_ensure_nginx_reality_sni_routes
+[[ "$(grep -c '^upstream upm_xui_reality_' "$upstream_conf")" == "9" ]]
+grep -Eq 'www\.microsoft\.com[[:space:]]+upm_xui_reality_[0-9]+;' "$stream_conf"
+grep -Eq 'www\.cloudflare\.com[[:space:]]+upm_xui_reality_[0-9]+;' "$stream_conf"
+
 printf 'xui-routing 443 regression OK\n'

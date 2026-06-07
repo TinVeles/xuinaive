@@ -281,6 +281,21 @@ sudo bash generate-xui-v3.sh \
 The v3 generator writes one row per profile to `clients`, then attaches that
 row to every compatible generated inbound through `client_inbounds`.
 
+To prepare extra v3 inbounds for manual WARP routing without installing or
+writing WARP outbound/routing rules:
+
+```bash
+sudo bash generate-xui-v3.sh \
+  --xui-warp-presets \
+  --hy2-warp-port 24443 \
+  --yes
+```
+
+This creates enabled manual WARP prep inbounds for `vless tcp reality`,
+`vless xhttp reality`, and `hysteria2 udp`, then attaches the same generated
+client entities to them. REALITY/XHTTP are still published through public TCP
+443 by nginx SNI routing; Hysteria2 uses the UDP port from `--hy2-warp-port`.
+
 Default output:
 
 ```text
@@ -689,4 +704,4 @@ On Windows, use a working WSL or Git/MSYS Bash. The real target is Ubuntu 22.04/
 - Real install mode is guarded by `--install --yes`.
 - `install-unified.sh` runs the vendored x-ui-pro installer, which can recreate x-ui and nginx configuration. Use it on a fresh VPS or after backups.
 - Installers create backups before real stack writes where practical.
-- Generated x-ui profiles use only the normal preset inbounds. WARP is server-side routing through the `warp-cli` outbound, not separate `*-warp` clone inbounds.
+- Generated x-ui profiles use only the normal preset inbounds unless v3 generation is run with `--xui-warp-presets`. Normal WARP mode is server-side routing through the `warp-cli` outbound, not separate legacy `*-warp` clone inbounds.
