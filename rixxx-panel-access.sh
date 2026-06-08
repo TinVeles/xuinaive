@@ -198,11 +198,11 @@ if [[ "$RESET_PASSWORD" == "1" ]]; then
   panel_password="${NEW_PASSWORD:-$(random_password)}"
   [[ ${#panel_password} -ge 8 ]] || die "Password must be at least 8 characters"
 
-  PANEL_DIR="$panel_dir" \
-  RIXXX_CONFIG_JSON="$RIXXX_CONFIG_JSON" \
-  RIXXX_ADMIN_USER="$panel_login" \
-  RIXXX_ADMIN_PASS="$panel_password" \
-  node <<'NODE'
+  if ! PANEL_DIR="$panel_dir" \
+    RIXXX_CONFIG_JSON="$RIXXX_CONFIG_JSON" \
+    RIXXX_ADMIN_USER="$panel_login" \
+    RIXXX_ADMIN_PASS="$panel_password" \
+    node <<'NODE'
 const fs = require('fs');
 const path = require('path');
 
@@ -213,11 +213,22 @@ const password = process.env.RIXXX_ADMIN_PASS || '';
 if (!password) process.exit(2);
 
 let bcrypt;
-try {
-  bcrypt = require(path.join(panelDir, 'node_modules', 'bcryptjs'));
-} catch {
-  process.chdir(panelDir);
-  bcrypt = require('bcryptjs');
+const candidates = [
+  path.join(panelDir, 'node_modules', 'bcryptjs'),
+  path.join(panelDir, 'panel', 'node_modules', 'bcryptjs'),
+  path.join('/opt/panel-naive-mieru', 'node_modules', 'bcryptjs'),
+  path.join('/opt/panel-naive-mieru', 'panel', 'node_modules', 'bcryptjs'),
+  'bcryptjs',
+];
+for (const candidate of candidates) {
+  try {
+    bcrypt = require(candidate);
+    break;
+  } catch {}
+}
+if (!bcrypt) {
+  console.error(`bcryptjs module not found. Panel dir: ${panelDir}`);
+  process.exit(3);
 }
 
 let cfg = {};
@@ -229,6 +240,9 @@ cfg.adminUser = username;
 cfg.adminPassHash = bcrypt.hashSync(password, 12);
 fs.writeFileSync(configFile, JSON.stringify(cfg, null, 2), { mode: 0o600 });
 NODE
+  then
+    die "Failed to reset RIXXX panel password. Check panel dir: $panel_dir and node_modules/bcryptjs."
+  fi
 
   config_set_file "$CONFIG_FILE" NH_BACKEND_KIND "rixxx-naive-mieru"
   config_set_file "$CONFIG_FILE" NH_PANEL_URL "$panel_url"
@@ -252,6 +266,7 @@ NODE
     pm2 restart panel-naive-mieru >/dev/null 2>&1 || true
     pm2 save >/dev/null 2>&1 || true
   fi
+  printf 'Password reset: saved plaintext access files\n'
 fi
 
 server_ip="$(public_ipv4)"
