@@ -186,47 +186,52 @@ configure_firewall() {
 fix_caddy_backend_listener() {
   local caddyfile="/etc/caddy-naive/Caddyfile"
   local listen_host="${LISTEN%:*}" listen_port="${LISTEN##*:}"
-  local tmp
+  local auth_user auth_pass bind_line
   [[ -f "$caddyfile" ]] || return 0
 
-  tmp="$(mktemp)"
-  awk \
-    -v domain="$DOMAIN" \
-    -v port="$listen_port" \
-    -v host="$listen_host" '
-      function open_delta(line,    opens, closes) {
-        opens = gsub(/\{/, "{", line)
-        closes = gsub(/\}/, "}", line)
-        return opens - closes
-      }
-      /^[[:space:]]*:80[[:space:]]*\{/ {
-        skip = 1
-        depth = open_delta($0)
-        next
-      }
-      skip {
-        depth += open_delta($0)
-        if (depth <= 0) skip = 0
-        next
-      }
-      $0 ~ "^:" port ",[[:space:]]*" domain "[[:space:]]*\\{" {
-        print domain ":" port " {"
-        if (host != "" && host != "0.0.0.0" && host != "::" && host != "*") {
-          print "        bind " host
+  auth_user="$(awk '/^[[:space:]]*basic_auth[[:space:]]/ {print $2; exit}' "$caddyfile")"
+  auth_pass="$(awk '/^[[:space:]]*basic_auth[[:space:]]/ {print $3; exit}' "$caddyfile")"
+  [[ -n "$auth_user" ]] || auth_user="_placeholder_install"
+  [[ -n "$auth_pass" ]] || auth_pass="$ADMIN_PASS"
+
+  bind_line=""
+  if [[ -n "$listen_host" && "$listen_host" != "0.0.0.0" && "$listen_host" != "::" && "$listen_host" != "*" ]]; then
+    bind_line="        bind $listen_host"
+  fi
+
+  cat > "$caddyfile" <<EOF
+{
+        order forward_proxy before file_server
+        servers {
+                protocols h1 h2
         }
-        next
-      }
-      $0 ~ "^" domain "[[:space:]]*\\{" {
-        print domain ":" port " {"
-        if (host != "" && host != "0.0.0.0" && host != "::" && host != "*") {
-          print "        bind " host
+        email $EMAIL
+        admin off
+        log {
+                output file /var/log/caddy-naive/access.log {
+                        roll_size 50mb
+                        roll_keep_for 720h
+                }
+                format json
         }
-        next
-      }
-      { print }
-    ' "$caddyfile" > "$tmp"
-  install -m 0644 "$tmp" "$caddyfile"
-  rm -f "$tmp"
+}
+
+$DOMAIN:$listen_port {
+$bind_line
+        tls $EMAIL
+
+        forward_proxy {
+                basic_auth $auth_user $auth_pass
+                hide_ip
+                hide_via
+                probe_resistance
+        }
+
+        file_server {
+                root /var/www/fake-site
+        }
+}
+EOF
 }
 
 while [[ $# -gt 0 ]]; do
