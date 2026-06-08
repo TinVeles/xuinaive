@@ -39,7 +39,21 @@ sudo bash install.sh --mode all \
 ```
 
 The default panel line remains the fixed legacy `2.9.4` release for existing
-deployments. For an x-ui-only fresh VPS, choose one installer explicitly:
+deployments. For a fresh VPS with the current upstream 3x-ui v3 line plus
+RIXXX Panel, NaiveProxy, and Mieru, use:
+
+```bash
+sudo bash install.sh --mode all \
+  --xui-panel-line latest \
+  --xui-domain xui.example.com \
+  --nh-domain naive.example.com \
+  --reality-dest reality.example.com \
+  --nh-email admin@example.com \
+  --install \
+  --yes
+```
+
+For an x-ui-only fresh VPS, choose one installer explicitly:
 
 ```bash
 # Existing 2.9.4 schema: clients live inside each inbound.
@@ -62,10 +76,9 @@ sudo bash install-xui-latest.sh \
 official GitHub release at install time, verifies downloaded artifacts, writes
 `XUI_DB_TYPE=sqlite` to `/etc/default/x-ui`, and runs `generate-xui-v3.sh`.
 Use latest mode on a fresh VPS or after a backup: the x-ui installer recreates
-the existing x-ui and nginx state.
-
-The latest panel line currently supports `--mode xui` only. Keep `--mode all`
-installations on the legacy line, or place NHM on a separate VPS.
+the existing x-ui and nginx state. In `--mode all`, latest mode uses
+`generate-xui-v3.sh` for the 3x-ui client/entity schema and RIXXX manages
+NaiveProxy/Mieru users through its own panel.
 
 This gives you:
 

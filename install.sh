@@ -99,6 +99,7 @@ Usage:
   ./install.sh --mode xui --xui-panel-line latest --xui-domain x.example.com --reality-dest r.example.com --install --yes
   ./install.sh --mode naive --naive-domain n.example.com [--dry-run]
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install --yes
+  ./install.sh --mode all --xui-panel-line latest --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install --yes
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem --install --yes
   ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --with-mieru --install --yes
   ./install.sh --mode nh --domain vpn.example.com --proxy-email admin@example.com --install --yes
@@ -478,8 +479,8 @@ validate_real_install_args() {
   [[ "$PROFILE_COUNT" =~ ^[0-9]+$ && "$PROFILE_COUNT" -gt 0 ]] || die "--profile-count must be a positive number"
   [[ "$PROFILE_PREFIX" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--profile-prefix may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
   [[ "$XUI_PANEL_LINE" == "legacy" || "$XUI_PANEL_LINE" == "latest" ]] || die "--xui-panel-line must be legacy or latest"
-  if [[ "$XUI_PANEL_LINE" == "latest" && "$MODE" != "xui" ]]; then
-    die "--xui-panel-line latest currently supports --mode xui only. Keep --mode all on legacy, or install NHM on a separate VPS."
+  if [[ "$XUI_PANEL_LINE" == "latest" && "$MODE" != "xui" && "$MODE" != "all" ]]; then
+    die "--xui-panel-line latest currently supports --mode xui and --mode all only."
   fi
   if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
     [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
@@ -740,6 +741,7 @@ x-ui domain:    $XUI_DOMAIN
 RIXXX domain: $NH_PROXY_DOMAIN
 REALITY dest:   $REALITY_DEST
 RIXXX email:  $NH_PROXY_EMAIL
+x-ui line:      $XUI_PANEL_LINE
 
 This will install 3x-ui + RIXXX Panel + NaiveProxy + Mieru.
 WARP install: $INSTALL_WARP
@@ -752,6 +754,7 @@ EOF
       --nh-domain "$NH_PROXY_DOMAIN"
       --reality-dest "$REALITY_DEST"
       --nh-email "$NH_PROXY_EMAIL"
+      --xui-panel-line "$XUI_PANEL_LINE"
       --panel-access "$NH_ACCESS"
       --profile-count "$PROFILE_COUNT"
       --profile-prefix "$PROFILE_PREFIX"

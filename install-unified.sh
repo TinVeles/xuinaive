@@ -33,6 +33,7 @@ XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-0}"
 XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
 XUI_HY2_PUBLIC_PORT="${XUI_HY2_PUBLIC_PORT:-24443}"
+XUI_PANEL_LINE="${XUI_PANEL_LINE:-legacy}"
 PRINT_ACCESS_INFO=1
 NH_ENABLE_MIERU=0
 ALLOW_DESTROY_EXISTING="${UPM_ALLOW_DESTROY_EXISTING:-0}"
@@ -45,6 +46,7 @@ Usage:
     --nh-domain naive.example.com \
     --reality-dest reality.example.com \
     --nh-email admin@example.com \
+    [--xui-panel-line legacy|latest] \
     [--tls-cert /path/fullchain.pem --tls-key /path/privkey.pem] \
     [--with-mieru] \
     [--install-warp] \
@@ -55,6 +57,7 @@ Usage:
 This is the explicit real installer. It runs vendored component scripts.
 It generates profiles/subscriptions by default. Add --install-warp to install WARP and enable AI routing through it.
 Naive+Mieru is installed through RIXXX Panel. Hysteria2 panel backend is no longer installed.
+The default x-ui panel line is legacy 2.9.4. Use --xui-panel-line latest for upstream 3x-ui v3 with SQLite.
 For dry-run checks use ./install.sh.
 EOF
 }
@@ -182,6 +185,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode) MODE="${2:-}"; shift 2 ;;
     --xui-domain) XUI_DOMAIN="${2:-}"; shift 2 ;;
+    --xui-panel-line) XUI_PANEL_LINE="${2:-}"; shift 2 ;;
     --naive-domain) NAIVE_DOMAIN="${2:-}"; shift 2 ;;
     --nh-domain) NH_DOMAIN="${2:-}"; shift 2 ;;
     --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
@@ -232,6 +236,7 @@ is_valid_domain "$REALITY_DEST" || die "--reality-dest is invalid: $REALITY_DEST
 is_valid_email "$NH_EMAIL" || die "--nh-email is invalid: $NH_EMAIL"
 is_valid_port "$PANEL_PUBLIC_PORT" || die "--panel-public-port must be 1..65535"
 is_valid_port "$XUI_HY2_PUBLIC_PORT" || die "XUI_HY2_PUBLIC_PORT must be 1..65535"
+[[ "$XUI_PANEL_LINE" == "legacy" || "$XUI_PANEL_LINE" == "latest" ]] || die "--xui-panel-line must be legacy or latest"
 is_valid_hostport "$NH_BACKEND" || die "--nh-backend must be safe host:port"
 if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
   [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
@@ -258,6 +263,7 @@ XUI domain:          ${XUI_DOMAIN}
 RIXXX domain:       ${NH_DOMAIN}
 Reality dest:        ${REALITY_DEST}
 RIXXX email:        ${NH_EMAIL}
+x-ui line:           ${XUI_PANEL_LINE}
 Panel port:          ${PANEL_PUBLIC_PORT}
 Backend listen:      ${NH_BACKEND}
 x-ui Hysteria2 UDP:  ${XUI_HY2_PUBLIC_PORT}
@@ -298,9 +304,18 @@ ok "Backup directory: $backup_dir"
 UPM_ALLOW_DESTROY_EXISTING="$ALLOW_DESTROY_EXISTING" confirm_destructive "x-ui-pro upstream installer (will rm /usr/local/x-ui /etc/x-ui and kill 80/443 listeners)"
 
 XUI_VERIFIER="$SCRIPT_DIR/components/x-ui-pro/verify-upstream-binaries.sh"
+XUI_RELEASE_CHANNEL="legacy"
+XUI_VERSION_OVERRIDE="v2.9.4"
+if [[ "$XUI_PANEL_LINE" == "latest" ]]; then
+  XUI_RELEASE_CHANNEL="latest"
+  XUI_VERSION_OVERRIDE=""
+  install -d -m 0755 /etc/default
+  printf 'XUI_DB_TYPE=sqlite\n' > /etc/default/x-ui
+  chmod 0600 /etc/default/x-ui
+fi
 if [[ -x "$XUI_VERIFIER" ]]; then
   info "Pre-fetching and SHA256-verifying x-ui-pro upstream artifacts"
-  XUI_RUNTIME_SCRIPT="$(bash "$XUI_VERIFIER" | tail -n1)"
+  XUI_RUNTIME_SCRIPT="$(UPM_X_UI_RELEASE_CHANNEL="$XUI_RELEASE_CHANNEL" UPM_X_UI_VERSION_OVERRIDE="$XUI_VERSION_OVERRIDE" bash "$XUI_VERIFIER" | tail -n1)"
   [[ -x "$XUI_RUNTIME_SCRIPT" ]] || die "verify-upstream-binaries.sh did not produce a runnable patched script"
 else
   if [[ "${UPM_SKIP_UPSTREAM_VERIFY:-0}" != "1" ]]; then
@@ -313,6 +328,8 @@ fi
 
 info "Running x-ui-pro installer (verified copy)"
 XUI_PRINT_ACCESS_INFO=0 \
+XUI_VERSION="$XUI_VERSION_OVERRIDE" \
+XUI_DB_TYPE=sqlite \
 XUI_SEED_PROFILES=0 \
 XUI_PROFILE_COUNT="$PROFILE_COUNT" \
 XUI_PROFILE_PREFIX="$PROFILE_PREFIX" \
@@ -382,6 +399,7 @@ XUI_PANEL_LOGIN_FINAL="$(config_value XUI_PANEL_LOGIN /etc/x-ui/access-info.env)
 XUI_PANEL_PASSWORD_FINAL="$(config_value XUI_PANEL_PASSWORD /etc/x-ui/access-info.env)"
 
 config_set XUI_DOMAIN "$XUI_DOMAIN"
+config_set XUI_PANEL_LINE "$XUI_PANEL_LINE"
 config_set XUI_PANEL_URL "$XUI_PANEL_URL_FINAL"
 config_set XUI_PANEL_LOGIN "$XUI_PANEL_LOGIN_FINAL"
 config_set XUI_PANEL_PASSWORD "$XUI_PANEL_PASSWORD_FINAL"
@@ -422,19 +440,30 @@ ok "Saved final configuration: $SCRIPT_DIR/config.env"
 
 if [[ "$GENERATE_PROFILES" == "1" ]]; then
   info "Running profile generation as part of unified install"
-  XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
-  XUI_APPLY_WARP_TEMPLATE="$XUI_APPLY_WARP_TEMPLATE" \
-  XUI_AUTO_INSTALL_WARP="$AUTO_INSTALL_WARP" \
-  XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
-  bash "$SCRIPT_DIR/generate-profiles.sh" \
-    --xui-only \
-    --count "${PROFILE_COUNT:-15}" \
-    --prefix "${PROFILE_PREFIX:-auto}" \
-    --warp-port "${WARP_PROXY_PORT:-40000}" \
-    --warp-outbound-tag "${WARP_OUTBOUND_TAG:-warp-cli}" \
-    --warp-inbound-tag "$WARP_INBOUND_TAG" \
-    --warp-ai-domains "$WARP_AI_DOMAINS" \
-    --yes
+  if [[ "$XUI_PANEL_LINE" == "latest" ]]; then
+    HY2_PUBLIC_PORT="$XUI_HY2_PUBLIC_PORT" \
+    bash "$SCRIPT_DIR/generate-xui-v3.sh" \
+      --reset-inbounds \
+      --domain "$XUI_DOMAIN" \
+      --reality-dest "$REALITY_DEST" \
+      --count "${PROFILE_COUNT:-15}" \
+      --prefix "${PROFILE_PREFIX:-auto}" \
+      --yes
+  else
+    XUI_ENABLE_WARP_ROUTING="$XUI_ENABLE_WARP_ROUTING" \
+    XUI_APPLY_WARP_TEMPLATE="$XUI_APPLY_WARP_TEMPLATE" \
+    XUI_AUTO_INSTALL_WARP="$AUTO_INSTALL_WARP" \
+    XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
+    bash "$SCRIPT_DIR/generate-profiles.sh" \
+      --xui-only \
+      --count "${PROFILE_COUNT:-15}" \
+      --prefix "${PROFILE_PREFIX:-auto}" \
+      --warp-port "${WARP_PROXY_PORT:-40000}" \
+      --warp-outbound-tag "${WARP_OUTBOUND_TAG:-warp-cli}" \
+      --warp-inbound-tag "$WARP_INBOUND_TAG" \
+      --warp-ai-domains "$WARP_AI_DOMAINS" \
+      --yes
+  fi
 fi
 
 ok "Unified install completed"
