@@ -1472,7 +1472,7 @@ app.get('/api/users/:id/config/universal', requireAuth, (req, res) => {
         // (Bug 80 — HTTP/3 disabled); tls only carries server_name (the only
         // TLS field the naive outbound honours besides certificate/ech).
         type: 'naive', tag: 'naive-out',
-        server: cfg.domain, server_port: cfg.naivePort,
+        server: cfg.domain, server_port: cfg.naivePublicPort || cfg.naivePort || 443,
         username: user.username, password,
         quic: false,
         tls: { enabled: true, server_name: cfg.domain }

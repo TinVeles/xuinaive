@@ -241,6 +241,37 @@ $bind_line
 EOF
 }
 
+fix_rixxx_backend_config() {
+  local config_json="/etc/rixxx-panel/config.json"
+  local listen_host="${LISTEN%:*}" listen_port="${LISTEN##*:}"
+  [[ -f "$config_json" ]] || return 0
+
+  DOMAIN="$DOMAIN" \
+  EMAIL="$EMAIL" \
+  LISTEN_HOST="$listen_host" \
+  LISTEN_PORT="$listen_port" \
+  MIERU_START="$MIERU_START" \
+  MIERU_END="$MIERU_END" \
+  node <<'NODE'
+const fs = require('fs');
+const file = '/etc/rixxx-panel/config.json';
+const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+cfg.domain = process.env.DOMAIN;
+cfg.adminEmail = process.env.EMAIL || cfg.adminEmail || '';
+cfg.naivePort = Number(process.env.LISTEN_PORT);
+cfg.naivePublicPort = 443;
+cfg.caddyBindHost = process.env.LISTEN_HOST || '127.0.0.1';
+cfg.caddyBackendOnly = true;
+cfg.caddyFile = '/etc/caddy-naive/Caddyfile';
+cfg.caddyConfigDir = '/etc/caddy-naive';
+cfg.caddyBin = cfg.caddyBin || '/usr/local/bin/caddy-naive';
+cfg.mieruPortStart = Number(process.env.MIERU_START || cfg.mieruPortStart || 2012);
+cfg.mieruPortEnd = Number(process.env.MIERU_END || cfg.mieruPortEnd || 2022);
+fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
+NODE
+  chmod 0600 "$config_json" 2>/dev/null || true
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain) DOMAIN="${2:-}"; shift 2 ;;
@@ -305,6 +336,7 @@ bash "$WORK_DIR/install.sh" \
   --probe-mode "$PROBE_MODE" \
   --lang ru
 
+fix_rixxx_backend_config
 fix_caddy_backend_listener
 systemctl reset-failed caddy-naive >/dev/null 2>&1 || true
 systemctl restart caddy-naive || true

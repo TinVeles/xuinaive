@@ -695,6 +695,7 @@ if [[ "$nh_backend_kind" == "rixxx-naive-mieru" ]]; then
   echo -e "${PURPLE}${BOLD}║   pm2 logs panel-naive-mieru     — логи RIXXX панели        ║${RESET}"
   echo -e "${PURPLE}${BOLD}║   systemctl status caddy-naive   — статус NaiveProxy        ║${RESET}"
   echo -e "${PURPLE}${BOLD}║   systemctl status mita          — статус Mieru             ║${RESET}"
+  echo -e "${PURPLE}${BOLD}║   bash repair-rixxx-services.sh --yes — починка Naive/Mieru ║${RESET}"
 else
   echo -e "${PURPLE}${BOLD}║   systemctl status panel-naive-mieru — статус RIXXX панели      ║${RESET}"
 fi
