@@ -570,6 +570,10 @@ if [[ "$nh_backend_kind" == "rixxx-naive-mieru" ]]; then
   config_set_file "$CONFIG_FILE" NH_PANEL_URL "$nh_panel_url"
   [[ -n "$nh_panel_login" ]] && config_set_file "$CONFIG_FILE" NH_PANEL_LOGIN "$nh_panel_login"
   [[ -n "$nh_panel_password" ]] && config_set_file "$CONFIG_FILE" NH_PANEL_PASSWORD "$nh_panel_password"
+  config_set_file "/etc/rixxx-panel/access-info.env" NH_BACKEND_KIND "rixxx-naive-mieru"
+  config_set_file "/etc/rixxx-panel/access-info.env" NH_PANEL_URL "$nh_panel_url"
+  [[ -n "$nh_panel_login" ]] && config_set_file "/etc/rixxx-panel/access-info.env" NH_PANEL_LOGIN "$nh_panel_login"
+  [[ -n "$nh_panel_password" ]] && config_set_file "/etc/rixxx-panel/access-info.env" NH_PANEL_PASSWORD "$nh_panel_password"
 else
   nh_panel_url="$(first_nonempty "$(config_value NH_PANEL_URL)" "$(json_value panelUrl)")"
   nh_panel_login="$(first_nonempty "$(config_value NH_PANEL_LOGIN)" "$(json_value panelLogin)" "$(nh_panel_initial_login)" "$(nh_panel_login_from_users)")"
@@ -631,13 +635,14 @@ Install access
 ${nh_panel_label}
   URL:      ${nh_panel_url:-check config.env}
   Login:    ${nh_panel_login:-check config.env}
-  Password: ${nh_panel_password:-check config.env}
+  Password: ${nh_panel_password:-not saved in plaintext}
 EOF
 if [[ "$nh_backend_kind" == "rixxx-naive-mieru" ]]; then
   server_ip="$(public_ipv4)"
   {
     printf '  SSH tunnel: ssh -L 3000:127.0.0.1:3000 root@%s\n' "${server_ip:-SERVER_IP}"
     printf '  Browser:    http://127.0.0.1:3000/\n'
+    [[ -z "$nh_panel_password" ]] && printf '  Reset pass: sudo bash rixxx-panel-access.sh --reset-password\n'
   } >> "$SUMMARY_FILE"
 fi
 append_profiles_summary "$SUMMARY_FILE" "$sub_base_url" "$sub_token"
@@ -666,7 +671,14 @@ if [[ "$nh_backend_kind" == "rixxx-naive-mieru" ]]; then
   echo -e "${PURPLE}${BOLD}║   Browser:${RESET} ${CYAN}http://127.0.0.1:3000/${RESET}"
 fi
 echo -e "${PURPLE}${BOLD}║   Login:    ${nh_panel_login:-check config.env}${RESET}"
-echo -e "${PURPLE}${BOLD}║   Password: $(redact "${nh_panel_password:-check config.env}")${RESET}"
+if [[ -n "$nh_panel_password" ]]; then
+  echo -e "${PURPLE}${BOLD}║   Password: $(redact "$nh_panel_password")${RESET}"
+elif [[ "$nh_backend_kind" == "rixxx-naive-mieru" ]]; then
+  echo -e "${PURPLE}${BOLD}║   Password: not saved in plaintext${RESET}"
+  echo -e "${PURPLE}${BOLD}║   Reset:    sudo bash rixxx-panel-access.sh --reset-password${RESET}"
+else
+  echo -e "${PURPLE}${BOLD}║   Password: check config.env${RESET}"
+fi
 print_profiles_summary "$sub_base_url" "$sub_token"
 
 echo -e "${PURPLE}${BOLD}╠══════════════════════════════════════════════════════════════╣${RESET}"

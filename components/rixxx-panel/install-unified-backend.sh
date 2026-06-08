@@ -346,4 +346,15 @@ upm_config_set_many "$CONFIG_FILE" \
   RIXXX_REPO_URL "$RIXXX_REPO_URL" \
   RIXXX_REPO_REF "$RIXXX_REPO_REF"
 
+mkdir -p /etc/rixxx-panel
+upm_config_set_many /etc/rixxx-panel/access-info.env \
+  NH_BACKEND_KIND "rixxx-naive-mieru" \
+  NH_PANEL_URL "http://127.0.0.1:3000/" \
+  NH_PANEL_LOGIN "$ADMIN_USER" \
+  NH_PANEL_PASSWORD "$ADMIN_PASS" \
+  RIXXX_PANEL_DIR "/opt/panel-naive-mieru" \
+  RIXXX_DOMAIN "$DOMAIN" \
+  RIXXX_BACKEND_LISTEN "$LISTEN"
+chmod 0600 /etc/rixxx-panel/access-info.env 2>/dev/null || true
+
 ok "RIXXX Panel Naive + Mieru installed"
