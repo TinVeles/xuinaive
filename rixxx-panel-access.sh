@@ -167,10 +167,10 @@ first_nonempty() {
 random_password() {
   local value=""
   if command -v openssl >/dev/null 2>&1; then
-    value="$(openssl rand -base64 32 2>/dev/null | tr -dc 'A-Za-z0-9_@%+=:.,-' | head -c 24 || true)"
+    value="$(openssl rand -base64 32 2>/dev/null | tr -dc 'A-Za-z0-9' | head -c 24 || true)"
   fi
   if [[ -z "$value" && -r /dev/urandom ]]; then
-    value="$(tr -dc 'A-Za-z0-9_@%+=:.,-' </dev/urandom | head -c 24 || true)"
+    value="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24 || true)"
   fi
   [[ -n "$value" ]] || value="ChangeMe$(date +%s)"
   printf '%s\n' "$value"
@@ -182,6 +182,49 @@ public_ipv4() {
   [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && { printf '%s\n' "$ip"; return 0; }
   ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}' || true)"
   [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && printf '%s\n' "$ip"
+}
+
+verify_panel_login() {
+  command -v node >/dev/null 2>&1 || return 1
+  RIXXX_PANEL_URL="${panel_url:-http://127.0.0.1:3000/}" \
+    RIXXX_PANEL_LOGIN="$panel_login" \
+    RIXXX_PANEL_PASSWORD="$panel_password" \
+    node <<'NODE'
+const http = require('http');
+const { URL } = require('url');
+
+const base = new URL(process.env.RIXXX_PANEL_URL || 'http://127.0.0.1:3000/');
+base.pathname = '/api/login';
+base.search = '';
+const body = JSON.stringify({
+  username: process.env.RIXXX_PANEL_LOGIN || 'admin',
+  password: process.env.RIXXX_PANEL_PASSWORD || '',
+});
+
+const req = http.request({
+  hostname: base.hostname,
+  port: Number(base.port || 80),
+  path: base.pathname,
+  method: 'POST',
+  timeout: 3000,
+  headers: {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(body),
+  },
+}, res => {
+  let data = '';
+  res.on('data', chunk => { data += chunk; });
+  res.on('end', () => {
+    if (res.statusCode === 200 && /"ok"\s*:\s*true/.test(data)) process.exit(0);
+    console.error(`login check failed: HTTP ${res.statusCode} ${data}`);
+    process.exit(1);
+  });
+});
+req.on('timeout', () => { req.destroy(new Error('timeout')); });
+req.on('error', err => { console.error(`login check failed: ${err.message}`); process.exit(1); });
+req.write(body);
+req.end();
+NODE
 }
 
 panel_dir="$(first_nonempty "$(config_value RIXXX_PANEL_DIR)" "$(json_value panelDir)" "/opt/panel-naive-mieru")"
@@ -263,10 +306,16 @@ NODE
   config_set_file "$RIXXX_ACCESS_ENV" RIXXX_PANEL_DIR "$panel_dir"
 
   if command -v pm2 >/dev/null 2>&1; then
-    pm2 restart panel-naive-mieru >/dev/null 2>&1 || true
+    pm2 restart panel-naive-mieru --update-env >/dev/null 2>&1 || true
     pm2 save >/dev/null 2>&1 || true
   fi
+  sleep 2
   printf 'Password reset: saved plaintext access files\n'
+  if verify_panel_login; then
+    printf 'Login check: OK\n'
+  else
+    printf 'Login check: FAILED. Check: pm2 logs panel-naive-mieru\n' >&2
+  fi
 fi
 
 server_ip="$(public_ipv4)"
