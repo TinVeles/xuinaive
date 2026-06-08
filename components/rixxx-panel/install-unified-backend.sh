@@ -24,6 +24,7 @@ TLS_KEY=""
 RIXXX_REPO_URL="${RIXXX_REPO_URL:-https://github.com/cwash797-cmd/Panel-Naive-Mieru-by-RIXXX}"
 RIXXX_REPO_REF="${RIXXX_REPO_REF:-c1955dd917460e7275ba28109893fdd4b6cdc560}"
 RIXXX_SRC_DIR="${RIXXX_SRC_DIR:-/opt/upm-rixxx-panel-src}"
+LOCAL_NM_PANEL_DIR="${LOCAL_NM_PANEL_DIR:-$PROJECT_DIR/components/nm-panel}"
 CONFIG_FILE="$PROJECT_DIR/config.env"
 
 usage() {
@@ -122,19 +123,27 @@ backup_state() {
 
 prepare_upstream() {
   local work_dir="$1"
-  if [[ -d "$RIXXX_SRC_DIR/.git" ]]; then
+  if [[ -d "$LOCAL_NM_PANEL_DIR/panel" && -f "$LOCAL_NM_PANEL_DIR/install.sh" ]]; then
+    info "Using bundled NM panel source: $LOCAL_NM_PANEL_DIR"
+    rm -rf "$work_dir"
+    mkdir -p "$work_dir"
+    cp -a "$LOCAL_NM_PANEL_DIR"/. "$work_dir"/
+  elif [[ -d "$RIXXX_SRC_DIR/.git" ]]; then
     info "Updating RIXXX source: $RIXXX_SRC_DIR"
     git -C "$RIXXX_SRC_DIR" fetch --tags --force origin
+    git -C "$RIXXX_SRC_DIR" checkout --force "$RIXXX_REPO_REF"
+    rm -rf "$work_dir"
+    mkdir -p "$work_dir"
+    cp -a "$RIXXX_SRC_DIR"/. "$work_dir"/
   else
     rm -rf "$RIXXX_SRC_DIR"
     info "Cloning RIXXX source: $RIXXX_REPO_URL"
     git clone "$RIXXX_REPO_URL" "$RIXXX_SRC_DIR"
+    git -C "$RIXXX_SRC_DIR" checkout --force "$RIXXX_REPO_REF"
+    rm -rf "$work_dir"
+    mkdir -p "$work_dir"
+    cp -a "$RIXXX_SRC_DIR"/. "$work_dir"/
   fi
-  git -C "$RIXXX_SRC_DIR" checkout --force "$RIXXX_REPO_REF"
-
-  rm -rf "$work_dir"
-  mkdir -p "$work_dir"
-  cp -a "$RIXXX_SRC_DIR"/. "$work_dir"/
 
   # Upstream non-interactive mode resets UFW. Unified installer must not wipe
   # user firewall state, so disable upstream UFW and add narrow rules below.
@@ -288,6 +297,9 @@ bash "$WORK_DIR/install.sh" \
   --admin-user "$ADMIN_USER" \
   --admin-pass "$ADMIN_PASS" \
   --naive-port "$NAIVE_PORT" \
+  --public-naive-port 443 \
+  --bind-host "${LISTEN%:*}" \
+  --backend-only \
   --mieru-start "$MIERU_START" \
   --mieru-end "$MIERU_END" \
   --fake-site-url "$FAKE_SITE_URL" \
