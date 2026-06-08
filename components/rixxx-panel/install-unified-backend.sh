@@ -194,7 +194,29 @@ fix_caddy_backend_listener() {
     -v domain="$DOMAIN" \
     -v port="$listen_port" \
     -v host="$listen_host" '
+      function open_delta(line,    opens, closes) {
+        opens = gsub(/\{/, "{", line)
+        closes = gsub(/\}/, "}", line)
+        return opens - closes
+      }
+      /^[[:space:]]*:80[[:space:]]*\{/ {
+        skip = 1
+        depth = open_delta($0)
+        next
+      }
+      skip {
+        depth += open_delta($0)
+        if (depth <= 0) skip = 0
+        next
+      }
       $0 ~ "^:" port ",[[:space:]]*" domain "[[:space:]]*\\{" {
+        print domain ":" port " {"
+        if (host != "" && host != "0.0.0.0" && host != "::" && host != "*") {
+          print "        bind " host
+        }
+        next
+      }
+      $0 ~ "^" domain "[[:space:]]*\\{" {
         print domain ":" port " {"
         if (host != "" && host != "0.0.0.0" && host != "::" && host != "*") {
           print "        bind " host
