@@ -145,11 +145,6 @@ fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
 NODE
 chmod 0600 "$RIXXX_CONFIG_JSON" 2>/dev/null || true
 
-if [[ "$SKIP_NGINX_ROUTE" != "1" && -f "$SCRIPT_DIR/components/x-ui-pro/apply-naive-sni-route.sh" ]]; then
-  info "Ensuring nginx SNI route for RIXXX NaiveProxy"
-  bash "$SCRIPT_DIR/components/x-ui-pro/apply-naive-sni-route.sh" --domain "$DOMAIN" --backend "$LISTEN" --name rixxx_naive
-fi
-
 info "Rewriting backend-only Caddyfile"
 mkdir -p "$(dirname "$CADDYFILE")" /var/log/caddy-naive /var/www/fake-site
 auth_lines=""
@@ -239,6 +234,16 @@ systemctl is-active --quiet caddy-naive || {
   die "caddy-naive failed to start"
 }
 ok "caddy-naive is active on $LISTEN"
+
+if [[ "$SKIP_NGINX_ROUTE" != "1" && -f "$SCRIPT_DIR/components/x-ui-pro/apply-naive-sni-route.sh" ]]; then
+  info "Ensuring nginx SNI route for RIXXX NaiveProxy"
+  if bash "$SCRIPT_DIR/components/x-ui-pro/apply-naive-sni-route.sh" --domain "$DOMAIN" --backend "$LISTEN" --name rixxx_naive; then
+    ok "nginx SNI route is active for $DOMAIN"
+  else
+    warn "nginx SNI route failed. Caddy is repaired, but public Naive needs a free RIXXX domain."
+    warn "If this domain is used by x-ui, rerun with: --domain your-rixxx-subdomain.example.com"
+  fi
+fi
 
 if [[ -f "$MITA_STATE_FILE" ]]; then
   mieru_users="$(node -e "
