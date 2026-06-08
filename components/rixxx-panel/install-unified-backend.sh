@@ -183,6 +183,30 @@ configure_firewall() {
   fi
 }
 
+fix_caddy_backend_listener() {
+  local caddyfile="/etc/caddy-naive/Caddyfile"
+  local listen_host="${LISTEN%:*}" listen_port="${LISTEN##*:}"
+  local tmp
+  [[ -f "$caddyfile" ]] || return 0
+
+  tmp="$(mktemp)"
+  awk \
+    -v domain="$DOMAIN" \
+    -v port="$listen_port" \
+    -v host="$listen_host" '
+      $0 ~ "^:" port ",[[:space:]]*" domain "[[:space:]]*\\{" {
+        print domain ":" port " {"
+        if (host != "" && host != "0.0.0.0" && host != "::" && host != "*") {
+          print "        bind " host
+        }
+        next
+      }
+      { print }
+    ' "$caddyfile" > "$tmp"
+  install -m 0644 "$tmp" "$caddyfile"
+  rm -f "$tmp"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain) DOMAIN="${2:-}"; shift 2 ;;
@@ -244,6 +268,9 @@ bash "$WORK_DIR/install.sh" \
   --probe-mode "$PROBE_MODE" \
   --lang ru
 
+fix_caddy_backend_listener
+systemctl reset-failed caddy-naive >/dev/null 2>&1 || true
+systemctl restart caddy-naive || true
 require_active caddy-naive
 if systemctl is-active --quiet mita; then
   ok "mita is active"
