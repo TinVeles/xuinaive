@@ -8,6 +8,7 @@ NH_CONFIG_JSON="${NH_CONFIG_JSON:-/opt/panel-naive-hy2/panel/data/config.json}"
 NH_PANEL_USERS_JSON="${NH_PANEL_USERS_JSON:-/opt/panel-naive-hy2/panel/data/users.json}"
 NH_PANEL_INITIAL_ADMIN="${NH_PANEL_INITIAL_ADMIN:-/opt/panel-naive-hy2/panel/data/initial-admin.txt}"
 NH_CADDYFILE="${NH_CADDYFILE:-/etc/caddy-nh/Caddyfile}"
+RIXXX_CONFIG_JSON="${RIXXX_CONFIG_JSON:-/etc/rixxx-panel/config.json}"
 
 REDACT_SECRETS="${UPM_REDACT_SECRETS:-0}"
 for arg in "$@"; do
@@ -150,6 +151,36 @@ json_value() {
     const value = map[expr];
     if (value !== undefined && value !== null) process.stdout.write(String(value));
   ' "$file" "$expr" 2>/dev/null || true
+}
+
+rixxx_installed() {
+  [[ -f "$RIXXX_CONFIG_JSON" || -d /opt/panel-naive-mieru ]] && return 0
+  command -v pm2 >/dev/null 2>&1 && pm2 describe panel-naive-mieru >/dev/null 2>&1
+}
+
+rixxx_json_value() {
+  local expr="$1"
+  [[ -f "$RIXXX_CONFIG_JSON" ]] || return 0
+  node -e '
+    const fs = require("fs");
+    const expr = process.argv[2];
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { process.exit(0); }
+    function pick(...keys) {
+      for (const key of keys) {
+        const value = cfg[key];
+        if (value !== undefined && value !== null && String(value) !== "") return value;
+      }
+      return "";
+    }
+    const map = {
+      panelUrl: pick("panelUrl", "panelURL", "url") || "http://127.0.0.1:3000/",
+      panelLogin: pick("panelLogin", "adminUser", "adminUsername", "username", "login", "user"),
+      panelPassword: pick("panelPassword", "adminPass", "adminPassword", "password", "pass"),
+    };
+    const value = map[expr];
+    if (value !== undefined && value !== null) process.stdout.write(String(value));
+  ' "$RIXXX_CONFIG_JSON" "$expr" 2>/dev/null || true
 }
 
 public_ipv4() {
@@ -566,12 +597,19 @@ print_profiles_summary() {
 }
 
 nh_backend_kind="$(config_value NH_BACKEND_KIND)"
+if [[ "$nh_backend_kind" != "rixxx-naive-mieru" ]] && rixxx_installed; then
+  nh_backend_kind="rixxx-naive-mieru"
+  config_set_file "$CONFIG_FILE" NH_BACKEND_KIND "$nh_backend_kind"
+fi
 XUI_DOMAIN="$(first_nonempty "$(config_value XUI_DOMAIN)" "$(xui_setting webDomain)" "$(xui_setting subDomain)" "$(xui_domain_from_cert)")"
 nh_panel_port="$(first_nonempty "$(config_value NH_PANEL_PORT)" "8081")"
 if [[ "$nh_backend_kind" == "rixxx-naive-mieru" ]]; then
-  nh_panel_url="$(first_nonempty "$(config_value NH_PANEL_URL)" "http://127.0.0.1:3000/")"
-  nh_panel_login="$(config_value NH_PANEL_LOGIN)"
-  nh_panel_password="$(config_value NH_PANEL_PASSWORD)"
+  nh_panel_url="$(first_nonempty "$(config_value NH_PANEL_URL)" "$(rixxx_json_value panelUrl)" "http://127.0.0.1:3000/")"
+  nh_panel_login="$(first_nonempty "$(config_value NH_PANEL_LOGIN)" "$(rixxx_json_value panelLogin)")"
+  nh_panel_password="$(first_nonempty "$(config_value NH_PANEL_PASSWORD)" "$(rixxx_json_value panelPassword)")"
+  config_set_file "$CONFIG_FILE" NH_PANEL_URL "$nh_panel_url"
+  [[ -n "$nh_panel_login" ]] && config_set_file "$CONFIG_FILE" NH_PANEL_LOGIN "$nh_panel_login"
+  [[ -n "$nh_panel_password" ]] && config_set_file "$CONFIG_FILE" NH_PANEL_PASSWORD "$nh_panel_password"
 else
   nh_panel_url="$(first_nonempty "$(config_value NH_PANEL_URL)" "$(json_value panelUrl)")"
   nh_panel_login="$(first_nonempty "$(config_value NH_PANEL_LOGIN)" "$(json_value panelLogin)" "$(nh_panel_initial_login)" "$(nh_panel_login_from_users)")"
@@ -635,6 +673,13 @@ ${nh_panel_label}
   Login:    ${nh_panel_login:-check config.env}
   Password: ${nh_panel_password:-check config.env}
 EOF
+if [[ "$nh_backend_kind" == "rixxx-naive-mieru" ]]; then
+  server_ip="$(public_ipv4)"
+  {
+    printf '  SSH tunnel: ssh -L 3000:127.0.0.1:3000 root@%s\n' "${server_ip:-SERVER_IP}"
+    printf '  Browser:    http://127.0.0.1:3000/\n'
+  } >> "$SUMMARY_FILE"
+fi
 append_profiles_summary "$SUMMARY_FILE" "$sub_base_url" "$sub_token"
 chmod 600 "$SUMMARY_FILE" 2>/dev/null || true
 
@@ -655,6 +700,11 @@ else
 fi
 echo -e "${PURPLE}${BOLD}║   URL:${RESET}"
 echo -e "${CYAN}   ${nh_panel_url:-check config.env}${RESET}"
+if [[ "$nh_backend_kind" == "rixxx-naive-mieru" ]]; then
+  server_ip="$(public_ipv4)"
+  echo -e "${PURPLE}${BOLD}║   SSH tunnel:${RESET} ${CYAN}ssh -L 3000:127.0.0.1:3000 root@${server_ip:-SERVER_IP}${RESET}"
+  echo -e "${PURPLE}${BOLD}║   Browser:${RESET} ${CYAN}http://127.0.0.1:3000/${RESET}"
+fi
 echo -e "${PURPLE}${BOLD}║   Login:    ${nh_panel_login:-check config.env}${RESET}"
 echo -e "${PURPLE}${BOLD}║   Password: $(redact "${nh_panel_password:-check config.env}")${RESET}"
 print_profiles_summary "$sub_base_url" "$sub_token"
