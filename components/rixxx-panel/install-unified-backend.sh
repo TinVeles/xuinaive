@@ -337,6 +337,9 @@ upm_config_set_many "$CONFIG_FILE" \
   NH_PANEL_URL "http://127.0.0.1:3000/" \
   NH_PANEL_LOGIN "$ADMIN_USER" \
   NH_PANEL_PASSWORD "$ADMIN_PASS" \
+  RIXXX_PANEL_URL "http://127.0.0.1:3000/" \
+  RIXXX_PANEL_LOGIN "$ADMIN_USER" \
+  RIXXX_PANEL_PASSWORD "$ADMIN_PASS" \
   NH_ENABLE_MIERU "1" \
   RIXXX_PANEL_DIR "/opt/panel-naive-mieru" \
   RIXXX_DB "/var/lib/rixxx-panel/db.sqlite" \
@@ -352,6 +355,9 @@ upm_config_set_many /etc/rixxx-panel/access-info.env \
   NH_PANEL_URL "http://127.0.0.1:3000/" \
   NH_PANEL_LOGIN "$ADMIN_USER" \
   NH_PANEL_PASSWORD "$ADMIN_PASS" \
+  RIXXX_PANEL_URL "http://127.0.0.1:3000/" \
+  RIXXX_PANEL_LOGIN "$ADMIN_USER" \
+  RIXXX_PANEL_PASSWORD "$ADMIN_PASS" \
   RIXXX_PANEL_DIR "/opt/panel-naive-mieru" \
   RIXXX_DOMAIN "$DOMAIN" \
   RIXXX_BACKEND_LISTEN "$LISTEN"

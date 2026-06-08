@@ -185,9 +185,9 @@ public_ipv4() {
 }
 
 panel_dir="$(first_nonempty "$(config_value RIXXX_PANEL_DIR)" "$(json_value panelDir)" "/opt/panel-naive-mieru")"
-panel_url="$(first_nonempty "$(config_value NH_PANEL_URL)" "$(json_value panelUrl)" "http://127.0.0.1:3000/")"
-panel_login="$(first_nonempty "$NEW_LOGIN" "$(config_value NH_PANEL_LOGIN)" "$(json_value panelLogin)" "admin")"
-panel_password="$(first_nonempty "$(config_value NH_PANEL_PASSWORD)" "$(json_value panelPassword)")"
+panel_url="$(first_nonempty "$(config_value RIXXX_PANEL_URL)" "$(config_value NH_PANEL_URL)" "$(json_value panelUrl)" "http://127.0.0.1:3000/")"
+panel_login="$(first_nonempty "$NEW_LOGIN" "$(config_value RIXXX_PANEL_LOGIN)" "$(config_value NH_PANEL_LOGIN)" "$(json_value panelLogin)" "admin")"
+panel_password="$(first_nonempty "$(config_value RIXXX_PANEL_PASSWORD)" "$(config_value NH_PANEL_PASSWORD)" "$(json_value panelPassword)")"
 
 if [[ "$RESET_PASSWORD" == "1" ]]; then
   [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "--reset-password must be run as root"
@@ -234,11 +234,18 @@ NODE
   config_set_file "$CONFIG_FILE" NH_PANEL_URL "$panel_url"
   config_set_file "$CONFIG_FILE" NH_PANEL_LOGIN "$panel_login"
   config_set_file "$CONFIG_FILE" NH_PANEL_PASSWORD "$panel_password"
+  config_set_file "$CONFIG_FILE" RIXXX_PANEL_URL "$panel_url"
+  config_set_file "$CONFIG_FILE" RIXXX_PANEL_LOGIN "$panel_login"
+  config_set_file "$CONFIG_FILE" RIXXX_PANEL_PASSWORD "$panel_password"
   config_set_file "$CONFIG_FILE" RIXXX_PANEL_DIR "$panel_dir"
 
+  config_set_file "$RIXXX_ACCESS_ENV" NH_BACKEND_KIND "rixxx-naive-mieru"
   config_set_file "$RIXXX_ACCESS_ENV" NH_PANEL_URL "$panel_url"
   config_set_file "$RIXXX_ACCESS_ENV" NH_PANEL_LOGIN "$panel_login"
   config_set_file "$RIXXX_ACCESS_ENV" NH_PANEL_PASSWORD "$panel_password"
+  config_set_file "$RIXXX_ACCESS_ENV" RIXXX_PANEL_URL "$panel_url"
+  config_set_file "$RIXXX_ACCESS_ENV" RIXXX_PANEL_LOGIN "$panel_login"
+  config_set_file "$RIXXX_ACCESS_ENV" RIXXX_PANEL_PASSWORD "$panel_password"
   config_set_file "$RIXXX_ACCESS_ENV" RIXXX_PANEL_DIR "$panel_dir"
 
   if command -v pm2 >/dev/null 2>&1; then
