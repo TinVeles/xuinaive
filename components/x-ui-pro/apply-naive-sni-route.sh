@@ -73,6 +73,9 @@ if ! awk -v domain="$ROUTE_DOMAIN" -v backend="$ROUTE_BACKEND" -v route_name="$R
     }
     next
   }
+  $2 == route_name ";" {
+    next
+  }
   $0 ~ "^upstream[[:space:]]+" route_name "[[:space:]]*\\{" {
     print
     printf "    server %s;\n", backend

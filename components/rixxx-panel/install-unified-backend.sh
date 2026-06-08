@@ -206,9 +206,17 @@ fix_caddy_backend_listener() {
     bind_line="        bind $listen_host"
   fi
 
+  tls_line="        tls $EMAIL"
+  cert_file="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+  key_file="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+  if [[ -f "$cert_file" && -f "$key_file" ]]; then
+    tls_line="        tls $cert_file $key_file"
+  fi
+
   cat > "$caddyfile" <<EOF
 {
         order forward_proxy before file_server
+        auto_https disable_redirects
         servers {
                 protocols h1 h2
         }
@@ -225,7 +233,7 @@ fix_caddy_backend_listener() {
 
 $DOMAIN:$listen_port {
 $bind_line
-        tls $EMAIL
+$tls_line
 
         forward_proxy {
                 basic_auth $auth_user $auth_pass

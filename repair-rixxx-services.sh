@@ -178,9 +178,19 @@ if [[ "$listen_host" != "0.0.0.0" && "$listen_host" != "::" && "$listen_host" !=
   bind_line="        bind $listen_host"
 fi
 
+tls_line="        tls $EMAIL"
+cert_file="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+key_file="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+if [[ -f "$cert_file" && -f "$key_file" ]]; then
+  tls_line="        tls $cert_file $key_file"
+else
+  warn "LetsEncrypt cert not found for $DOMAIN; Caddy may try ACME and need port 80/443"
+fi
+
 cat > "$CADDYFILE" <<EOF
 {
         order forward_proxy before file_server
+        auto_https disable_redirects
         servers {
                 protocols h1 h2
         }
@@ -197,7 +207,7 @@ cat > "$CADDYFILE" <<EOF
 
 $DOMAIN:$listen_port {
 $bind_line
-        tls $EMAIL
+$tls_line
 
         forward_proxy {
 $auth_lines
