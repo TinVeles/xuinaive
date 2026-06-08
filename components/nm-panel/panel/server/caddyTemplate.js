@@ -35,6 +35,7 @@
  */
 
 const crypto = require('crypto');
+const fs = require('fs');
 
 // ── normalizeUpstream() — Bug 92 ─────────────────────────────────────────────
 // Caddy forward_proxy `upstream` only accepts a clean https:// URL. The panel
@@ -132,6 +133,11 @@ function render(cfg, naiveUsers) {
 
   const bindLine = bindHost ? `\n  bind ${bindHost}` : '';
   const siteAddress = backendOnly ? `${domain}:${port}` : `:${port}, ${domain}`;
+  const backendCert = `/etc/caddy-naive/certs/${domain}/fullchain.pem`;
+  const backendKey = `/etc/caddy-naive/certs/${domain}/privkey.pem`;
+  const tlsLine = backendOnly && fs.existsSync(backendCert) && fs.existsSync(backendKey)
+    ? `tls ${backendCert} ${backendKey}`
+    : `tls ${email}`;
   const redirectBlock = backendOnly ? '' : `
 
 # HTTP → HTTPS redirect (also needed for ACME HTTP-01 fallback)
@@ -168,7 +174,7 @@ ${siteAddress} {${bindLine}
   #   - explicit "tls <email>" inside the block (not relying on the global email)
   #   - no route{} wrapper — forward_proxy/file_server directly in the site block
   #     (ordering comes from the global "order forward_proxy before file_server")
-  tls ${email}
+  ${tlsLine}
 
   forward_proxy {
     # Bug 23: no bare "basic_auth" token; each line IS the credential directive

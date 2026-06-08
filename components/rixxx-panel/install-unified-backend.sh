@@ -210,7 +210,22 @@ fix_caddy_backend_listener() {
   cert_file="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
   key_file="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
   if [[ -f "$cert_file" && -f "$key_file" ]]; then
-    tls_line="        tls $cert_file $key_file"
+    caddy_cert_dir="/etc/caddy-naive/certs/$DOMAIN"
+    caddy_cert_file="$caddy_cert_dir/fullchain.pem"
+    caddy_key_file="$caddy_cert_dir/privkey.pem"
+    mkdir -p "$caddy_cert_dir"
+    cp -a "$cert_file" "$caddy_cert_file"
+    cp -a "$key_file" "$caddy_key_file"
+    if getent group caddy >/dev/null 2>&1; then
+      chown -R root:caddy /etc/caddy-naive/certs
+      chmod 0750 /etc/caddy-naive /etc/caddy-naive/certs "$caddy_cert_dir" 2>/dev/null || true
+      chmod 0640 "$caddy_cert_file" "$caddy_key_file"
+    else
+      chmod 0755 /etc/caddy-naive /etc/caddy-naive/certs "$caddy_cert_dir" 2>/dev/null || true
+      chmod 0644 "$caddy_cert_file"
+      chmod 0600 "$caddy_key_file"
+    fi
+    tls_line="        tls $caddy_cert_file $caddy_key_file"
   fi
 
   cat > "$caddyfile" <<EOF
