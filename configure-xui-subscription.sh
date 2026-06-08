@@ -98,10 +98,11 @@ first_client_sub_id() {
 }
 
 show_current_subscription() {
-  local current_port current_path current_uri current_enable
+  local current_port current_path current_uri current_json_path current_enable
   current_port="$(setting_get subPort)"
   current_path="$(setting_get subPath)"
   current_uri="$(setting_get subURI)"
+  current_json_path="$(setting_get subJsonPath)"
   current_enable="$(setting_get subEnable)"
 
   printf 'Current x-ui subscription settings\n'
@@ -110,6 +111,7 @@ show_current_subscription() {
   printf 'subPort|%s\n' "${current_port:-<empty>}"
   printf 'subPath|%s\n' "${current_path:-<empty>}"
   printf 'subURI|%s\n' "${current_uri:-<empty>}"
+  printf 'subJsonPath|%s\n' "${current_json_path:-<empty>}"
   printf '\n'
 
   if sqlite3 -readonly "$XUI_DB" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='clients' LIMIT 1;" 2>/dev/null | grep -q 1; then
@@ -334,6 +336,8 @@ info "Updating x-ui subscription settings"
 upm_sqlite_setting_set "$XUI_DB" "subPort" "$SUB_PORT"
 upm_sqlite_setting_set "$XUI_DB" "subPath" "$SUB_PATH"
 upm_sqlite_setting_set "$XUI_DB" "subURI" "$sub_uri"
+upm_sqlite_setting_set "$XUI_DB" "subJsonPath" "${SUB_PATH%/}/json/"
+upm_sqlite_setting_set "$XUI_DB" "subJsonURI" "${SUB_URI%/}/json/"
 upm_sqlite_setting_set "$XUI_DB" "subEnable" "true"
 
 if [[ -n "$CLIENT_EMAIL" ]]; then
