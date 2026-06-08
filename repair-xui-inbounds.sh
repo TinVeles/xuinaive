@@ -20,7 +20,7 @@ cat <<'EOF'
 Unified Proxy Manager x-ui inbound repair
 =========================================
 This command repairs server-side x-ui presets, regenerates x-ui clients, and
-runs the consolidated doctor report. It does not install WARP or NHM Panel.
+runs the consolidated doctor report. It does not install WARP or RIXXX Panel.
 EOF
 
 if [[ "$DRY_RUN" == "1" ]]; then

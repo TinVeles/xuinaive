@@ -1011,7 +1011,7 @@ xui_install_3dp_reference_presets() {
 
   # hysteria2 is QUIC/UDP and cannot share nginx's TCP 443. In xui-only mode it
   # binds public UDP 443. Unified installs override HY2_PUBLIC_PORT because the
-  # NHM hysteria-server already owns UDP 443.
+  # In all-in-one mode nginx owns TCP 443; x-ui Hysteria2 uses a separate UDP port.
   port="${HY2_PUBLIC_PORT:-443}"
   if [[ "$port" != "443" ]]; then
     port="$(xui_next_free_inbound_port "$db" "$port")"

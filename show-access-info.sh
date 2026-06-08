@@ -4,10 +4,10 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config.env"
 SUMMARY_FILE="$SCRIPT_DIR/access-info.txt"
-NH_CONFIG_JSON="${NH_CONFIG_JSON:-/opt/panel-naive-hy2/panel/data/config.json}"
-NH_PANEL_USERS_JSON="${NH_PANEL_USERS_JSON:-/opt/panel-naive-hy2/panel/data/users.json}"
-NH_PANEL_INITIAL_ADMIN="${NH_PANEL_INITIAL_ADMIN:-/opt/panel-naive-hy2/panel/data/initial-admin.txt}"
-NH_CADDYFILE="${NH_CADDYFILE:-/etc/caddy-nh/Caddyfile}"
+NH_CONFIG_JSON="${NH_CONFIG_JSON:-/opt/panel-naive-mieru/panel/data/config.json}"
+NH_PANEL_USERS_JSON="${NH_PANEL_USERS_JSON:-/opt/panel-naive-mieru/panel/data/users.json}"
+NH_PANEL_INITIAL_ADMIN="${NH_PANEL_INITIAL_ADMIN:-/opt/panel-naive-mieru/panel/data/initial-admin.txt}"
+NH_CADDYFILE="${NH_CADDYFILE:-/etc/caddy-naive/Caddyfile}"
 RIXXX_CONFIG_JSON="${RIXXX_CONFIG_JSON:-/etc/rixxx-panel/config.json}"
 
 REDACT_SECRETS="${UPM_REDACT_SECRETS:-0}"
@@ -66,7 +66,7 @@ config_value() {
     "/etc/x-ui/access-info.env" \
     "/root/unified-proxy-manager/config.env" \
     "/opt/unified-proxy-manager/config.env" \
-    "/etc/nh-panel/config.env"; do
+    "/etc/rixxx-panel/access-info.env"; do
     [[ -f "$file" ]] || continue
     value="$(awk -F= -v key="$key" '
       $1 == key {
@@ -259,17 +259,17 @@ nh_panel_initial_password() {
   awk -F: 'NF >= 2 { print $2; exit }' "$NH_PANEL_INITIAL_ADMIN" 2>/dev/null || true
 }
 
-nh_naive_login_from_caddy() {
+rixxx_naive_login_from_caddy() {
   [[ -f "$NH_CADDYFILE" ]] || return 0
   awk '/^[[:space:]]*basic_auth[[:space:]]/ { print $2; exit }' "$NH_CADDYFILE" 2>/dev/null || true
 }
 
-nh_naive_password_from_caddy() {
+rixxx_naive_password_from_caddy() {
   [[ -f "$NH_CADDYFILE" ]] || return 0
   awk '/^[[:space:]]*basic_auth[[:space:]]/ { print $3; exit }' "$NH_CADDYFILE" 2>/dev/null || true
 }
 
-sync_nh_naive_config_from_caddy() {
+sync_rixxx_naive_config_from_caddy() {
   is_root || return 0
   [[ -f "$NH_CADDYFILE" && -f "$NH_CONFIG_JSON" ]] || return 0
   CADDYFILE="$NH_CADDYFILE" CONFIG_JSON="$NH_CONFIG_JSON" node <<'NODE' >/dev/null 2>&1 || true
@@ -351,7 +351,7 @@ reset_nh_panel_password_if_missing() {
   [[ -z "${nh_panel_password:-}" ]] || return 0
   is_root || return 0
   panel_dir="$(dirname "$(dirname "$NH_CONFIG_JSON")")"
-  [[ -d "$panel_dir" ]] || panel_dir="/opt/panel-naive-hy2/panel"
+  [[ -d "$panel_dir" ]] || panel_dir="/opt/panel-naive-mieru/panel"
   [[ -d "$panel_dir" ]] || return 0
   [[ -d "$panel_dir/node_modules/bcryptjs" ]] || return 0
 
@@ -416,15 +416,15 @@ NODE
     config_set_file "$CONFIG_FILE" NH_PANEL_URL "${nh_panel_url:-}"
     config_set_file "$CONFIG_FILE" NH_PANEL_LOGIN "$nh_panel_login"
     config_set_file "$CONFIG_FILE" NH_PANEL_PASSWORD "$nh_panel_password"
-    systemctl restart panel-naive-hy2 >/dev/null 2>&1 || true
+    systemctl restart panel-naive-mieru >/dev/null 2>&1 || true
   fi
 }
 
-persist_nh_naive_access() {
+persist_rixxx_naive_access() {
   local domain login password link
   domain="$(first_nonempty "$(config_value NH_PROXY_DOMAIN)" "$(config_value NAIVE_DOMAIN)" "$(json_value domain)")"
-  login="$(first_nonempty "$(config_value NH_NAIVE_LOGIN)" "$(json_value naiveLogin)" "$(nh_naive_login_from_caddy)")"
-  password="$(first_nonempty "$(config_value NH_NAIVE_PASSWORD)" "$(json_value naivePassword)" "$(nh_naive_password_from_caddy)")"
+  login="$(first_nonempty "$(config_value NH_NAIVE_LOGIN)" "$(json_value naiveLogin)" "$(rixxx_naive_login_from_caddy)")"
+  password="$(first_nonempty "$(config_value NH_NAIVE_PASSWORD)" "$(json_value naivePassword)" "$(rixxx_naive_password_from_caddy)")"
   [[ "$domain" == "null" ]] && domain=""
   [[ "$login" == "null" ]] && login=""
   [[ "$password" == "null" ]] && password=""
@@ -439,8 +439,7 @@ persist_nh_naive_access() {
 }
 
 ensure_nh_panel_nginx_proxy() {
-  local port="${nh_panel_port:-}" conf="/etc/nginx/sites-available/panel-naive-hy2"
-  local sub_include=""
+  local port="${nh_panel_port:-}" conf="/etc/nginx/sites-available/panel-naive-mieru"
   [[ "$port" =~ ^[0-9]+$ ]] || return 0
   is_root || return 0
   command -v nginx >/dev/null 2>&1 || return 0
@@ -453,13 +452,11 @@ ensure_nh_panel_nginx_proxy() {
     return 0
   fi
 
-  [[ -f /etc/nginx/snippets/nh-subscriptions.conf ]] && sub_include='    include /etc/nginx/snippets/nh-subscriptions.conf;'
   cat > "$conf" <<EOF
 server {
     listen ${port};
     server_name _;
 
-${sub_include}
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
@@ -475,13 +472,13 @@ ${sub_include}
     }
 }
 EOF
-  ln -sf "$conf" /etc/nginx/sites-enabled/panel-naive-hy2
+  ln -sf "$conf" /etc/nginx/sites-enabled/panel-naive-mieru
   if nginx -t >/dev/null 2>&1; then
     systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1 || true
   fi
 }
 
-ensure_nh_naive_sni_route() {
+ensure_rixxx_naive_sni_route() {
   local domain backend patch_script stream_conf="/etc/nginx/stream-enabled/stream.conf"
   domain="$(first_nonempty "$(config_value NH_PROXY_DOMAIN)" "$(config_value NAIVE_DOMAIN)" "$(json_value domain)")"
   backend="$(first_nonempty "$(config_value NH_BACKEND_LISTEN)" "127.0.0.1:9445")"
@@ -492,22 +489,19 @@ ensure_nh_naive_sni_route() {
   is_root || return 0
   [[ -f "$stream_conf" && -f "$patch_script" ]] || return 0
 
-  if awk -v d="$domain" '$1 == d && $2 == "nh_naive;" { found = 1 } END { exit found ? 0 : 1 }' "$stream_conf" 2>/dev/null \
+  if awk -v d="$domain" '$1 == d && $2 == "rixxx_naive;" { found = 1 } END { exit found ? 0 : 1 }' "$stream_conf" 2>/dev/null \
      && awk -v b="$backend;" '$1 == "server" && $2 == b { found = 1 } END { exit found ? 0 : 1 }' "$stream_conf" 2>/dev/null; then
     return 0
   fi
 
-  bash "$patch_script" --domain "$domain" --backend "$backend" --name nh_naive >/dev/null 2>&1 || true
+  bash "$patch_script" --domain "$domain" --backend "$backend" --name rixxx_naive >/dev/null 2>&1 || true
 }
 
 subscription_token() {
   local token
-  token="$(first_nonempty "$(config_value NH_SUBSCRIPTION_TOKEN)" "$(config_value SUBSCRIPTION_TOKEN)")"
-  if [[ -z "$token" && -f /etc/nh-panel/subscription-token ]]; then
-    token="$(tr -d '[:space:]' < /etc/nh-panel/subscription-token 2>/dev/null || true)"
-  fi
-  if [[ -z "$token" && -d /opt/panel-naive-hy2/subscriptions ]]; then
-    token="$(find /opt/panel-naive-hy2/subscriptions -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | head -n 1 || true)"
+  token="$(first_nonempty "$(config_value SUBSCRIPTION_TOKEN)")"
+  if [[ -z "$token" && -d /opt/panel-naive-mieru/subscriptions ]]; then
+    token="$(find /opt/panel-naive-mieru/subscriptions -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | head -n 1 || true)"
   fi
   printf '%s\n' "$token"
 }
@@ -521,8 +515,8 @@ subscription_base_url() {
 append_profiles_summary() {
   local file="$1" base_url="$2" token="$3"
   local xui_report="/etc/x-ui/generated-clients.txt"
-  local sub_dir="/opt/panel-naive-hy2/subscriptions/${token}"
-  local generated_links="/opt/panel-naive-hy2/generated-profiles.txt"
+  local sub_dir="/opt/panel-naive-mieru/subscriptions/${token}"
+  local generated_links="/opt/panel-naive-mieru/generated-profiles.txt"
   local backend_kind
   backend_kind="$(config_value NH_BACKEND_KIND)"
 
@@ -536,35 +530,16 @@ append_profiles_summary() {
       printf 'x-ui report: not generated\n'
     fi
 
-    if [[ "$backend_kind" == "rixxx-naive-mieru" ]]; then
-      printf '\nRIXXX Panel users: managed in http://127.0.0.1:3000/\n'
-      printf 'NaiveProxy/Mieru subscriptions: managed by RIXXX Panel\n'
-    elif [[ -n "$token" && -d "$sub_dir" ]]; then
-      printf '\nSubscription files: %s\n' "$sub_dir"
-      if [[ -n "$base_url" ]]; then
-        printf 'naive:     %s/naive.txt\n' "$base_url"
-        printf 'hysteria2: %s/hy2.txt\n' "$base_url"
-        printf 'all:       %s/all.txt\n' "$base_url"
-        printf 'combined:  %s/combined.txt\n' "$base_url"
-        printf 'v2rayN st: %s/v2rayn-stable.txt\n' "$base_url"
-        printf 'v2rayN:    %s/v2rayn.txt\n' "$base_url"
-        printf 'v2rayN raw:%s/v2rayn-raw.txt\n' "$base_url"
-        printf 'sing-box:  %s/sing-box.json\n' "$base_url"
-      fi
-      find "$sub_dir" -maxdepth 1 -type f \( -name '*.txt' -o -name '*.json' -o -name '*.b64' \) -printf '  %f\n' 2>/dev/null | sort
-    elif [[ -f "$generated_links" ]]; then
-      printf '\nGenerated NHM links: %s\n' "$generated_links"
-    else
-      printf '\nNHM subscriptions: not generated\n'
-    fi
+    printf '\nRIXXX Panel users: managed in http://127.0.0.1:3000/\n'
+    printf 'NaiveProxy/Mieru links: managed by RIXXX Panel\n'
   } >> "$file"
 }
 
 print_profiles_summary() {
   local base_url="$1" token="$2"
   local xui_report="/etc/x-ui/generated-clients.txt"
-  local sub_dir="/opt/panel-naive-hy2/subscriptions/${token}"
-  local generated_links="/opt/panel-naive-hy2/generated-profiles.txt"
+  local sub_dir="/opt/panel-naive-mieru/subscriptions/${token}"
+  local generated_links="/opt/panel-naive-mieru/generated-profiles.txt"
   local backend_kind
   backend_kind="$(config_value NH_BACKEND_KIND)"
 
@@ -577,23 +552,8 @@ print_profiles_summary() {
     echo -e "${PURPLE}${BOLD}║   x-ui report:${RESET} not generated"
   fi
 
-  if [[ "$backend_kind" == "rixxx-naive-mieru" ]]; then
-    echo -e "${PURPLE}${BOLD}║   RIXXX users:${RESET} managed in panel"
-    echo -e "${PURPLE}${BOLD}║   Naive/Mieru:${RESET} managed by RIXXX Panel"
-  elif [[ -n "$token" && -d "$sub_dir" ]]; then
-    echo -e "${PURPLE}${BOLD}║   Subscriptions:${RESET} ${CYAN}${sub_dir}${RESET}"
-    if [[ -n "$base_url" ]]; then
-      echo -e "${CYAN}   ${base_url}/all.txt${RESET}"
-      echo -e "${CYAN}   ${base_url}/combined.txt${RESET}"
-      echo -e "${CYAN}   ${base_url}/v2rayn-stable.txt${RESET}"
-      echo -e "${CYAN}   ${base_url}/v2rayn.txt${RESET}"
-      echo -e "${CYAN}   ${base_url}/sing-box.json${RESET}"
-    fi
-  elif [[ -f "$generated_links" ]]; then
-    echo -e "${PURPLE}${BOLD}║   NHM links:${RESET} ${CYAN}${generated_links}${RESET}"
-  else
-    echo -e "${PURPLE}${BOLD}║   Subscriptions:${RESET} not generated"
-  fi
+  echo -e "${PURPLE}${BOLD}║   RIXXX users:${RESET} managed in panel"
+  echo -e "${PURPLE}${BOLD}║   Naive/Mieru:${RESET} managed by RIXXX Panel"
 }
 
 nh_backend_kind="$(config_value NH_BACKEND_KIND)"
@@ -648,14 +608,14 @@ fi
 reset_xui_password_if_missing
 if [[ "$nh_backend_kind" != "rixxx-naive-mieru" ]]; then
   reset_nh_panel_password_if_missing
-  sync_nh_naive_config_from_caddy
-  persist_nh_naive_access
+  sync_rixxx_naive_config_from_caddy
+  persist_rixxx_naive_access
   ensure_nh_panel_nginx_proxy
 fi
-ensure_nh_naive_sni_route
+ensure_rixxx_naive_sni_route
 sub_token="$(subscription_token)"
 sub_base_url="$(subscription_base_url "$nh_panel_url" "$sub_token")"
-nh_panel_label="NHM Panel"
+nh_panel_label="RIXXX Panel"
 [[ "$nh_backend_kind" == "rixxx-naive-mieru" ]] && nh_panel_label="RIXXX Panel"
 
 reset_terminal_style
@@ -696,7 +656,7 @@ echo -e "${PURPLE}${BOLD}╠═════════════════�
 if [[ "$nh_backend_kind" == "rixxx-naive-mieru" ]]; then
   echo -e "${PURPLE}${BOLD}║   🖥  RIXXX Panel                             ║${RESET}"
 else
-  echo -e "${PURPLE}${BOLD}║   🖥  NHM Panel                               ║${RESET}"
+  echo -e "${PURPLE}${BOLD}║   🖥  RIXXX Panel                               ║${RESET}"
 fi
 echo -e "${PURPLE}${BOLD}║   URL:${RESET}"
 echo -e "${CYAN}   ${nh_panel_url:-check config.env}${RESET}"
@@ -718,7 +678,7 @@ if [[ "$nh_backend_kind" == "rixxx-naive-mieru" ]]; then
   echo -e "${PURPLE}${BOLD}║   systemctl status caddy-naive   — статус NaiveProxy        ║${RESET}"
   echo -e "${PURPLE}${BOLD}║   systemctl status mita          — статус Mieru             ║${RESET}"
 else
-  echo -e "${PURPLE}${BOLD}║   systemctl status panel-naive-hy2 — статус NHM панели      ║${RESET}"
+  echo -e "${PURPLE}${BOLD}║   systemctl status panel-naive-mieru — статус RIXXX панели      ║${RESET}"
 fi
 echo -e "${PURPLE}${BOLD}╚══════════════════════════════════════════════════════════════╝${RESET}"
 echo ""

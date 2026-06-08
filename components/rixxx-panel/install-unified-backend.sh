@@ -90,14 +90,14 @@ require_active() {
   ok "$svc is active"
 }
 
-stop_old_nhm() {
+stop_old_RIXXX() {
   local svc
-  for svc in panel-naive-hy2 caddy-nh hysteria-server; do
+  for svc in caddy-naive mita; do
     systemctl stop "$svc" >/dev/null 2>&1 || true
     systemctl disable "$svc" >/dev/null 2>&1 || true
   done
   if command -v pm2 >/dev/null 2>&1; then
-    pm2 delete panel-naive-hy2 >/dev/null 2>&1 || true
+    pm2 delete panel-naive-mieru >/dev/null 2>&1 || true
   fi
 }
 
@@ -106,12 +106,10 @@ backup_state() {
   backup_dir="/opt/unified-proxy-manager/backups/rixxx-panel-$(date '+%Y-%m-%d-%H-%M-%S')"
   mkdir -p "$backup_dir"
   for path in \
-    /etc/caddy-nh /etc/hysteria /opt/panel-naive-hy2 /etc/nh-panel \
     /etc/caddy-naive /etc/rixxx-panel /opt/panel-naive-mieru /var/lib/rixxx-panel \
-    /etc/systemd/system/caddy-nh.service /etc/systemd/system/hysteria-server.service \
-    /etc/systemd/system/panel-naive-hy2.service /etc/systemd/system/caddy-naive.service \
-    /etc/systemd/system/mita.service /etc/nginx/sites-enabled/panel-naive-hy2 \
-    /etc/nginx/sites-available/panel-naive-hy2 /etc/nginx/sites-enabled/panel-naive-mieru \
+    /etc/systemd/system/caddy-naive.service \
+    /etc/systemd/system/mita.service /etc/nginx/sites-enabled/panel-naive-mieru \
+    /etc/nginx/sites-available/panel-naive-mieru /etc/nginx/sites-enabled/panel-naive-mieru \
     /etc/nginx/sites-available/panel-naive-mieru; do
     if [[ -e "$path" || -L "$path" ]]; then
       mkdir -p "$backup_dir$(dirname "$path")"
@@ -175,7 +173,7 @@ server {
 }
 EOF
   ln -sf /etc/nginx/sites-available/panel-naive-mieru /etc/nginx/sites-enabled/panel-naive-mieru
-  rm -f /etc/nginx/sites-enabled/panel-naive-hy2 /etc/nginx/sites-available/panel-naive-hy2
+  rm -f /etc/nginx/sites-enabled/panel-naive-mieru /etc/nginx/sites-available/panel-naive-mieru
   nginx -t || die "nginx config test failed after panel proxy creation"
   systemctl reload nginx || systemctl restart nginx || true
   wait_http "http://127.0.0.1:${PANEL_PUBLIC_PORT}/" "RIXXX panel nginx proxy" 40 1 || die "RIXXX panel proxy is not responding"
@@ -285,7 +283,7 @@ cleanup() { rm -rf "$WORK_DIR"; }
 trap cleanup EXIT
 
 backup_state
-stop_old_nhm
+stop_old_RIXXX
 prepare_upstream "$WORK_DIR"
 
 info "Installing RIXXX Panel Naive + Mieru"
@@ -328,6 +326,10 @@ configure_firewall
 
 upm_config_set_many "$CONFIG_FILE" \
   NH_BACKEND_KIND "rixxx-naive-mieru" \
+  RIXXX_DOMAIN "$DOMAIN" \
+  RIXXX_EMAIL "$EMAIL" \
+  RIXXX_BACKEND_LISTEN "$LISTEN" \
+  RIXXX_ACCESS "$PANEL_ACCESS" \
   NH_PROXY_DOMAIN "$DOMAIN" \
   NAIVE_DOMAIN "$DOMAIN" \
   NH_EMAIL "$EMAIL" \
@@ -336,9 +338,6 @@ upm_config_set_many "$CONFIG_FILE" \
   NH_PANEL_LOGIN "$ADMIN_USER" \
   NH_PANEL_PASSWORD "$ADMIN_PASS" \
   NH_ENABLE_MIERU "1" \
-  NH_HY2_USER "" \
-  NH_HY2_PASSWORD "" \
-  NH_HY2_LINK "" \
   RIXXX_PANEL_DIR "/opt/panel-naive-mieru" \
   RIXXX_DB "/var/lib/rixxx-panel/db.sqlite" \
   RIXXX_MIERU_PORT_START "$MIERU_START" \

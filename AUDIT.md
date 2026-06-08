@@ -20,7 +20,7 @@ If user asks for normal mode, stop Caveman style.
 Основные скрипты:
 
 - `x-ui-pro.sh` - основной установщик x-ui-pro / 3x-ui stack.
-- `apply-naive-sni-route.sh` - локальный unified-патч nginx stream для маршрутизации NHM/NaiveProxy SNI на backend `127.0.0.1:9445`.
+- `apply-naive-sni-route.sh` - локальный unified-патч nginx stream для маршрутизации RIXXX/NaiveProxy SNI на backend `127.0.0.1:9445`.
 
 Очистка vendored-копии:
 
@@ -96,7 +96,7 @@ Firewall:
 
 ## Removed legacy NaiveProxy installer
 
-The old standalone NaiveProxy component has been removed from the active installer flow. The all-in-one flow now uses the NHM Panel NaiveProxy backend on loopback behind nginx stream.
+The old standalone NaiveProxy component has been removed from the active installer flow. The all-in-one flow now uses the RIXXX Panel NaiveProxy backend on loopback behind nginx stream.
 
 Основной скрипт:
 

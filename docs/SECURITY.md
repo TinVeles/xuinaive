@@ -38,7 +38,7 @@ Recommended install order:
 ### `service-stability.sh`
 
 Writes drop-in `/etc/systemd/system/<svc>.service.d/upm-stability.conf` to:
-`x-ui`, `nginx`, `caddy-nh`, `hysteria-server`, `panel-naive-hy2`, `warp-svc`.
+`x-ui`, `nginx`, `caddy-naive`, `mita`, `warp-svc`, and PM2 process `panel-naive-mieru`.
 
 | Setting | Value | Why |
 |---------|-------|-----|
@@ -180,7 +180,7 @@ the proxy and starve conntrack slots over time.
 
 ### Connection tracking capacity
 
-`nf_conntrack_max=1048576` is applied (matches upstream nh-panel tuning).
+`nf_conntrack_max=1048576` is applied for high-connection proxy workloads.
 Combined with `tcp_keepalive_time=120` this supports a sustained ~10k
 active proxy sessions without conntrack pressure.
 
@@ -296,7 +296,7 @@ upstream artifacts.
 
 ## Panel exposure
 
-By default `PANEL_ACCESS="ssh-tunnel"`: NHM Panel binds to `127.0.0.1:3000`
+By default `PANEL_ACCESS="ssh-tunnel"`: RIXXX Panel binds to `127.0.0.1:3000`
 only; the public port `8081` is closed (`ufw deny 8081/tcp`). Reach the
 panel by tunnelling from your workstation:
 
@@ -310,10 +310,9 @@ To expose publicly (NOT recommended), pass `--panel-access nginx8080` to
 and subscription tokens travel in plaintext. Use only behind a reverse proxy
 or VPN, never as-is.
 
-For HTTPS-accessible subscription URLs without exposing the full panel, run
-`configure-nh-subscription.sh --domain sub.example.com --yes` after install.
-This stands up an nginx HTTPS site that exposes only `/sub/<TOKEN>/*` via
-SNI routing on the existing public 443 listener, with rate limiting.
+For HTTPS-accessible x-ui subscription URLs without exposing the full panel,
+run `configure-xui-subscription.sh --domain sub.example.com --yes` after
+install. RIXXX Panel users and links are managed inside the RIXXX Panel UI.
 
 ## Secrets in stdout
 

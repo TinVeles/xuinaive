@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 APPLY=0
 ASSUME_YES=0
-SERVICES_DEFAULT=(x-ui nginx caddy-nh hysteria-server panel-naive-hy2 warp-svc)
+SERVICES_DEFAULT=(x-ui nginx caddy-naive mita warp-svc)
 SERVICES=()
 
 usage() {

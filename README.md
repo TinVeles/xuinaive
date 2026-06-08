@@ -1,23 +1,22 @@
 # xuinaive
 
-Unified installer for running 3x-ui, NaiveProxy, Hysteria2, and the NHM Panel on one VPS.
+Unified installer for running 3x-ui plus RIXXX Panel with NaiveProxy and Mieru on one VPS.
 
 The default command is a dry run. Real installation always requires `--install --yes`.
 
 ## What It Installs
 
 - 3x-ui / x-ui-pro with Xray and nginx.
-- NHM Panel for NaiveProxy and Hysteria2 management.
+- RIXXX Panel for NaiveProxy and Mieru management.
 - NaiveProxy behind a dedicated Caddy backend.
-- Hysteria2 on public UDP `443`.
-- 15 generated profiles and token-protected subscription files by default.
+- Mieru on its own public TCP/UDP port range.
+- Generated 3x-ui profiles by default.
 - Optional Cloudflare WARP local proxy on `127.0.0.1:40000` when `--install-warp` is used.
-- Optional Mieru module in NHM Panel.
 
 The full stack still uses two panels:
 
 - 3x-ui manages Xray inbounds and Xray routing.
-- NHM Panel manages NaiveProxy, Hysteria2, Mieru, subscriptions, tuning, diagnostics, and Hy2 bypass/WARP ACL controls.
+- RIXXX Panel manages NaiveProxy, Mieru users, subscriptions, tuning, and diagnostics.
 
 ## Recommended Install
 
@@ -31,9 +30,9 @@ cd unified-proxy-manager
 
 sudo bash install.sh --mode all \
   --xui-domain xui.example.com \
-  --nh-domain naive.example.com \
+  --rixxx-domain naive.example.com \
   --reality-dest reality.example.com \
-  --nh-email admin@example.com \
+  --rixxx-email admin@example.com \
   --install \
   --yes
 ```
@@ -46,9 +45,9 @@ RIXXX Panel, NaiveProxy, and Mieru, use:
 sudo bash install.sh --mode all \
   --xui-panel-line latest \
   --xui-domain xui.example.com \
-  --nh-domain naive.example.com \
+  --rixxx-domain naive.example.com \
   --reality-dest reality.example.com \
-  --nh-email admin@example.com \
+  --rixxx-email admin@example.com \
   --install \
   --yes
 ```
@@ -82,10 +81,9 @@ NaiveProxy/Mieru users through its own panel.
 
 This gives you:
 
-- x-ui and NHM on one VPS.
+- x-ui and RIXXX on one VPS.
 - 15 generated 3x-ui profiles on each enabled preset inbound.
-- 15 generated NaiveProxy profiles.
-- 15 generated Hysteria2 profiles.
+- NaiveProxy and Mieru users managed in RIXXX Panel.
 - No WARP by default.
 - Final access summary in the terminal and `access-info.txt`.
 
@@ -98,15 +96,15 @@ Internet 443/tcp
   -> nginx stream
      -> x-ui / Xray REALITY backends by decoy SNI
      -> x-ui HTTPS vhost and websocket path proxy by x-ui domain
-     -> 127.0.0.1:9445 for NHM NaiveProxy by SNI
+     -> 127.0.0.1:9445 for RIXXX NaiveProxy by SNI
 
-Internet 443/udp
-  -> NHM hysteria-server
+Internet 2012/tcp and configured Mieru range
+  -> mita / Mieru
 
 Internet 24443/udp
   -> x-ui Hysteria2 preset in --mode all
 
-NHM Panel
+RIXXX Panel
   -> 127.0.0.1:3000 internally
   -> 8081 through nginx by default
 ```
@@ -116,10 +114,10 @@ NaiveProxy Caddy does not bind public `443/tcp` in all-in-one mode. It listens o
 ## Modes
 
 ```text
-all      3x-ui + NHM Panel + NaiveProxy + Hysteria2
+all      3x-ui + RIXXX Panel + NaiveProxy + Mieru
 xui      only x-ui-pro / 3x-ui planning or install path
-naive    compatibility mode routed through the NHM installer
-nh       standalone NHM Panel + NaiveProxy + Hysteria2
+naive    compatibility mode routed through the RIXXX installer
+nh       standalone RIXXX Panel + NaiveProxy + Mieru
 both     compatibility alias for all
 ```
 
@@ -128,31 +126,30 @@ Dry run:
 ```bash
 sudo bash install.sh --mode all \
   --xui-domain x.example.com \
-  --nh-domain n.example.com \
+  --rixxx-domain n.example.com \
   --reality-dest r.example.com \
-  --nh-email admin@example.com \
+  --rixxx-email admin@example.com \
   --dry-run
 ```
 
-Standalone NHM install:
+Standalone RIXXX install:
 
 ```bash
 sudo bash install.sh --mode nh \
   --domain vpn.example.com \
   --proxy-email admin@example.com \
-  --nh-stack both \
-  --nh-access nginx8080 \
+  --panel-access nginx8080 \
   --install \
   --yes
 ```
 
-Standalone NHM with a panel subdomain:
+Standalone RIXXX with a panel subdomain:
 
 ```bash
 sudo bash install.sh --mode nh \
   --domain vpn.example.com \
   --proxy-email admin@example.com \
-  --nh-access subdomain \
+  --panel-access subdomain \
   --panel-domain panel.example.com \
   --panel-email admin@example.com \
   --install \
@@ -166,9 +163,9 @@ Use this when you want the default 15 profiles plus Cloudflare WARP for AI routi
 ```bash
 sudo bash install.sh --mode all \
     --xui-domain xui.example.com \
-    --nh-domain naive.example.com \
+    --rixxx-domain naive.example.com \
     --reality-dest reality.example.com \
-    --nh-email admin@example.com \
+    --rixxx-email admin@example.com \
     --install-warp \
     --profile-count 15 \
     --profile-prefix auto \
@@ -180,25 +177,25 @@ In this mode:
 
 - `install-warp.sh` prepares local WARP proxy on `127.0.0.1:40000`.
 - x-ui WARP routing snippet is generated for AI domains.
-- Normal x-ui, NaiveProxy, Hysteria2, and subscription generation still work.
+- Normal x-ui generation still works; NaiveProxy and Mieru users are managed in RIXXX Panel.
 
 ## Existing Certificates
 
-If the NHM/NaiveProxy domain already has a certificate, pass it explicitly:
+If the RIXXX/NaiveProxy domain already has a certificate, pass it explicitly:
 
 ```bash
 sudo bash install.sh --mode all \
   --xui-domain xui.example.com \
-  --nh-domain naive.example.com \
+  --rixxx-domain naive.example.com \
   --reality-dest reality.example.com \
-  --nh-email admin@example.com \
+  --rixxx-email admin@example.com \
   --tls-cert /etc/letsencrypt/live/naive.example.com/fullchain.pem \
   --tls-key /etc/letsencrypt/live/naive.example.com/privkey.pem \
   --install \
   --yes
 ```
 
-If no certificate paths are provided, all-in-one mode first tries nginx HTTP-01 on port `80`. If that fails, it tries a standalone certbot fallback after checking that port `80` is free. The same certificate is used by Caddy-NH and Hysteria2.
+If no certificate paths are provided, all-in-one mode first tries nginx HTTP-01 on port `80`. If that fails, it tries a standalone certbot fallback after checking that port `80` is free. The same certificate is used by caddy-naive.
 
 ## WARP Routing
 
@@ -264,7 +261,7 @@ profile generation can still be tested independently. It also rewrites
 recursively expanded legacy profile names to stable short names without
 rotating per-client credentials.
 
-For NHM Panel, open `Bypass` and enable `AI through WARP for Hy2`. The panel writes Hysteria2 `outbounds` and ACL rules so matching AI domains use the same local WARP proxy. NaiveProxy cannot do this server-side because Caddy `forward_proxy` has no per-domain outbound ACL; configure NaiveProxy split routing in the client instead.
+For RIXXX Panel, NaiveProxy split routing remains client-side because Caddy `forward_proxy` has no per-domain outbound ACL. For Mieru, use RIXXX Panel routing controls when supported by the installed panel version.
 
 ### Sniffing
 
@@ -278,7 +275,7 @@ Generate or refresh profiles after installation:
 sudo bash generate-profiles.sh --yes
 ```
 
-By default this creates 15 x-ui clients on each selected preset inbound, 15 NaiveProxy profiles, and 15 NHM Hysteria2 profiles. It does not install WARP and does not write WARP routing. Fresh x-ui installs also include a separate 3x-ui-managed Hysteria2 UDP preset.
+By default this creates 15 x-ui clients on each selected preset inbound. It does not install WARP and does not write WARP routing. Fresh x-ui installs also include a separate 3x-ui-managed Hysteria2 UDP preset.
 
 The default supported x-ui line is the fixed legacy `2.9.4` release.
 `generate-profiles.sh` writes clients through its classic
@@ -317,10 +314,9 @@ x-ui:
   one x-ui subscription subId per client index
   no WARP routing unless explicitly enabled
 
-NHM:
-  15 NaiveProxy profiles with random usernames
-  15 Hysteria2 profiles with random usernames
-  token-protected subscription files
+RIXXX:
+  NaiveProxy and Mieru users are managed in RIXXX Panel
+  use rixxx-panel-access.sh to recover or reset panel credentials
 ```
 
 Custom count and prefix:
@@ -361,59 +357,19 @@ Generated reports:
 
 ```text
 /etc/x-ui/generated-clients.txt
-/opt/panel-naive-hy2/generated-profiles.txt
 ```
 
-NHM subscription files:
+RIXXX Panel data:
 
 ```text
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/naive.txt
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/hy2.txt
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/all.txt
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/RANDOM_SUBSCRIPTION_ID.txt
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/RANDOM_SUBSCRIPTION_ID.b64
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/combined.txt
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/combined.b64
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/v2rayn.txt
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/v2rayn.b64
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/v2rayn-raw.txt
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/v2rayn-stable.txt
-/opt/panel-naive-hy2/subscriptions/SUBSCRIPTION_TOKEN/sing-box.json
+/etc/rixxx-panel/config.json
+/etc/rixxx-panel/access-info.env
+/var/lib/rixxx-panel/db.sqlite
 ```
 
-Combined per-client subscriptions first pull the matching 3x-ui subscription, then normalize visible names from the Reality profile name and append NaiveProxy and Hysteria2 links. The NHM username/password in NaiveProxy and Hysteria2 links is unchanged.
+Generated x-ui link names use the Reality client name as the base. RIXXX NaiveProxy and Mieru users are created inside RIXXX Panel and are independent from 3x-ui clients.
 
-Generated x-ui link names use the Reality client name as the base. NHM account usernames and per-client subscription filenames are random and stored in `/etc/nh-panel/generated-profile-map.json`, so reruns keep existing names stable.
-
-Refresh combined subscriptions after changing names in 3x-ui:
-
-```bash
-sudo bash update-subscriptions.sh --yes
-```
-
-This does not edit x-ui clients, NHM users, inbounds, routing, or passwords.
-
-The subscription token is generated once and stored root-only:
-
-```bash
-sudo cat /etc/nh-panel/subscription-token
-```
-
-When NHM Panel is exposed on `8081`, subscription URLs look like:
-
-```text
-http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/naive.txt
-http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/hy2.txt
-http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/all.txt
-http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/RANDOM_SUBSCRIPTION_ID.txt
-http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/RANDOM_SUBSCRIPTION_ID.b64
-http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/combined.txt
-http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/v2rayn-stable.txt
-http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/v2rayn.txt
-http://SERVER_IP:8081/sub/SUBSCRIPTION_TOKEN/sing-box.json
-```
-
-Use `v2rayn-stable.txt` first for v2rayN. It is base64 and excludes newer XHTTP links for older clients. Use `v2rayn.txt` when your v2rayN supports all generated Xray links. `v2rayn-raw.txt` contains the same links as plain text. `combined.txt` includes NaiveProxy and Hysteria2 links too, and some Xray clients reject the whole subscription when they see unsupported `naive+https://` lines.
+Use RIXXX Panel to create/download NaiveProxy and Mieru client configs. Use the 3x-ui panel or x-ui subscription endpoint for Xray links.
 
 ## Optional x-ui Subscription Domain
 
@@ -507,11 +463,11 @@ sudo bash security-hardening.sh --apply --yes
 The recommended profile keeps SSH, `80/tcp`, `443/tcp`, `443/udp`, and the
 published ports of enabled x-ui presets open. This includes `8388/tcp` for the
 default Shadowsocks preset and `24443/udp` for the x-ui Hysteria2 preset in
-`--mode all`. It closes public NHM Panel port `8081/tcp`, installs fail2ban and
-unattended-upgrades, enables `probe_resistance` in `/etc/caddy-nh/Caddyfile`,
+`--mode all`. It closes public RIXXX Panel port `8081/tcp`, installs fail2ban and
+unattended-upgrades, enables `probe_resistance` in `/etc/caddy-naive/Caddyfile`,
 and restricts access files to `0600`.
 
-Access NHM Panel through an SSH tunnel after hardening:
+Access RIXXX Panel through an SSH tunnel after hardening:
 
 ```bash
 ssh -L 8081:127.0.0.1:8081 root@SERVER_IP
@@ -659,7 +615,7 @@ Remove Cloudflare WARP too:
 sudo bash uninstall-stack.sh --apply --yes --remove-warp
 ```
 
-The uninstaller stops and disables stack services, backs up removed files under `/opt/unified-proxy-manager/backups/uninstall-*`, removes x-ui/NHM/Caddy-NH/Hysteria stack files, removes stack nginx snippets and sites, cleans stack cron entries, and keeps reusable certificate stores.
+The uninstaller stops and disables stack services, backs up removed files under `/opt/unified-proxy-manager/backups/uninstall-*`, removes x-ui/RIXXX/caddy-naive/Hysteria stack files, removes stack nginx snippets and sites, cleans stack cron entries, and keeps reusable certificate stores.
 
 Uninstall only 3x-ui
 
@@ -682,7 +638,7 @@ Useful checks before and after changes:
 
 ```bash
 bash -n install.sh install-unified.sh install-xui-legacy.sh install-xui-latest.sh install-warp.sh generate-profiles.sh generate-xui-v3.sh repair-xui-inbounds.sh status.sh doctor.sh show-access-info.sh uninstall-stack.sh
-bash install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email a@example.com --dry-run
+bash install.sh --mode all --xui-domain x.example.com --rixxx-domain n.example.com --reality-dest r.example.com --rixxx-email a@example.com --dry-run
 bash install-warp.sh --help
 bash generate-profiles.sh --help
 bash tests/common-regression.sh
@@ -699,7 +655,8 @@ On Windows, use a working WSL or Git/MSYS Bash. The real target is Ubuntu 22.04/
 .
 +-- components/
 |   +-- x-ui-pro/
-|   +-- nh-panel/
+|   +-- rixxx-panel/
+|   +-- nm-panel/
 +-- docs/
 |   +-- ARCHITECTURE.md
 |   +-- PORTS.md

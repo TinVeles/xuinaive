@@ -10,7 +10,7 @@ source "$SCRIPT_DIR/lib/xui-routing.sh"
 APPLY=0
 ASSUME_YES=0
 SSH_PORT="22"
-PANEL_PORT="8081"
+PANEL_PORT="3000"
 PANEL_MODE="ssh-only"
 ALLOW_PANEL_FROM=""
 INSTALL_FAIL2BAN=1
@@ -34,14 +34,14 @@ Options:
   --apply                     Apply changes. Without this, only prints actions.
   --yes                       Do not ask for confirmation.
   --ssh-port PORT             SSH port to keep open in UFW. Default: 22.
-  --panel-port PORT           NHM Panel public nginx port. Default: 8081.
+  --panel-port PORT           RIXXX Panel local port. Default: 3000.
   --panel-mode ssh-only       Close panel port publicly. Default.
   --panel-mode public         Keep panel port publicly open.
   --panel-mode allow-ip       Allow panel only from --allow-panel-from.
   --allow-panel-from CIDR     IP/CIDR allowed to access panel, for allow-ip mode.
   --no-fail2ban               Do not install/configure fail2ban.
   --no-auto-updates           Do not install/configure unattended-upgrades.
-  --no-probe-resistance       Do not add probe_resistance to /etc/caddy-nh/Caddyfile.
+  --no-probe-resistance       Do not add probe_resistance to /etc/caddy-naive/Caddyfile.
   --ssh-disable-password      Disable SSH password login.
   --ssh-disable-root          Disable SSH root login. Risky unless a sudo user exists.
   --allow-port PORT[/PROTO]   Keep an extra port open, e.g. 2053/tcp. Repeatable.
@@ -51,7 +51,7 @@ Firewall profile:
   allow SSH_PORT/tcp
   allow 80/tcp
   allow 443/tcp
-  allow 443/udp
+  allow Mieru ports when configured separately
   preserve published ports for enabled x-ui presets
   close or restrict PANEL_PORT/tcp depending on panel mode
 EOF
@@ -169,7 +169,7 @@ fi
 backup_dir="/opt/unified-proxy-manager/backups/security-$(date '+%Y-%m-%d-%H-%M-%S')"
 if [[ "$APPLY" -eq 1 ]]; then
   mkdir -p "$backup_dir"
-  for path in /etc/ufw /etc/fail2ban /etc/ssh/sshd_config /etc/ssh/sshd_config.d /etc/caddy-nh/Caddyfile "$SCRIPT_DIR/config.env" "$SCRIPT_DIR/access-info.txt"; do
+  for path in /etc/ufw /etc/fail2ban /etc/ssh/sshd_config /etc/ssh/sshd_config.d /etc/caddy-naive/Caddyfile "$SCRIPT_DIR/config.env" "$SCRIPT_DIR/access-info.txt"; do
     if [[ -e "$path" || -L "$path" ]]; then
       mkdir -p "$backup_dir$(dirname "$path")"
       cp -a "$path" "$backup_dir$(dirname "$path")/" || true
@@ -228,31 +228,31 @@ ${ssh_root_line}"
 fi
 
 if [[ "$ENABLE_PROBE_RESISTANCE" -eq 1 ]]; then
-  if [[ -f /etc/caddy-nh/Caddyfile ]]; then
-    if grep -q 'probe_resistance' /etc/caddy-nh/Caddyfile; then
-      ok "probe_resistance is already present in /etc/caddy-nh/Caddyfile"
+  if [[ -f /etc/caddy-naive/Caddyfile ]]; then
+    if grep -q 'probe_resistance' /etc/caddy-naive/Caddyfile; then
+      ok "probe_resistance is already present in /etc/caddy-naive/Caddyfile"
     else
-      caddy_backup="/etc/caddy-nh/Caddyfile.bak.$(date +%Y%m%d-%H%M%S)"
+      caddy_backup="/etc/caddy-naive/Caddyfile.bak.$(date +%Y%m%d-%H%M%S)"
       if [[ "$APPLY" -eq 1 ]]; then
-        cp -a /etc/caddy-nh/Caddyfile "$caddy_backup" || die "Failed to backup Caddyfile"
-        printf '+ cp -a /etc/caddy-nh/Caddyfile %s\n' "$caddy_backup"
+        cp -a /etc/caddy-naive/Caddyfile "$caddy_backup" || die "Failed to backup Caddyfile"
+        printf '+ cp -a /etc/caddy-naive/Caddyfile %s\n' "$caddy_backup"
       else
-        printf '[dry-run] cp -a /etc/caddy-nh/Caddyfile %s\n' "$caddy_backup"
+        printf '[dry-run] cp -a /etc/caddy-naive/Caddyfile %s\n' "$caddy_backup"
       fi
-      run sed -i '/hide_via/a\    probe_resistance' /etc/caddy-nh/Caddyfile
+      run sed -i '/hide_via/a\    probe_resistance' /etc/caddy-naive/Caddyfile
       if [[ "$APPLY" -eq 1 ]]; then
-        if ! /usr/bin/caddy-nh validate --config /etc/caddy-nh/Caddyfile; then
+        if ! /usr/bin/caddy-naive validate --config /etc/caddy-naive/Caddyfile; then
           warn "Caddyfile validation failed; restoring $caddy_backup"
-          cp -a "$caddy_backup" /etc/caddy-nh/Caddyfile || true
+          cp -a "$caddy_backup" /etc/caddy-naive/Caddyfile || true
           die "Caddyfile validation failed after probe_resistance change"
         fi
       else
-        printf '[dry-run] /usr/bin/caddy-nh validate --config /etc/caddy-nh/Caddyfile\n'
+        printf '[dry-run] /usr/bin/caddy-naive validate --config /etc/caddy-naive/Caddyfile\n'
       fi
-      run systemctl reload caddy-nh
+      run systemctl reload caddy-naive
     fi
   else
-    warn "/etc/caddy-nh/Caddyfile not found; skipping probe_resistance"
+    warn "/etc/caddy-naive/Caddyfile not found; skipping probe_resistance"
   fi
 fi
 
@@ -355,13 +355,13 @@ for port in 80 443 9445 "$PANEL_PORT"; do
   fi
 done
 
-if [[ -f /etc/caddy-nh/Caddyfile ]]; then
-  if grep -qE '^:9445, .*:9445 \{' /etc/caddy-nh/Caddyfile; then
-    ok "NHM Caddyfile uses Naive-compatible :9445, domain:9445 site address"
+if [[ -f /etc/caddy-naive/Caddyfile ]]; then
+  if grep -qE '^[A-Za-z0-9_.-]+:9445[[:space:]]*\{' /etc/caddy-naive/Caddyfile; then
+    ok "RIXXX Caddyfile uses backend-only domain:9445 site address"
   else
-    warn "NHM Caddyfile site address does not look like ':9445, domain:9445 {'"
+    warn "RIXXX Caddyfile site address does not look like 'domain:9445 {'"
   fi
-  if grep -q 'bind 127.0.0.1' /etc/caddy-nh/Caddyfile; then
+  if grep -q 'bind 127.0.0.1' /etc/caddy-naive/Caddyfile; then
     ok "Caddy backend is bound to 127.0.0.1"
   else
     warn "Caddy backend bind 127.0.0.1 not found"
@@ -372,13 +372,13 @@ echo
 echo "Access hints"
 echo "------------"
 if [[ "$PANEL_MODE" == "ssh-only" ]]; then
-  echo "NHM Panel via SSH tunnel:"
-  echo "  ssh -L ${PANEL_PORT}:127.0.0.1:${PANEL_PORT} root@${server_ip:-SERVER_IP}"
-  echo "  http://127.0.0.1:${PANEL_PORT}"
+  echo "RIXXX Panel via SSH tunnel:"
+  echo "  ssh -L 3000:127.0.0.1:3000 root@${server_ip:-SERVER_IP}"
+  echo "  http://127.0.0.1:3000"
 elif [[ "$PANEL_MODE" == "allow-ip" ]]; then
-  echo "NHM Panel allowed only from ${ALLOW_PANEL_FROM}: http://${server_ip:-SERVER_IP}:${PANEL_PORT}"
+  echo "RIXXX Panel allowed only from ${ALLOW_PANEL_FROM}: http://${server_ip:-SERVER_IP}:${PANEL_PORT}"
 else
-  echo "NHM Panel remains public: http://${server_ip:-SERVER_IP}:${PANEL_PORT}"
+  echo "RIXXX Panel remains public: http://${server_ip:-SERVER_IP}:${PANEL_PORT}"
 fi
 
 echo

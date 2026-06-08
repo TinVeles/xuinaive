@@ -11,12 +11,12 @@ source "$LIB_DIR/warp.sh"
 MODE=""
 XUI_DOMAIN=""
 NAIVE_DOMAIN=""
-NH_DOMAIN=""
+RIXXX_DOMAIN_VALUE=""
 REALITY_DEST=""
 NAIVE_EMAIL=""
-NH_EMAIL=""
+RIXXX_EMAIL_VALUE=""
 ASSUME_YES=0
-NH_BACKEND="127.0.0.1:9445"
+RIXXX_BACKEND_VALUE="127.0.0.1:9445"
 PANEL_ACCESS="ssh-tunnel"
 PANEL_PUBLIC_PORT="8081"
 TLS_CERT=""
@@ -35,7 +35,7 @@ XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
 XUI_HY2_PUBLIC_PORT="${XUI_HY2_PUBLIC_PORT:-24443}"
 XUI_PANEL_LINE="${XUI_PANEL_LINE:-legacy}"
 PRINT_ACCESS_INFO=1
-NH_ENABLE_MIERU=0
+RIXXX_ENABLE_MIERU=1
 ALLOW_DESTROY_EXISTING="${UPM_ALLOW_DESTROY_EXISTING:-0}"
 
 usage() {
@@ -43,12 +43,11 @@ usage() {
 Usage:
   sudo ./install-unified.sh --mode all \
     --xui-domain xui.example.com \
-    --nh-domain naive.example.com \
+    --rixxx-domain naive.example.com \
     --reality-dest reality.example.com \
-    --nh-email admin@example.com \
+    --rixxx-email admin@example.com \
     [--xui-panel-line legacy|latest] \
     [--tls-cert /path/fullchain.pem --tls-key /path/privkey.pem] \
-    [--with-mieru] \
     [--install-warp] \
     [--no-install-warp] \
     [--allow-destroy-existing] \
@@ -187,12 +186,11 @@ while [[ $# -gt 0 ]]; do
     --xui-domain) XUI_DOMAIN="${2:-}"; shift 2 ;;
     --xui-panel-line) XUI_PANEL_LINE="${2:-}"; shift 2 ;;
     --naive-domain) NAIVE_DOMAIN="${2:-}"; shift 2 ;;
-    --nh-domain) NH_DOMAIN="${2:-}"; shift 2 ;;
+    --rixxx-domain) RIXXX_DOMAIN_VALUE="${2:-}"; shift 2 ;;
     --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
     --naive-email) NAIVE_EMAIL="${2:-}"; shift 2 ;;
-    --nh-email) NH_EMAIL="${2:-}"; shift 2 ;;
-    --naive-backend) NH_BACKEND="${2:-}"; shift 2 ;;
-    --nh-backend) NH_BACKEND="${2:-}"; shift 2 ;;
+    --rixxx-email) RIXXX_EMAIL_VALUE="${2:-}"; shift 2 ;;
+    --naive-backend) RIXXX_BACKEND_VALUE="${2:-}"; shift 2 ;;
     --panel-access) PANEL_ACCESS="${2:-}"; shift 2 ;;
     --panel-public-port) PANEL_PUBLIC_PORT="${2:-}"; shift 2 ;;
     --tls-cert) TLS_CERT="${2:-}"; shift 2 ;;
@@ -213,7 +211,7 @@ while [[ $# -gt 0 ]]; do
     --xui-warp-routing) XUI_ENABLE_WARP_ROUTING=1; shift ;;
     --apply-xui-warp-template) XUI_APPLY_WARP_TEMPLATE=1; shift ;;
     --no-apply-xui-warp-template) XUI_APPLY_WARP_TEMPLATE=0; shift ;;
-    --with-mieru|--enable-mieru) NH_ENABLE_MIERU=1; shift ;;
+    --with-mieru|--enable-mieru) RIXXX_ENABLE_MIERU=1; shift ;;
     --no-access-info) PRINT_ACCESS_INFO=0; shift ;;
     --yes) ASSUME_YES=1; shift ;;
     --allow-destroy-existing) ALLOW_DESTROY_EXISTING=1; shift ;;
@@ -224,20 +222,20 @@ done
 
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "Run as root"
 [[ "$MODE" == "all" || "$MODE" == "both" ]] || die "This real unified installer supports --mode all"
-[[ -n "$NH_DOMAIN" ]] || NH_DOMAIN="$NAIVE_DOMAIN"
-[[ -n "$NH_EMAIL" ]] || NH_EMAIL="$NAIVE_EMAIL"
+[[ -n "$RIXXX_DOMAIN_VALUE" ]] || RIXXX_DOMAIN_VALUE="$NAIVE_DOMAIN"
+[[ -n "$RIXXX_EMAIL_VALUE" ]] || RIXXX_EMAIL_VALUE="$NAIVE_EMAIL"
 [[ -n "$XUI_DOMAIN" ]] || die "--xui-domain is required"
-[[ -n "$NH_DOMAIN" ]] || die "--nh-domain is required"
+[[ -n "$RIXXX_DOMAIN_VALUE" ]] || die "--rixxx-domain is required"
 [[ -n "$REALITY_DEST" ]] || die "--reality-dest is required"
-[[ -n "$NH_EMAIL" ]] || die "--nh-email is required"
+[[ -n "$RIXXX_EMAIL_VALUE" ]] || die "--rixxx-email is required"
 is_valid_domain "$XUI_DOMAIN" || die "--xui-domain is invalid: $XUI_DOMAIN"
-is_valid_domain "$NH_DOMAIN" || die "--nh-domain is invalid: $NH_DOMAIN"
+is_valid_domain "$RIXXX_DOMAIN_VALUE" || die "--rixxx-domain is invalid: $RIXXX_DOMAIN_VALUE"
 is_valid_domain "$REALITY_DEST" || die "--reality-dest is invalid: $REALITY_DEST"
-is_valid_email "$NH_EMAIL" || die "--nh-email is invalid: $NH_EMAIL"
+is_valid_email "$RIXXX_EMAIL_VALUE" || die "--rixxx-email is invalid: $RIXXX_EMAIL_VALUE"
 is_valid_port "$PANEL_PUBLIC_PORT" || die "--panel-public-port must be 1..65535"
 is_valid_port "$XUI_HY2_PUBLIC_PORT" || die "XUI_HY2_PUBLIC_PORT must be 1..65535"
 [[ "$XUI_PANEL_LINE" == "legacy" || "$XUI_PANEL_LINE" == "latest" ]] || die "--xui-panel-line must be legacy or latest"
-is_valid_hostport "$NH_BACKEND" || die "--nh-backend must be safe host:port"
+is_valid_hostport "$RIXXX_BACKEND_VALUE" || die "--naive-backend must be safe host:port"
 if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
   [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
   [[ -f "$TLS_KEY" ]] || die "--tls-key file not found: $TLS_KEY"
@@ -250,22 +248,22 @@ fi
 
 XUI_SCRIPT="$SCRIPT_DIR/components/x-ui-pro/x-ui-pro.sh"
 SNI_PATCH="$SCRIPT_DIR/components/x-ui-pro/apply-naive-sni-route.sh"
-NH_BACKEND_INSTALL="$SCRIPT_DIR/components/rixxx-panel/install-unified-backend.sh"
+RIXXX_BACKEND_INSTALL="$SCRIPT_DIR/components/rixxx-panel/install-unified-backend.sh"
 
 [[ -f "$XUI_SCRIPT" ]] || die "Missing $XUI_SCRIPT"
 [[ -f "$SNI_PATCH" ]] || die "Missing $SNI_PATCH"
-[[ -f "$NH_BACKEND_INSTALL" ]] || die "Missing $NH_BACKEND_INSTALL"
+[[ -f "$RIXXX_BACKEND_INSTALL" ]] || die "Missing $RIXXX_BACKEND_INSTALL"
 
 cat <<EOF
 Final configuration
 -------------------
 XUI domain:          ${XUI_DOMAIN}
-RIXXX domain:       ${NH_DOMAIN}
+RIXXX domain:       ${RIXXX_DOMAIN_VALUE}
 Reality dest:        ${REALITY_DEST}
-RIXXX email:        ${NH_EMAIL}
+RIXXX email:        ${RIXXX_EMAIL_VALUE}
 x-ui line:           ${XUI_PANEL_LINE}
 Panel port:          ${PANEL_PUBLIC_PORT}
-Backend listen:      ${NH_BACKEND}
+Backend listen:      ${RIXXX_BACKEND_VALUE}
 x-ui Hysteria2 UDP:  ${XUI_HY2_PUBLIC_PORT}
 Mieru module:        enabled
 TLS cert:            ${TLS_CERT:-auto/ACME}
@@ -276,9 +274,9 @@ Unified all-in-one real install plan
 1. Run vendored x-ui-pro installer.
    Public nginx stream will own 0.0.0.0:443.
 2. Patch /etc/nginx/stream-enabled/stream.conf:
-   ${NH_DOMAIN} -> ${NH_BACKEND}
+   ${RIXXX_DOMAIN_VALUE} -> ${RIXXX_BACKEND_VALUE}
 3. Install RIXXX Panel + NaiveProxy + Mieru:
-   caddy-naive binds backend port ${NH_BACKEND##*:} for TCP NaiveProxy.
+   caddy-naive binds backend port ${RIXXX_BACKEND_VALUE##*:} for TCP NaiveProxy.
    Mieru binds its own public TCP/UDP port range.
    x-ui Hysteria2 keeps its separate ${XUI_HY2_PUBLIC_PORT}/udp listener.
    panel-naive-mieru is exposed with panel access mode ${PANEL_ACCESS} on port ${PANEL_PUBLIC_PORT}.
@@ -292,7 +290,7 @@ EOF
 
 backup_dir="/opt/unified-proxy-manager/backups/$(date '+%Y-%m-%d-%H-%M-%S')"
 mkdir -p "$backup_dir"
-for path in /etc/nginx /etc/x-ui /usr/local/x-ui /etc/caddy-nh /etc/hysteria /opt/panel-naive-hy2 /etc/caddy-naive /etc/rixxx-panel /opt/panel-naive-mieru /var/lib/rixxx-panel /etc/systemd/system/x-ui.service /etc/systemd/system/caddy-nh.service /etc/systemd/system/hysteria-server.service /etc/systemd/system/panel-naive-hy2.service /etc/systemd/system/caddy-naive.service /etc/systemd/system/mita.service; do
+for path in /etc/nginx /etc/x-ui /usr/local/x-ui /etc/caddy-naive /etc/rixxx-panel /opt/panel-naive-mieru /var/lib/rixxx-panel /etc/systemd/system/x-ui.service /etc/systemd/system/caddy-naive.service /etc/systemd/system/mita.service; do
   if [[ -e "$path" || -L "$path" ]]; then
     parent_dir="$(dirname "$path")"
     mkdir -p "$backup_dir$parent_dir"
@@ -349,24 +347,24 @@ if [[ "$AUTO_INSTALL_WARP" == "1" && "$XUI_ENABLE_WARP_ROUTING" == "1" ]]; then
 fi
 
 info "Adding nginx stream route for RIXXX NaiveProxy"
-bash "$SNI_PATCH" --domain "$NH_DOMAIN" --backend "$NH_BACKEND" --name nh_naive
+bash "$SNI_PATCH" --domain "$RIXXX_DOMAIN_VALUE" --backend "$RIXXX_BACKEND_VALUE" --name rixxx_naive
 
 info "Installing RIXXX Panel + NaiveProxy + Mieru backend"
-nh_args=(
-  --domain "$NH_DOMAIN"
-  --email "$NH_EMAIL"
-  --listen "$NH_BACKEND"
+rixxx_args=(
+  --domain "$RIXXX_DOMAIN_VALUE"
+  --email "$RIXXX_EMAIL_VALUE"
+  --listen "$RIXXX_BACKEND_VALUE"
   --panel-access "$PANEL_ACCESS"
   --panel-public-port "$PANEL_PUBLIC_PORT"
 )
-[[ -n "$TLS_CERT" ]] && nh_args+=(--tls-cert "$TLS_CERT")
-[[ -n "$TLS_KEY" ]] && nh_args+=(--tls-key "$TLS_KEY")
-nh_args+=(--with-mieru)
+[[ -n "$TLS_CERT" ]] && rixxx_args+=(--tls-cert "$TLS_CERT")
+[[ -n "$TLS_KEY" ]] && rixxx_args+=(--tls-key "$TLS_KEY")
+rixxx_args+=(--with-mieru)
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}" \
 WARP_PROXY_PORT="$WARP_PROXY_PORT" \
 WARP_OUTBOUND_TAG="$WARP_OUTBOUND_TAG" \
 WARP_AI_DOMAINS="$WARP_AI_DOMAINS" \
-bash "$NH_BACKEND_INSTALL" "${nh_args[@]}"
+bash "$RIXXX_BACKEND_INSTALL" "${rixxx_args[@]}"
 
 require_active caddy-naive
 if systemctl is-active --quiet mita; then
@@ -391,9 +389,6 @@ NH_PANEL_PASSWORD_FINAL="$(config_value NH_PANEL_PASSWORD)"
 NH_NAIVE_LOGIN_FINAL="$(config_value NH_NAIVE_LOGIN)"
 NH_NAIVE_PASSWORD_FINAL="$(config_value NH_NAIVE_PASSWORD)"
 NH_NAIVE_LINK_FINAL="$(config_value NH_NAIVE_LINK)"
-NH_HY2_USER_FINAL="$(config_value NH_HY2_USER)"
-NH_HY2_PASSWORD_FINAL="$(config_value NH_HY2_PASSWORD)"
-NH_HY2_LINK_FINAL="$(config_value NH_HY2_LINK)"
 XUI_PANEL_URL_FINAL="$(config_value XUI_PANEL_URL /etc/x-ui/access-info.env)"
 XUI_PANEL_LOGIN_FINAL="$(config_value XUI_PANEL_LOGIN /etc/x-ui/access-info.env)"
 XUI_PANEL_PASSWORD_FINAL="$(config_value XUI_PANEL_PASSWORD /etc/x-ui/access-info.env)"
@@ -403,13 +398,17 @@ config_set XUI_PANEL_LINE "$XUI_PANEL_LINE"
 config_set XUI_PANEL_URL "$XUI_PANEL_URL_FINAL"
 config_set XUI_PANEL_LOGIN "$XUI_PANEL_LOGIN_FINAL"
 config_set XUI_PANEL_PASSWORD "$XUI_PANEL_PASSWORD_FINAL"
-config_set NAIVE_DOMAIN "$NH_DOMAIN"
+config_set NAIVE_DOMAIN "$RIXXX_DOMAIN_VALUE"
 config_set REALITY_DEST "$REALITY_DEST"
-config_set NH_PROXY_DOMAIN "$NH_DOMAIN"
+config_set RIXXX_DOMAIN "$RIXXX_DOMAIN_VALUE"
+config_set RIXXX_EMAIL "$RIXXX_EMAIL_VALUE"
+config_set RIXXX_BACKEND_LISTEN "$RIXXX_BACKEND_VALUE"
+config_set RIXXX_ACCESS "$PANEL_ACCESS"
+config_set NH_PROXY_DOMAIN "$RIXXX_DOMAIN_VALUE"
 config_set NH_PANEL_DOMAIN ""
-config_set NH_EMAIL "$NH_EMAIL"
+config_set NH_EMAIL "$RIXXX_EMAIL_VALUE"
 config_set NH_PANEL_PORT "$PANEL_PUBLIC_PORT"
-config_set NH_BACKEND_LISTEN "$NH_BACKEND"
+config_set NH_BACKEND_LISTEN "$RIXXX_BACKEND_VALUE"
 config_set NH_BACKEND_KIND "rixxx-naive-mieru"
 config_set NH_ENABLE_MIERU "1"
 config_set NH_TLS_CERT "$NH_TLS_CERT_FINAL"
@@ -420,9 +419,6 @@ config_set NH_PANEL_PASSWORD "$NH_PANEL_PASSWORD_FINAL"
 config_set NH_NAIVE_LOGIN "$NH_NAIVE_LOGIN_FINAL"
 config_set NH_NAIVE_PASSWORD "$NH_NAIVE_PASSWORD_FINAL"
 config_set NH_NAIVE_LINK "$NH_NAIVE_LINK_FINAL"
-config_set NH_HY2_USER "$NH_HY2_USER_FINAL"
-config_set NH_HY2_PASSWORD "$NH_HY2_PASSWORD_FINAL"
-config_set NH_HY2_LINK "$NH_HY2_LINK_FINAL"
 config_set PROFILE_COUNT "$PROFILE_COUNT"
 config_set PROFILE_PREFIX "$PROFILE_PREFIX"
 config_set XUI_PROFILES_GENERATED "$GENERATE_PROFILES"

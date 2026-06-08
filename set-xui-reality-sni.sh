@@ -30,7 +30,7 @@ What it does:
   - restarts x-ui and reloads nginx
 
 Notes:
-  REALITY_DOMAIN must be different from x-ui, NHM/Naive, and subscription domains.
+  REALITY_DOMAIN must be different from x-ui, RIXXX/Naive, and subscription domains.
   If target is local 127.0.0.1:9443, nginx must have a TLS server for REALITY_DOMAIN there.
 EOF
 }

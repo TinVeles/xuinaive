@@ -27,21 +27,20 @@ Based on `AUDIT.md`, these are the important upstream ports to check before any 
 - `7443/tcp`: x-ui-pro HTTPS/web backend.
 - Random high TCP ports: x-ui-pro REALITY backends routed by decoy SNI.
 - `9443/tcp`: x-ui-pro REALITY destination nginx backend.
-- `9445/tcp` on `127.0.0.1`: NHM NaiveProxy/Caddy backend service `caddy-nh`.
-- `443/udp`: NHM Hysteria2 service `hysteria-server`.
+- `9445/tcp` on `127.0.0.1`: RIXXX NaiveProxy/Caddy backend service `caddy-naive`.
+- `2012/tcp` and configured Mieru range: RIXXX Mieru service `mita`.
 - `24443/udp`: x-ui Hysteria2 preset by default in `--mode all`. Override
   with `XUI_HY2_PUBLIC_PORT` if needed.
 - `8388/tcp`: x-ui Shadowsocks preset by default.
-- `3000/tcp`: NHM Panel service `panel-naive-hy2`.
-- `8081/tcp`: nginx HTTP proxy to the NHM Panel by default.
+- `3000/tcp` on `127.0.0.1`: RIXXX Panel PM2 process `panel-naive-mieru`.
 - `40000/tcp` on `127.0.0.1`: optional Cloudflare WARP local proxy when `--install-warp` is used.
 
-In all-in-one mode, NaiveProxy clients still connect to external `443`; nginx stream routes the NHM/NaiveProxy domain SNI to `127.0.0.1:9445`. The backend Caddyfile disables automatic HTTP redirects, uses an explicit certificate/key, and enables the `proxy_protocol` listener wrapper before TLS because nginx stream sends PROXY protocol to backend services.
+In all-in-one mode, NaiveProxy clients still connect to external `443`; nginx stream routes the RIXXX/NaiveProxy domain SNI to `127.0.0.1:9445`. The backend Caddyfile disables automatic HTTP redirects, uses an explicit certificate/key, and enables the `proxy_protocol` listener wrapper before TLS because nginx stream sends PROXY protocol to backend services.
 
-## NHM Panel Mode
+## RIXXX Panel Mode
 
 - `443/tcp`: public Caddy HTTPS and NaiveProxy forward_proxy.
-- `443/udp`: Hysteria2 when enabled.
+- `2012/tcp` and configured Mieru range: Mieru.
 - `3000/tcp`: Node.js panel internal/direct port.
 - `8080/tcp`: optional nginx panel proxy mode.
 - `80/tcp`: ACME/HTTP.
@@ -66,5 +65,6 @@ In all-in-one mode, NaiveProxy clients still connect to external `443`; nginx st
 ## Conflict Rule
 
 On one VPS, only one process should own public `443/tcp`. In `--mode all`,
-nginx owns public `443/tcp`; NHM Caddy is moved to loopback. NHM Hysteria2 owns
-`443/udp`, while the x-ui Hysteria2 preset uses separate `24443/udp`.
+nginx owns public `443/tcp`; RIXXX Caddy is moved to loopback. Mieru uses its
+own configured public port range, while the x-ui Hysteria2 preset uses separate
+`24443/udp`.

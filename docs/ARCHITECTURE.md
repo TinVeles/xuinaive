@@ -8,7 +8,8 @@ This project has a dry-run planner and an explicit real installer.
 
 ```text
 components/x-ui-pro
-components/nh-panel
+components/rixxx-panel
+components/nm-panel
 ```
 
 The manager reads system state, validates the vendored component files, and either prints a plan or runs the explicit guarded installer. It no longer keeps local clone directories for external projects.
@@ -30,18 +31,18 @@ Common Bash behavior lives under `lib/` and is sourced by the public scripts ins
 
 The supported x-ui WARP model is normal x-ui inbounds plus a local SOCKS proxy at `127.0.0.1:40000`. Profile generation writes the AI-domain routing snippet by default and does not edit x-ui routing settings unless `XUI_APPLY_WARP_TEMPLATE=1` or `--apply-xui-warp-template` is used. The project no longer creates or deletes `*-warp` clone inbounds.
 
-NHM Panel also exposes a Hysteria2-only WARP routing control on the Bypass page. It reuses the same local WARP SOCKS proxy and writes Hysteria2 `outbounds` plus ACL rules, so AI domains can leave through WARP while unmatched Hy2 traffic remains direct. NaiveProxy stays client-side only for this kind of split routing because Caddy `forward_proxy` has no server-side per-domain outbound ACL.
+RIXXX Panel manages NaiveProxy and Mieru. NaiveProxy split routing is client-side because Caddy `forward_proxy` has no server-side per-domain outbound ACL. Mieru routing depends on the installed RIXXX panel controls.
 
 ## Resulting Panels
 
 The current implementation installs the full stack in one command, while keeping the management dashboards separate.
 
 - x-ui-pro / 3x-ui remains the management panel for Xray/3x-ui.
-- NHM Panel remains the management panel for NaiveProxy + Hysteria2.
-- `--mode all` installs x-ui-pro plus NHM Panel, NaiveProxy, and Hysteria2.
-- `--mode nh` installs NaiveProxy + Hy2 through the NHM Panel, without 3x-ui.
+- RIXXX Panel remains the management panel for NaiveProxy + Mieru.
+- `--mode all` installs x-ui-pro plus RIXXX Panel, NaiveProxy, and Mieru.
+- `--mode nh` installs NaiveProxy + Mieru through the RIXXX Panel, without 3x-ui.
 
-A true single dashboard that manages NaiveProxy + Hysteria2 + 3x-ui together would still need a dedicated integration layer.
+A true single dashboard that manages NaiveProxy + Mieru + 3x-ui together would still need a dedicated integration layer.
 
 ## Real Installer Safety
 
@@ -59,11 +60,11 @@ Real installation is gated behind `--install --yes`.
 `--mode all` resolves the public `443/tcp` conflict this way:
 
 - x-ui-pro nginx stream owns public `443/tcp`;
-- NHM Caddy/NaiveProxy binds only `127.0.0.1:9445`;
-- nginx stream routes the NHM/NaiveProxy SNI domain to `127.0.0.1:9445`;
-- NHM Hysteria2 binds public `443/udp`, which does not conflict with nginx TCP;
+- RIXXX Caddy/NaiveProxy binds only `127.0.0.1:9445`;
+- nginx stream routes the RIXXX/NaiveProxy SNI domain to `127.0.0.1:9445`;
+- Mieru binds its configured public TCP/UDP port range, usually starting at `2012`;
 - the x-ui Hysteria2 preset binds separate `24443/udp` by default in all mode.
 
-## NHM Standalone Mode
+## RIXXX Standalone Mode
 
-`--mode nh` remains available for installing only the NHM Panel + NaiveProxy + Hysteria2 stack. Use `--mode all` for 3x-ui + NHM together.
+`--mode nh` remains available for installing only the RIXXX Panel + NaiveProxy + Mieru stack. Use `--mode all` for 3x-ui + RIXXX together.

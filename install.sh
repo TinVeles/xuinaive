@@ -36,17 +36,21 @@ XUI_DOMAIN="${XUI_DOMAIN:-}"
 NAIVE_DOMAIN="${NAIVE_DOMAIN:-}"
 REALITY_DEST="${REALITY_DEST:-}"
 NAIVE_EMAIL="${NAIVE_EMAIL:-}"
-NH_PROXY_DOMAIN="${NH_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
-NH_PROXY_EMAIL="${NH_PROXY_EMAIL:-${PROXY_EMAIL:-}}"
+RIXXX_DOMAIN="${RIXXX_DOMAIN:-}"
+RIXXX_EMAIL="${RIXXX_EMAIL:-}"
+RIXXX_BACKEND_LISTEN="${RIXXX_BACKEND_LISTEN:-}"
+RIXXX_ACCESS="${RIXXX_ACCESS:-}"
+NH_PROXY_DOMAIN="${RIXXX_DOMAIN:-${NH_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}}"
+NH_PROXY_EMAIL="${RIXXX_EMAIL:-${NH_PROXY_EMAIL:-${PROXY_EMAIL:-}}}"
 NH_STACK="${NH_STACK:-both}"
-NH_ACCESS="${NH_ACCESS:-ssh-tunnel}"
+NH_ACCESS="${RIXXX_ACCESS:-${NH_ACCESS:-ssh-tunnel}}"
 NH_PANEL_DOMAIN="${NH_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
 NH_PANEL_EMAIL="${NH_PANEL_EMAIL:-${PANEL_EMAIL:-}}"
 NH_SSH_ONLY="${NH_SSH_ONLY:-0}"
 NH_MASQUERADE="${NH_MASQUERADE:-local}"
 NH_MASQUERADE_URL="${NH_MASQUERADE_URL:-}"
 NH_ALLOW_PORT_CONFLICT="${NH_ALLOW_PORT_CONFLICT:-0}"
-NH_ENABLE_MIERU="${NH_ENABLE_MIERU:-0}"
+NH_ENABLE_MIERU="${NH_ENABLE_MIERU:-1}"
 TLS_CERT="${TLS_CERT:-}"
 TLS_KEY="${TLS_KEY:-}"
 INSTALL_WARP="${INSTALL_WARP:-auto}"
@@ -98,10 +102,9 @@ Usage:
   ./install.sh --mode xui --xui-domain x.example.com --reality-dest r.example.com [--dry-run]
   ./install.sh --mode xui --xui-panel-line latest --xui-domain x.example.com --reality-dest r.example.com --install --yes
   ./install.sh --mode naive --naive-domain n.example.com [--dry-run]
-  ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install --yes
-  ./install.sh --mode all --xui-panel-line latest --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --install --yes
-  ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem --install --yes
-  ./install.sh --mode all --xui-domain x.example.com --nh-domain n.example.com --reality-dest r.example.com --nh-email admin@example.com --with-mieru --install --yes
+  ./install.sh --mode all --xui-domain x.example.com --rixxx-domain n.example.com --reality-dest r.example.com --rixxx-email admin@example.com --install --yes
+  ./install.sh --mode all --xui-panel-line latest --xui-domain x.example.com --rixxx-domain n.example.com --reality-dest r.example.com --rixxx-email admin@example.com --install --yes
+  ./install.sh --mode all --xui-domain x.example.com --rixxx-domain n.example.com --reality-dest r.example.com --rixxx-email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem --install --yes
   ./install.sh --mode nh --domain vpn.example.com --proxy-email admin@example.com --install --yes
   bash <(wget -qO- RAW_INSTALL_URL)
 
@@ -114,6 +117,7 @@ Use --install-warp only when Cloudflare WARP should be installed and used for AI
 Use --no-generate-profiles only for minimal/manual recovery installs.
 The default x-ui panel line is legacy (fixed 2.9.4). Use --xui-panel-line latest for the current upstream v3 release with SQLite.
 Mode nh installs only the standalone RIXXX NaiveProxy + Mieru web panel.
+Use --rixxx-domain/--rixxx-email for RIXXX Panel installs.
 EOF
 }
 
@@ -177,12 +181,12 @@ collect_interactive_inputs() {
       ;;
     all)
       prompt_value XUI_DOMAIN "Enter x-ui domain, for example xui.example.com" "$XUI_DOMAIN"
-      prompt_value NH_PROXY_DOMAIN "Enter NHM/NaiveProxy domain, for example naive.example.com" "$NH_PROXY_DOMAIN"
+      prompt_value NH_PROXY_DOMAIN "Enter RIXXX/NaiveProxy domain, for example naive.example.com" "$NH_PROXY_DOMAIN"
       prompt_value REALITY_DEST "Enter REALITY destination domain, for example reality.example.com" "$REALITY_DEST"
       prompt_value NH_PROXY_EMAIL "Enter email for Caddy/Let's Encrypt" "$NH_PROXY_EMAIL"
       ;;
     nh)
-      prompt_value NH_PROXY_DOMAIN "Enter NHM proxy domain, for example vpn.example.com" "$NH_PROXY_DOMAIN"
+      prompt_value NH_PROXY_DOMAIN "Enter RIXXX proxy domain, for example vpn.example.com" "$NH_PROXY_DOMAIN"
       prompt_value NH_PROXY_EMAIL "Enter email for Let's Encrypt" "$NH_PROXY_EMAIL"
       ;;
     *) die "--mode must be xui, naive, all, both, or nh" ;;
@@ -206,12 +210,12 @@ collect_real_install_inputs() {
       ;;
     all)
       prompt_value XUI_DOMAIN "Enter x-ui domain, for example xui.example.com" "$XUI_DOMAIN"
-      prompt_value NH_PROXY_DOMAIN "Enter NHM/NaiveProxy domain, for example naive.example.com" "$NH_PROXY_DOMAIN"
+      prompt_value NH_PROXY_DOMAIN "Enter RIXXX/NaiveProxy domain, for example naive.example.com" "$NH_PROXY_DOMAIN"
       prompt_value REALITY_DEST "Enter REALITY destination domain, for example reality.example.com" "$REALITY_DEST"
       prompt_value NH_PROXY_EMAIL "Enter email for Caddy/Let's Encrypt" "$NH_PROXY_EMAIL"
       ;;
     nh)
-      prompt_value NH_PROXY_DOMAIN "Enter NHM proxy domain, for example vpn.example.com" "$NH_PROXY_DOMAIN"
+      prompt_value NH_PROXY_DOMAIN "Enter RIXXX proxy domain, for example vpn.example.com" "$NH_PROXY_DOMAIN"
       prompt_value NH_PROXY_EMAIL "Enter email for Let's Encrypt" "$NH_PROXY_EMAIL"
       ;;
     *) die "Real install currently supports --mode xui, --mode all, --mode both, or --mode nh" ;;
@@ -243,7 +247,7 @@ load_config() {
         value="${value//\\\\/\\}"
       fi
       case "$key" in
-        MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NAIVE_EMAIL|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PROXY_EMAIL|PROXY_EMAIL|NH_STACK|NH_ACCESS|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_EMAIL|PANEL_EMAIL|NH_SSH_ONLY|NH_MASQUERADE|NH_MASQUERADE_URL|NH_ALLOW_PORT_CONFLICT|NH_ENABLE_MIERU|TLS_CERT|TLS_KEY|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_AI_DOMAINS|WARP_INBOUND_TAG|WARP_ROUTE_PORT|XUI_CREATE_DIRECT|XUI_PANEL_LINE|GENERATE_PROFILES|PROFILE_COUNT|PROFILE_PREFIX|UPM_PROJECT_DIR)
+        MODE|XUI_DOMAIN|NAIVE_DOMAIN|REALITY_DEST|NAIVE_EMAIL|RIXXX_DOMAIN|RIXXX_EMAIL|RIXXX_BACKEND_LISTEN|RIXXX_ACCESS|NH_PROXY_DOMAIN|PROXY_DOMAIN|NH_PROXY_EMAIL|PROXY_EMAIL|NH_STACK|NH_ACCESS|NH_PANEL_DOMAIN|PANEL_DOMAIN|NH_PANEL_EMAIL|PANEL_EMAIL|NH_SSH_ONLY|NH_MASQUERADE|NH_MASQUERADE_URL|NH_ALLOW_PORT_CONFLICT|NH_ENABLE_MIERU|TLS_CERT|TLS_KEY|WARP_PROXY_PORT|WARP_OUTBOUND_TAG|WARP_AI_DOMAINS|WARP_INBOUND_TAG|WARP_ROUTE_PORT|XUI_CREATE_DIRECT|XUI_PANEL_LINE|GENERATE_PROFILES|PROFILE_COUNT|PROFILE_PREFIX|UPM_PROJECT_DIR)
           printf -v "$key" '%s' "$value"
           ;;
       esac
@@ -361,10 +365,10 @@ show_service_report() {
   service_line x-ui
   service_line nginx
   service_line caddy
-  service_line caddy-nh
-  service_line hysteria-server
-  service_line panel-naive-hy2
+  service_line caddy-naive
+  service_line mita
   service_line ufw
+  command_exists pm2 && pm2 status panel-naive-mieru 2>/dev/null || true
 }
 
 check_os() {
@@ -460,8 +464,8 @@ validate_required_args() {
       ;;
     all)
       [[ -n "$XUI_DOMAIN" ]] || die "--xui-domain is required for --mode all"
-      [[ -n "$NH_PROXY_DOMAIN" ]] || die "--nh-domain is required for --mode all"
-      [[ -n "$NH_PROXY_EMAIL" ]] || die "--nh-email is required for --mode all"
+      [[ -n "$NH_PROXY_DOMAIN" ]] || die "--rixxx-domain is required for --mode all"
+      [[ -n "$NH_PROXY_EMAIL" ]] || die "--rixxx-email is required for --mode all"
       [[ -n "$REALITY_DEST" ]] || die "--reality-dest is required for --mode all"
       ;;
     nh)
@@ -501,13 +505,13 @@ validate_real_install_args() {
       ;;
     all)
       [[ -n "$XUI_DOMAIN" ]] || die "--xui-domain is required for real all install"
-      [[ -n "$NH_PROXY_DOMAIN" ]] || die "--nh-domain is required for real all install"
-      [[ -n "$NH_PROXY_EMAIL" ]] || die "--nh-email is required for real all install"
+      [[ -n "$NH_PROXY_DOMAIN" ]] || die "--rixxx-domain is required for real all install"
+      [[ -n "$NH_PROXY_EMAIL" ]] || die "--rixxx-email is required for real all install"
       [[ -n "$REALITY_DEST" ]] || die "--reality-dest is required for real all install"
       ;;
     nh)
-      [[ -n "$NH_PROXY_DOMAIN" ]] || die "--domain is required for real NHM install"
-      [[ -n "$NH_PROXY_EMAIL" ]] || die "--proxy-email is required for real NHM install"
+      [[ -n "$NH_PROXY_DOMAIN" ]] || die "--domain is required for real RIXXX install"
+      [[ -n "$NH_PROXY_EMAIL" ]] || die "--proxy-email is required for real RIXXX install"
       ;;
     *) die "Real install currently supports --mode xui, --mode all, --mode both, or --mode nh" ;;
   esac
@@ -526,8 +530,8 @@ x-ui domain:    ${XUI_DOMAIN:-not set}
 Naive domain:   ${NAIVE_DOMAIN:-not set}
 REALITY dest:   ${REALITY_DEST:-not set}
 Naive email:    ${NAIVE_EMAIL:-not set}
-NHM domain:   ${NH_PROXY_DOMAIN:-not set}
-NHM email:    ${NH_PROXY_EMAIL:-not set}
+RIXXX domain:   ${NH_PROXY_DOMAIN:-not set}
+RIXXX email:    ${NH_PROXY_EMAIL:-not set}
 Mieru module:  $([[ "$NH_ENABLE_MIERU" == "1" ]] && printf enabled || printf disabled)
 TLS cert:       ${TLS_CERT:-auto/ACME}
 TLS key:        ${TLS_KEY:-auto/ACME}
@@ -553,8 +557,8 @@ x-ui domain:    ${XUI_DOMAIN:-not set}
 Naive domain:   ${NAIVE_DOMAIN:-not set}
 REALITY dest:   ${REALITY_DEST:-not set}
 Naive email:    ${NAIVE_EMAIL:-not set}
-NHM domain:   ${NH_PROXY_DOMAIN:-not set}
-NHM email:    ${NH_PROXY_EMAIL:-not set}
+RIXXX domain:   ${NH_PROXY_DOMAIN:-not set}
+RIXXX email:    ${NH_PROXY_EMAIL:-not set}
 Mieru module:  $([[ "$NH_ENABLE_MIERU" == "1" ]] && printf enabled || printf disabled)
 TLS cert:       ${TLS_CERT:-auto/ACME}
 TLS key:        ${TLS_KEY:-auto/ACME}
@@ -604,26 +608,26 @@ EOF
 
 All-in-one layout:
 - x-ui-pro/nginx owns public 443/tcp.
-- NHM NaiveProxy/Caddy runs as caddy-nh on 127.0.0.1:9445.
-- nginx stream routes the NHM/NaiveProxy domain by SNI to 127.0.0.1:9445.
-- NHM TLS is issued automatically unless --tls-cert/--tls-key are provided.
+- RIXXX NaiveProxy/Caddy runs as caddy-naive on 127.0.0.1:9445.
+- nginx stream routes the RIXXX/NaiveProxy domain by SNI to 127.0.0.1:9445.
+- RIXXX TLS is issued automatically unless --tls-cert/--tls-key are provided.
 - Caddy accepts nginx stream PROXY protocol on the backend listener.
-- Hysteria2 listens on public 443/udp.
-- NHM Panel runs as panel-naive-hy2 and is exposed by nginx on 8081 by default.
-- Profile generator creates ${PROFILE_COUNT} standard x-ui profiles plus ${PROFILE_COUNT} NaiveProxy and ${PROFILE_COUNT} Hy2 profiles by default. Current value: ${GENERATE_PROFILES}.
+- Mieru uses its own public TCP/UDP port range.
+- RIXXX Panel runs as PM2 process panel-naive-mieru on 127.0.0.1:3000 by default.
+- Profile generator creates ${PROFILE_COUNT} standard x-ui profiles. NaiveProxy and Mieru users are managed inside RIXXX Panel. Current value: ${GENERATE_PROFILES}.
 - WARP local proxy installs on 127.0.0.1:${WARP_PROXY_PORT} only when --install-warp is used. Current value: ${INSTALL_WARP}.
 EOF
       ;;
     nh)
       cat <<EOF
 
-NHM standalone panel actions:
-- install the NHM Node.js panel from the vendored component;
+RIXXX standalone panel actions:
+- install the RIXXX Node.js panel from the vendored component;
 - install selected stack: ${NH_STACK};
 - use proxy domain ${NH_PROXY_DOMAIN} and email ${NH_PROXY_EMAIL};
 - expose panel with access mode ${NH_ACCESS};
 - use masquerade mode ${NH_MASQUERADE} ${NH_MASQUERADE_URL};
-- Caddy will own public 443/tcp for NaiveProxy and Hysteria2 will use 443/udp when enabled.
+- Caddy will own public 443/tcp for standalone NaiveProxy and Mieru will use its configured public port range.
 
 This mode is standalone. Do not combine it with the x-ui/nginx unified layout on the same public 443 without manual review.
 EOF
@@ -660,7 +664,7 @@ Profiles:       ${GENERATE_PROFILES} (${PROFILE_COUNT}, prefix ${PROFILE_PREFIX}
 x-ui line:      $XUI_PANEL_LINE
 
 This will install only x-ui-pro / 3x-ui / Xray / nginx.
-NHM Panel, NaiveProxy, and Hysteria2 will not be installed.
+RIXXX Panel, NaiveProxy, and Mieru will not be installed.
 EOF
 
     local backup_dir="/opt/unified-proxy-manager/backups/xui-only-$(date '+%Y-%m-%d-%H-%M-%S')"
@@ -751,9 +755,9 @@ EOF
     local -a all_args=(
       --mode all
       --xui-domain "$XUI_DOMAIN"
-      --nh-domain "$NH_PROXY_DOMAIN"
+      --rixxx-domain "$NH_PROXY_DOMAIN"
       --reality-dest "$REALITY_DEST"
-      --nh-email "$NH_PROXY_EMAIL"
+      --rixxx-email "$NH_PROXY_EMAIL"
       --xui-panel-line "$XUI_PANEL_LINE"
       --panel-access "$NH_ACCESS"
       --profile-count "$PROFILE_COUNT"
@@ -829,9 +833,9 @@ Real install requested
 Installer:      $installer
 Mode:           $MODE
 x-ui domain:    $XUI_DOMAIN
-Naive domain:   $NAIVE_DOMAIN
+RIXXX domain:   $NAIVE_DOMAIN
 REALITY dest:   $REALITY_DEST
-Naive email:    $NAIVE_EMAIL
+RIXXX email:    $NAIVE_EMAIL
 
 This will run the vendored x-ui-pro installer and write system configs.
 EOF
@@ -839,9 +843,9 @@ EOF
   local -a legacy_args=(
     --mode all
     --xui-domain "$XUI_DOMAIN"
-    --nh-domain "$NAIVE_DOMAIN"
+    --rixxx-domain "$NAIVE_DOMAIN"
     --reality-dest "$REALITY_DEST"
-    --nh-email "$NAIVE_EMAIL"
+    --rixxx-email "$NAIVE_EMAIL"
     --profile-count "$PROFILE_COUNT"
     --profile-prefix "$PROFILE_PREFIX"
     --no-access-info
@@ -955,16 +959,16 @@ while [[ $# -gt 0 ]]; do
     --naive-domain) NAIVE_DOMAIN="${2:-}"; shift 2 ;;
     --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
     --naive-email) NAIVE_EMAIL="${2:-}"; shift 2 ;;
-    --domain|--proxy-domain|--nh-domain) NH_PROXY_DOMAIN="${2:-}"; shift 2 ;;
-    --nh-email|--proxy-email) NH_PROXY_EMAIL="${2:-}"; shift 2 ;;
-    --nh-stack) NH_STACK="${2:-}"; shift 2 ;;
-    --nh-access) NH_ACCESS="${2:-}"; shift 2 ;;
-    --panel-domain|--nh-panel-domain) NH_PANEL_DOMAIN="${2:-}"; shift 2 ;;
-    --panel-email|--nh-panel-email) NH_PANEL_EMAIL="${2:-}"; shift 2 ;;
-    --ssh-only|--nh-ssh-only) NH_SSH_ONLY=1; shift ;;
-    --masquerade|--nh-masquerade) NH_MASQUERADE="${2:-}"; shift 2 ;;
-    --masquerade-url|--nh-masquerade-url) NH_MASQUERADE_URL="${2:-}"; shift 2 ;;
-    --allow-port-conflict|--nh-allow-port-conflict) NH_ALLOW_PORT_CONFLICT=1; shift ;;
+    --domain|--proxy-domain|--rixxx-domain) NH_PROXY_DOMAIN="${2:-}"; RIXXX_DOMAIN="$NH_PROXY_DOMAIN"; shift 2 ;;
+    --rixxx-email|--proxy-email) NH_PROXY_EMAIL="${2:-}"; RIXXX_EMAIL="$NH_PROXY_EMAIL"; shift 2 ;;
+    --stack|--rixxx-stack) NH_STACK="${2:-}"; shift 2 ;;
+    --panel-access|--rixxx-access) NH_ACCESS="${2:-}"; RIXXX_ACCESS="$NH_ACCESS"; shift 2 ;;
+    --panel-domain|--rixxx-panel-domain) NH_PANEL_DOMAIN="${2:-}"; shift 2 ;;
+    --panel-email|--rixxx-panel-email) NH_PANEL_EMAIL="${2:-}"; shift 2 ;;
+    --ssh-only) NH_SSH_ONLY=1; shift ;;
+    --masquerade) NH_MASQUERADE="${2:-}"; shift 2 ;;
+    --masquerade-url) NH_MASQUERADE_URL="${2:-}"; shift 2 ;;
+    --allow-port-conflict) NH_ALLOW_PORT_CONFLICT=1; shift ;;
     --with-mieru|--enable-mieru) NH_ENABLE_MIERU=1; shift ;;
     --tls-cert) TLS_CERT="${2:-}"; shift 2 ;;
     --tls-key) TLS_KEY="${2:-}"; shift 2 ;;
@@ -1002,7 +1006,7 @@ else
   collect_interactive_inputs
 fi
 case "$MODE" in xui|naive|all|both|nh) ;; *) die "--mode must be xui, naive, all, both, or nh" ;; esac
-[[ "$NH_ENABLE_MIERU" == "1" ]] || NH_ENABLE_MIERU=0
+NH_ENABLE_MIERU=1
 resolve_install_defaults
 
 validate_required_args
@@ -1043,12 +1047,12 @@ case "$MODE" in
     ;;
   all)
     check_domain "$XUI_DOMAIN" "x-ui"
-    check_domain "$NH_PROXY_DOMAIN" "NHM/NaiveProxy"
+    check_domain "$NH_PROXY_DOMAIN" "RIXXX/NaiveProxy"
     check_domain "$REALITY_DEST" "REALITY destination"
     ;;
   nh)
-    check_domain "$NH_PROXY_DOMAIN" "NHM proxy"
-    [[ -n "$NH_PANEL_DOMAIN" ]] && check_domain "$NH_PANEL_DOMAIN" "NHM Panel"
+    check_domain "$NH_PROXY_DOMAIN" "RIXXX proxy"
+    [[ -n "$NH_PANEL_DOMAIN" ]] && check_domain "$NH_PANEL_DOMAIN" "RIXXX Panel"
     ;;
 esac
 

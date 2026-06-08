@@ -22,7 +22,7 @@ Usage:
 
 Removes the installed x-ui + Naive panel stack while preserving certificates:
   kept: certificate stores under /etc/letsencrypt, /root/cert, /var/lib/caddy, /root/.local/share/caddy
-  removed: x-ui, RIXXX/NHM panel files, caddy-naive/caddy-nh, hysteria config, stack systemd units, stack nginx snippets/sites
+  removed: x-ui, RIXXX Panel files, caddy-naive, mita, stack systemd units, stack nginx snippets/sites
 
 Default mode is dry-run. Real removal requires both --apply and --yes.
 EOF
@@ -191,7 +191,7 @@ if [[ "$APPLY" == "1" ]]; then
 fi
 
 info "Stopping services"
-for svc in x-ui panel-naive-mieru caddy-naive mita panel-naive-hy2 caddy-nh hysteria-server caddy-cert-watcher.path caddy-cert-watcher.service; do
+for svc in x-ui caddy-naive mita caddy-cert-watcher.path caddy-cert-watcher.service; do
   stop_disable_service "$svc"
 done
 if command_exists pm2; then
@@ -205,12 +205,8 @@ fi
 info "Backing up and removing service units"
 for unit in \
   x-ui.service \
-  panel-naive-mieru.service \
   caddy-naive.service \
   mita.service \
-  panel-naive-hy2.service \
-  caddy-nh.service \
-  hysteria-server.service \
   caddy-cert-watcher.path \
   caddy-cert-watcher.service; do
   remove_unit "$unit"
@@ -226,11 +222,9 @@ for path in \
   /etc/rixxx-panel \
   /var/lib/rixxx-panel \
   /usr/local/bin/caddy-naive \
-  /opt/panel-naive-hy2 \
-  /etc/caddy-nh \
-  /etc/hysteria \
-  /etc/nh-panel \
-  /usr/bin/caddy-nh \
+  /opt/panel-naive-mieru \
+  /etc/caddy-naive \
+  /usr/bin/caddy-naive \
   /etc/letsencrypt/renewal-hooks/deploy/nh-unified-reload.sh; do
   remove_path "$path"
 done
@@ -241,14 +235,8 @@ for path in \
   /etc/nginx/stream-enabled/warp-8443.conf \
   /etc/nginx/sites-enabled/80.conf \
   /etc/nginx/sites-available/80.conf \
-  /etc/nginx/sites-enabled/nh-acme \
-  /etc/nginx/sites-available/nh-acme \
-  /etc/nginx/sites-enabled/panel-naive-hy2 \
-  /etc/nginx/sites-available/panel-naive-hy2 \
   /etc/nginx/sites-enabled/panel-naive-mieru \
-  /etc/nginx/sites-available/panel-naive-mieru \
-  /etc/nginx/snippets/nh-subscriptions.conf \
-  /etc/nginx/conf.d/nh-subscriptions.conf; do
+  /etc/nginx/sites-available/panel-naive-mieru; do
   remove_path "$path"
 done
 if [[ -d /etc/nginx/stream-enabled ]]; then

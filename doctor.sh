@@ -50,7 +50,7 @@ NH_PROXY_DOMAIN="${NH_PROXY_DOMAIN:-${PROXY_DOMAIN:-}}"
 NH_PANEL_DOMAIN="${NH_PANEL_DOMAIN:-${PANEL_DOMAIN:-}}"
 
 load_naive_from_caddyfile() {
-  local caddyfile="${1:-/etc/caddy-nh/Caddyfile}"
+  local caddyfile="${1:-/etc/caddy-naive/Caddyfile}"
   [[ -f "$caddyfile" ]] || return 0
 
   if [[ -z "${NH_PROXY_DOMAIN:-}" ]]; then
@@ -71,7 +71,7 @@ load_naive_from_caddyfile() {
   fi
 }
 
-load_naive_from_caddyfile "/etc/caddy-nh/Caddyfile"
+load_naive_from_caddyfile "/etc/caddy-naive/Caddyfile"
 
 RED=$'\033[0;31m'
 GREEN=$'\033[0;32m'
@@ -277,9 +277,9 @@ naive_proxy_check() {
     bad "NaiveProxy CONNECT check failed through https://${domain}:443"
     printf '%s\n' "$output"
     echo "Check these next:"
-    echo "- sudo nginx -T | grep -E '${domain}|nh_naive|proxy_protocol|9445'"
-    echo "- sudo journalctl -u caddy-nh -n 80 --no-pager -l"
-    echo "- sudo /usr/bin/caddy-nh validate --config /etc/caddy-nh/Caddyfile"
+    echo "- sudo nginx -T | grep -E '${domain}|rixxx_naive|proxy_protocol|9445'"
+    echo "- sudo journalctl -u caddy-naive -n 80 --no-pager -l"
+    echo "- sudo /usr/bin/caddy-naive validate --config /etc/caddy-naive/Caddyfile"
   fi
 }
 
@@ -385,7 +385,7 @@ xui_recent_log_report
 echo
 echo "Services:"
 if command_exists systemctl; then
-  for svc in x-ui nginx caddy caddy-nh hysteria-server panel-naive-hy2 warp-svc ufw; do
+  for svc in x-ui nginx caddy caddy-naive mita warp-svc ufw; do
     printf '%-8s active=%-10s enabled=%s\n' \
       "$svc" \
       "$(systemctl is-active "$svc" 2>/dev/null || true)" \
@@ -393,6 +393,9 @@ if command_exists systemctl; then
   done
 else
   warn "systemctl not available"
+fi
+if command_exists pm2; then
+  pm2 status panel-naive-mieru 2>/dev/null || true
 fi
 
 if command_exists warp-cli || [[ "${WARP_ENABLED:-0}" == "1" ]]; then
@@ -405,17 +408,17 @@ echo
 echo "Conflict analysis:"
 if service_active nginx && service_active caddy; then
   warn "nginx and public caddy are both active. On one VPS, only one service should own public 443 unless a single SNI router is configured."
-elif service_active nginx && service_active caddy-nh && service_active hysteria-server; then
-  ok "nginx, caddy-nh, and hysteria-server are active. This is expected for all-in-one mode."
-elif service_active caddy && service_active hysteria-server; then
-  ok "caddy and hysteria-server are both active. This is expected for NHM mode when Caddy owns TCP/443 and Hy2 owns UDP/443."
+elif service_active nginx && service_active caddy-naive; then
+  ok "nginx and caddy-naive are active. This is expected for all-in-one mode."
+elif service_active caddy; then
+  ok "public Caddy is active. This is expected only for standalone RIXXX mode."
 else
   ok "No obvious nginx+caddy dual-active conflict"
 fi
 
 if [[ -n "${NH_PROXY_DOMAIN:-}" ]]; then
   echo
-  echo "NHM/Naive TLS:"
+  echo "RIXXX/Naive TLS:"
   tls_check "${NH_BACKEND_LISTEN:-127.0.0.1:9445}" "$NH_PROXY_DOMAIN" "Caddy backend"
   tls_check "${NH_PROXY_DOMAIN}:443" "$NH_PROXY_DOMAIN" "Public nginx stream"
 
@@ -424,9 +427,9 @@ if [[ -n "${NH_PROXY_DOMAIN:-}" ]]; then
   naive_proxy_check
 fi
 
-if service_active panel-naive-hy2 || [[ -n "${NH_PANEL_PORT:-}" || -n "${NH_PANEL_DOMAIN:-}" ]]; then
+if (command_exists pm2 && pm2 describe panel-naive-mieru >/dev/null 2>&1) || [[ -n "${NH_PANEL_PORT:-}" || -n "${NH_PANEL_DOMAIN:-}" ]]; then
   echo
-  echo "NHM Panel HTTP:"
+  echo "RIXXX Panel HTTP:"
   http_check "http://127.0.0.1:3000/" "Panel backend"
   if [[ -n "${NH_PANEL_PORT:-}" ]]; then
     http_check "http://127.0.0.1:${NH_PANEL_PORT}/" "Panel nginx proxy"
@@ -504,4 +507,4 @@ echo "- Make sure DNS A records point to this VPS before any TLS issuance."
 echo "- In --mode all, keep DNS and public 80/tcp reachable; the installer handles nginx webroot ACME and standalone fallback automatically."
 echo "- If WARP is enabled, use outbound tag ${WARP_OUTBOUND_TAG:-warp-cli} and local proxy ${WARP_PROXY_HOST:-127.0.0.1}:${WARP_PROXY_PORT:-40000} in 3x-ui/Xray routing."
 echo "- Do not run x-ui-pro.sh directly on a server with existing nginx/x-ui data without backups."
-echo "- Use --mode nh only as a standalone NHM Panel deployment unless you have reviewed public 443 ownership."
+echo "- Use --mode nh only as a standalone RIXXX Panel deployment unless you have reviewed public 443 ownership."

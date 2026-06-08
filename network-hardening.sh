@@ -161,7 +161,7 @@ net.core.optmem_max = 65536
 net.ipv4.tcp_notsent_lowat = 131072
 net.core.default_qdisc = fq
 
-# Conntrack capacity (matches upstream nh-panel tuning)
+# Conntrack capacity for high-connection proxy workloads
 net.netfilter.nf_conntrack_max = 1048576
 net.netfilter.nf_conntrack_buckets = 262144
 net.netfilter.nf_conntrack_tcp_timeout_established = 3600
@@ -254,7 +254,7 @@ if [[ "$APPLY" -eq 1 ]] && command_exists sysctl; then
   if [[ "$cc" == "bbr" ]]; then
     ok "TCP congestion control: bbr"
   else
-    warn "TCP congestion control is $cc (expected bbr). Apply upstream nh-panel sysctl_tune.sh."
+    warn "TCP congestion control is $cc (expected bbr). Run network-hardening.sh --apply --yes."
   fi
 fi
 

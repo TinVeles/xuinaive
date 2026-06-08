@@ -19,7 +19,7 @@ Use your own values:
 ```text
 XUI_DOMAIN        = domain used by x-ui/Xray links
 SUB_DOMAIN        = domain used only for subscription HTTPS
-NH_DOMAIN         = domain used by NHM/NaiveProxy
+RIXXX_DOMAIN      = domain used by RIXXX/NaiveProxy
 REALITY_MASK_HOST = external HTTPS host used only as Reality mask/SNI
 SUB_PORT          = x-ui subscription listen port
 SUB_PATH          = subscription path, must start and end with /
@@ -40,9 +40,9 @@ Example shape only:
 ```bash
 sudo bash install.sh --mode all \
   --xui-domain XUI_DOMAIN \
-  --nh-domain NH_DOMAIN \
+  --rixxx-domain RIXXX_DOMAIN \
   --reality-dest XUI_DOMAIN \
-  --nh-email ADMIN_EMAIL \
+  --rixxx-email ADMIN_EMAIL \
   --install \
   --yes
 ```
