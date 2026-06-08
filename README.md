@@ -454,6 +454,18 @@ sudo cat access-info.txt
 
 The access summary includes panel URLs, generated credentials, service hints, WARP details when configured, and a profiles section when generated files are present.
 
+For RIXXX Panel only:
+
+```bash
+sudo bash rixxx-panel-access.sh
+```
+
+If the RIXXX plaintext admin password was not saved, reset it:
+
+```bash
+sudo bash rixxx-panel-access.sh --reset-password
+```
+
 ## Fake Error Site
 
 Install or refresh the local static fallback site without reinstalling the stack:
