@@ -342,9 +342,10 @@ xui_disable_experimental_trojan_grpc_presets() {
 }
 
 xui_normalize_reference_preset_external_proxy_ports() {
-  local db updated
+  local db updated public_domain ws_rows inbound_id inbound_port stream new_stream
   db="$(xui_db_path)"
   [[ -f "$db" ]] || return 0
+  public_domain="${XUI_PUBLIC_DOMAIN:-${XUI_DOMAIN:-}}"
   # Reality (tcp/xhttp/grpc), trojan-reality and vless-ws are reachable on
   # public TCP 443: nginx stream SNI passthrough for the reality family and
   # nginx domain vhost path-proxy for ws. shadowsocks and hysteria2 keep their
@@ -413,6 +414,36 @@ xui_normalize_reference_preset_external_proxy_ports() {
   updated="${updated##*$'\n'}"
   if [[ "$updated" =~ ^[0-9]+$ && "$updated" -gt 0 ]]; then
     printf 'INFO: Normalized reference preset public port(s): %s\n' "$updated"
+  fi
+  if [[ "$public_domain" =~ ^[A-Za-z0-9.-]+$ ]] && command -v jq >/dev/null 2>&1; then
+    ws_rows="$(sqlite3 -separator $'\t' "$db" "
+      SELECT id, port, json(stream_settings)
+      FROM inbounds
+      WHERE json_valid(stream_settings)=1
+        AND json_extract(stream_settings,'$.network')='ws'
+        AND COALESCE(tag,'') NOT LIKE '%-warp'
+        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+        AND lower(COALESCE(remark,'')) LIKE '%vless-ws%';
+    " 2>/dev/null || true)"
+    while IFS=$'\t' read -r inbound_id inbound_port stream; do
+      [[ "$inbound_id" =~ ^[0-9]+$ && "$inbound_port" =~ ^[0-9]+$ && -n "$stream" ]] || continue
+      new_stream="$(jq -c --arg domain "$public_domain" --argjson port "$inbound_port" '
+        .security = "none"
+        | del(.tlsSettings)
+        | .externalProxy = (if ((.externalProxy // []) | length) > 0 then .externalProxy else [{forceTls:"tls",dest:"",port:443,remark:""}] end)
+        | .externalProxy[0].forceTls = "tls"
+        | .externalProxy[0].dest = $domain
+        | .externalProxy[0].port = 443
+        | .externalProxy[0].remark = ""
+        | .wsSettings = (.wsSettings // {})
+        | .wsSettings.host = $domain
+        | .wsSettings.path = ("/" + ($port|tostring) + "/")
+        | .wsSettings.acceptProxyProtocol = false
+        | .wsSettings.heartbeatPeriod = (.wsSettings.heartbeatPeriod // 0)
+        | .wsSettings.headers = (.wsSettings.headers // {})
+      ' <<<"$stream")" || continue
+      sqlite3 "$db" "UPDATE inbounds SET stream_settings=$(sql_quote "$new_stream") WHERE id=$inbound_id;"
+    done <<<"$ws_rows"
   fi
 }
 
