@@ -406,7 +406,9 @@ xui_normalize_reference_preset_external_proxy_ports() {
       AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
       AND (
         lower(COALESCE(remark,'')) LIKE '%shadowsocks-tcp%'
+        OR lower(COALESCE(remark,'')) LIKE '%shadowsocks%'
         OR lower(COALESCE(remark,'')) LIKE '%hysteria2-udp%'
+        OR lower(COALESCE(remark,'')) LIKE '%hysteria2%'
       );
 
     SELECT total_changes();
@@ -465,6 +467,79 @@ $(xui_preset_inbound_filter_sql)
 
 xui_enable_warp_domain_sniffing() {
   xui_enable_preset_domain_sniffing
+}
+
+xui_normalize_reference_preset_remarks() {
+  local db emoji_flag prefix rows inbound_id index
+  db="$(xui_db_path)"
+  [[ -f "$db" ]] || return 0
+  emoji_flag="${XUI_EMOJI_FLAG:-🇫🇮}"
+  if [[ -n "$emoji_flag" ]]; then
+    prefix="${emoji_flag} "
+  else
+    prefix=""
+  fi
+
+  rows="$(sqlite3 -readonly "$db" "
+    SELECT id
+    FROM inbounds
+    WHERE protocol='vless'
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='tcp'
+      AND json_extract(stream_settings,'$.security')='reality'
+      AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+    ORDER BY id
+    LIMIT 4;
+  " 2>/dev/null || true)"
+  index=0
+  while IFS= read -r inbound_id; do
+    [[ "$inbound_id" =~ ^[0-9]+$ ]] || continue
+    index=$((index + 1))
+    sqlite3 "$db" "UPDATE inbounds SET remark=$(sql_quote "${prefix}vless-tcp-reality-${index}") WHERE id=$inbound_id;"
+  done <<<"$rows"
+
+  sqlite3 "$db" "
+    UPDATE inbounds SET remark=$(sql_quote "${prefix}vless-xhttp-reality")
+    WHERE protocol='vless' AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='xhttp'
+      AND json_extract(stream_settings,'$.security')='reality'
+      AND COALESCE(tag,'') NOT LIKE '%-warp' AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
+
+    UPDATE inbounds SET remark=$(sql_quote "${prefix}vless-grpc-reality")
+    WHERE protocol='vless' AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='grpc'
+      AND json_extract(stream_settings,'$.security')='reality'
+      AND COALESCE(tag,'') NOT LIKE '%-warp' AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
+
+    UPDATE inbounds SET remark=$(sql_quote "${prefix}vless-ws")
+    WHERE protocol='vless' AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='ws'
+      AND COALESCE(tag,'') NOT LIKE '%-warp' AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
+
+    UPDATE inbounds SET remark=$(sql_quote "${prefix}shadowsocks")
+    WHERE protocol='shadowsocks'
+      AND COALESCE(tag,'') NOT LIKE '%-warp' AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
+
+    UPDATE inbounds SET remark=$(sql_quote "${prefix}hysteria2")
+    WHERE protocol IN ('hysteria','hysteria2')
+      AND COALESCE(tag,'') NOT LIKE '%-warp' AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
+
+    UPDATE inbounds SET remark=$(sql_quote "${prefix}trojan-tcp-reality")
+    WHERE protocol='trojan' AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='tcp'
+      AND json_extract(stream_settings,'$.security')='reality'
+      AND COALESCE(tag,'') NOT LIKE '%-warp' AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
+
+    UPDATE inbounds SET remark=$(sql_quote "${prefix}vless-reality-warp")
+    WHERE COALESCE(tag,'')='upm-v3-warp-reality';
+
+    UPDATE inbounds SET remark=$(sql_quote "${prefix}vless-xhttp-warp")
+    WHERE COALESCE(tag,'')='upm-v3-warp-xhttp';
+
+    UPDATE inbounds SET remark=$(sql_quote "${prefix}hysteria2-warp")
+    WHERE COALESCE(tag,'')='upm-v3-warp-hysteria2';
+  " 2>/dev/null || true
 }
 
 xui_next_free_inbound_port() {
@@ -1042,7 +1117,7 @@ xui_install_3dp_reference_presets() {
   }')"
   xui_3dp_insert vless "$port" "$(xui_3dp_remark "vless-ws")" "$settings" "$stream"
 
-  # shadowsocks-tcp has no SNI/TLS, so it cannot share nginx's 443. It keeps a
+  # shadowsocks has no SNI/TLS, so it cannot share nginx's 443. It keeps a
   # stable dedicated port (default 8388, override SS_PUBLIC_PORT) that you open
   # once in the provider firewall/security group.
   port="$(xui_next_free_inbound_port "$db" "${SS_PUBLIC_PORT:-8388}")"
@@ -1054,7 +1129,7 @@ xui_install_3dp_reference_presets() {
     externalProxy:[{forceTls:"none",dest:$publicDomain,port:$port,remark:""}],
     tcpSettings:{acceptProxyProtocol:false,header:{type:"none"}}
   }')"
-  xui_3dp_insert shadowsocks "$port" "$(xui_3dp_remark "shadowsocks-tcp")" "$settings" "$stream"
+  xui_3dp_insert shadowsocks "$port" "$(xui_3dp_remark "shadowsocks")" "$settings" "$stream"
 
   # hysteria2 is QUIC/UDP and cannot share nginx's TCP 443. In xui-only mode it
   # binds public UDP 443. Unified installs override HY2_PUBLIC_PORT because the
@@ -1081,7 +1156,7 @@ xui_install_3dp_reference_presets() {
       hysteriaSettings:{auth:$auth,masquerade:{content:"",dir:"",headers:{},insecure:true,rewriteHost:false,statusCode:0,type:"proxy",url:"https://google.com"},udpIdleTimeout:60,version:2},
       tlsSettings:{serverName:$publicDomain,alpn:["h3"],certificates:[{buildChain:false,certificateFile:$certificateFile,keyFile:$keyFile,oneTimeLoading:false,usage:"encipherment"}],cipherSuites:"",disableSystemRoot:false,echForceQuery:"none",echServerKeys:"",enableSessionResumption:false,maxVersion:"1.3",minVersion:"1.2",rejectUnknownSni:false}
     }')"
-  xui_3dp_insert hysteria "$port" "$(xui_3dp_remark "hysteria2-udp")" "$settings" "$stream"
+  xui_3dp_insert hysteria "$port" "$(xui_3dp_remark "hysteria2")" "$settings" "$stream"
 
   port="$(xui_3dp_random_port)"
   sni="kinopoisk.ru"
@@ -1177,11 +1252,20 @@ xui_json_or_empty_object() {
 
 xui_ensure_v3_manual_warp_presets() {
   local db="$1" public_domain="${2:-}" report_file="${3:-}"
-  local base_id base_port base_stream new_port new_stream decoy tag
+  local base_id base_port base_stream new_port new_stream decoy tag emoji_flag
   [[ -f "$db" ]] || return 0
   [[ "${XUI_CREATE_WARP_PRESETS:-0}" == "1" ]] || return 0
   public_domain="$(xui_v3_warp_base_public_domain "$db" "$public_domain")"
   [[ "$public_domain" =~ ^[A-Za-z0-9.-]+$ ]] || upm_die "Cannot create WARP presets: --domain is required or no externalProxy.dest exists"
+  emoji_flag="${XUI_EMOJI_FLAG:-🇫🇮}"
+  xui_v3_warp_remark() {
+    local name="$1"
+    if [[ -n "$emoji_flag" ]]; then
+      printf '%s %s' "$emoji_flag" "$name"
+    else
+      printf '%s' "$name"
+    fi
+  }
   sqlite3 "$db" "
     UPDATE inbounds
     SET stream_settings=json_set(stream_settings, '$.externalProxy[0].remark', '')
@@ -1227,7 +1311,7 @@ xui_ensure_v3_manual_warp_presets() {
       | .realitySettings.settings.serverName = ""
     ' <<<"$base_stream")"
     [[ -n "$new_stream" ]] || upm_die "Cannot build WARP REALITY stream settings from inbound id=$base_id"
-    xui_v3_warp_clone_insert_or_update "$db" "$base_id" "$tag" "vless-tcp-reality-warp" "$new_port" "$new_stream" "$report_file"
+    xui_v3_warp_clone_insert_or_update "$db" "$base_id" "$tag" "$(xui_v3_warp_remark "vless-reality-warp")" "$new_port" "$new_stream" "$report_file"
   else
     warn "Cannot create WARP REALITY preset: base vless tcp reality inbound not found"
   fi
@@ -1267,7 +1351,7 @@ xui_ensure_v3_manual_warp_presets() {
       | .realitySettings.settings.serverName = ""
     ' <<<"$base_stream")"
     [[ -n "$new_stream" ]] || upm_die "Cannot build WARP XHTTP stream settings from inbound id=$base_id"
-    xui_v3_warp_clone_insert_or_update "$db" "$base_id" "$tag" "vless-xhttp-reality-warp" "$new_port" "$new_stream" "$report_file"
+    xui_v3_warp_clone_insert_or_update "$db" "$base_id" "$tag" "$(xui_v3_warp_remark "vless-xhttp-warp")" "$new_port" "$new_stream" "$report_file"
   else
     warn "Cannot create WARP XHTTP preset: base vless xhttp reality inbound not found"
   fi
@@ -1296,7 +1380,7 @@ xui_ensure_v3_manual_warp_presets() {
       | .tlsSettings.serverName = $publicDomain
     ' <<<"$base_stream")"
     [[ -n "$new_stream" ]] || upm_die "Cannot build WARP Hysteria2 stream settings from inbound id=$base_id"
-    xui_v3_warp_clone_insert_or_update "$db" "$base_id" "$tag" "hysteria2-udp-warp" "$new_port" "$new_stream" "$report_file"
+    xui_v3_warp_clone_insert_or_update "$db" "$base_id" "$tag" "$(xui_v3_warp_remark "hysteria2-warp")" "$new_port" "$new_stream" "$report_file"
   else
     warn "Cannot create WARP Hysteria2 preset: base hysteria2 inbound not found"
   fi

@@ -15,6 +15,7 @@ XUI_DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
 COUNT="${COUNT:-15}"
 PREFIX="${PREFIX:-auto}"
 DOMAIN="${XUI_DOMAIN:-}"
+XUI_EMOJI_FLAG="${XUI_EMOJI_FLAG:-🇫🇮}"
 REALITY_DEST="${REALITY_DEST:-}"
 RESET_INBOUNDS=0
 RESTART_XUI=1
@@ -112,7 +113,7 @@ if [[ "$RESET_INBOUNDS" == "1" ]]; then
   public_key="$(awk -F': *' 'tolower($1) ~ /^public[ _-]?key$/ || tolower($1) ~ /publickey/ {print $2; exit}' <<<"$output")"
   [[ -n "$private_key" && -n "$public_key" ]] || upm_die "Could not parse xray x25519 key pair"
   XUI_DB="$XUI_DB" xui_install_3dp_reference_presets \
-    "$XUI_DB" "$DOMAIN" "$private_key" "$public_key" "" \
+    "$XUI_DB" "$DOMAIN" "$private_key" "$public_key" "$XUI_EMOJI_FLAG" \
     "/root/cert/${DOMAIN}/fullchain.pem" "/root/cert/${DOMAIN}/privkey.pem"
 fi
 
@@ -132,9 +133,11 @@ mkdir -p "$(dirname "$report_file")"
 XUI_DB="$XUI_DB" \
 XUI_CREATE_WARP_PRESETS="$XUI_CREATE_WARP_PRESETS" \
 HY2_WARP_PUBLIC_PORT="$HY2_WARP_PUBLIC_PORT" \
+XUI_EMOJI_FLAG="$XUI_EMOJI_FLAG" \
 REALITY_WARP_TCP_DECOY="${REALITY_WARP_TCP_DECOY:-}" \
 REALITY_WARP_XHTTP_DECOY="${REALITY_WARP_XHTTP_DECOY:-}" \
   xui_ensure_v3_manual_warp_presets "$XUI_DB" "$DOMAIN" "$report_file"
+XUI_DB="$XUI_DB" XUI_EMOJI_FLAG="$XUI_EMOJI_FLAG" xui_normalize_reference_preset_remarks
 XUI_DB="$XUI_DB" \
 XUI_V3_INCLUDE_WARP_PRESETS="$XUI_CREATE_WARP_PRESETS" \
   xui_v3_replace_generated_clients "$XUI_DB" "$COUNT" "$PREFIX" "$report_file"
