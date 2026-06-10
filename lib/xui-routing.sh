@@ -1402,12 +1402,15 @@ xui_install_3dp_reference_presets() {
     xui_3dp_insert trojan "$port" "$(xui_3dp_remark "trojan-grpc")" "$settings" "$stream"
   fi
 
-  # Hysteria2 is QUIC/UDP and cannot share nginx's TCP 443. In xui-only mode it
-  # binds public UDP 443. Unified installs override HY2_PUBLIC_PORT because
-  # nginx owns TCP 443 in all-in-one mode.
-  port="${HY2_PUBLIC_PORT:-443}"
+  # Hysteria2 is QUIC/UDP, but x-ui still validates/binds the inbound alongside
+  # the rest of the config. Unified installs keep nginx on TCP 443, so the safe
+  # default is a dedicated public UDP port. x-ui-only installs can still opt into
+  # 443 explicitly with HY2_PUBLIC_PORT=443.
+  port="${HY2_PUBLIC_PORT:-24443}"
   if [[ "$port" != "443" ]]; then
     port="$(xui_next_free_inbound_port "$db" "$port")"
+  elif [[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE port=$port;" 2>/dev/null || echo 0)" != "0" ]]; then
+    port="$(xui_next_free_inbound_port "$db" 24443)"
   fi
   auth="$(openssl rand -hex 16)"
   obfs_password="$(openssl rand -hex 8)"
@@ -1435,6 +1438,7 @@ xui_ensure_v3_hysteria2_preset() {
   [[ -f "$db" ]] || return 0
   public_domain="$(xui_v3_warp_base_public_domain "$db" "$public_domain")"
   [[ "$public_domain" =~ ^[A-Za-z0-9.-]+$ ]] || return 0
+  xui_normalize_v3_hysteria2_preset_port "$db" "$public_domain"
   exists="$(sqlite3 -readonly "$db" "
     SELECT COUNT(*)
     FROM inbounds
@@ -1444,7 +1448,7 @@ xui_ensure_v3_hysteria2_preset() {
   " 2>/dev/null || echo 0)"
   [[ "$exists" == "0" ]] || return 0
 
-  port="${HY2_PUBLIC_PORT:-443}"
+  port="${HY2_PUBLIC_PORT:-24443}"
   if [[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE port=$port;" 2>/dev/null || echo 0)" != "0" ]]; then
     port="$(xui_next_free_inbound_port "$db" "${HY2_PUBLIC_PORT:-24443}")"
   fi
@@ -1481,6 +1485,70 @@ xui_ensure_v3_hysteria2_preset() {
     VALUES
       (1, 0, 0, 0, $(sql_quote "${prefix}hysteria2"), 1, 0, '', $port, 'hysteria', $(sql_quote "$settings"), $(sql_quote "$stream"), $(sql_quote "inbound-${port}"), $(sql_quote "$sniffing"));
   "
+}
+
+xui_normalize_v3_hysteria2_preset_port() {
+  local db="$1" public_domain="$2" target_port rows inbound_id port tag stream new_port new_tag new_stream
+  local certificate_file key_file
+  [[ -f "$db" ]] || return 0
+  [[ "$public_domain" =~ ^[A-Za-z0-9.-]+$ ]] || return 0
+  target_port="${HY2_PUBLIC_PORT:-24443}"
+  [[ "$target_port" =~ ^[0-9]+$ && "$target_port" -gt 0 && "$target_port" -le 65535 ]] || target_port=24443
+
+  rows="$(sqlite3 -separator $'\t' "$db" "
+    SELECT id, COALESCE(port,0), COALESCE(tag,''),
+           CASE WHEN json_valid(stream_settings)=1 THEN json(stream_settings) ELSE '{}' END
+    FROM inbounds
+    WHERE protocol IN ('hysteria','hysteria2')
+      AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+    ORDER BY id;
+  " 2>/dev/null || true)"
+
+  certificate_file="/root/cert/${public_domain}/fullchain.pem"
+  key_file="/root/cert/${public_domain}/privkey.pem"
+  while IFS=$'\t' read -r inbound_id port tag stream; do
+    [[ -n "$inbound_id" ]] || continue
+    new_port="$port"
+    if [[ "$target_port" != "443" && "$port" == "443" ]]; then
+      new_port="$(xui_next_free_inbound_port "$db" "$target_port")"
+    elif [[ ! "$new_port" =~ ^[0-9]+$ || "$new_port" -le 0 ]]; then
+      new_port="$(xui_next_free_inbound_port "$db" "$target_port")"
+    fi
+    if [[ -z "$tag" || "$tag" == "inbound-$port" ]]; then
+      new_tag="inbound-${new_port}"
+    else
+      new_tag="$tag"
+    fi
+    new_stream="$(jq -c \
+      --arg publicDomain "$public_domain" \
+      --arg certificateFile "$certificate_file" \
+      --arg keyFile "$key_file" \
+      --argjson port "$new_port" \
+      '
+        .network = "hysteria"
+        | .security = "tls"
+        | .externalProxy = (if (.externalProxy | type) == "array" and (.externalProxy | length) > 0 then .externalProxy else [{}] end)
+        | .externalProxy[0].forceTls = "tls"
+        | .externalProxy[0].dest = $publicDomain
+        | .externalProxy[0].port = $port
+        | .externalProxy[0].remark = (.externalProxy[0].remark // "")
+        | .tlsSettings = (.tlsSettings // {})
+        | .tlsSettings.serverName = $publicDomain
+        | .tlsSettings.alpn = (.tlsSettings.alpn // ["h3"])
+        | .tlsSettings.certificates = (if (.tlsSettings.certificates | type) == "array" and (.tlsSettings.certificates | length) > 0 then .tlsSettings.certificates else [{}] end)
+        | .tlsSettings.certificates[0].certificateFile = $certificateFile
+        | .tlsSettings.certificates[0].keyFile = $keyFile
+      ' <<<"$stream")"
+    sqlite3 "$db" "
+      UPDATE inbounds
+      SET listen='',
+          port=$new_port,
+          stream_settings=$(sql_quote "$new_stream"),
+          tag=$(sql_quote "$new_tag")
+      WHERE id=$inbound_id;
+    "
+  done <<<"$rows"
 }
 
 xui_v3_warp_base_public_domain() {

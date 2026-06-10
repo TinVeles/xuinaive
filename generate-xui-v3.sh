@@ -21,6 +21,7 @@ RESET_INBOUNDS=0
 RESTART_XUI=1
 ASSUME_YES=0
 XUI_CREATE_WARP_PRESETS="${XUI_CREATE_WARP_PRESETS:-1}"
+HY2_PUBLIC_PORT="${HY2_PUBLIC_PORT:-24443}"
 HY2_WARP_PUBLIC_PORT="${HY2_WARP_PUBLIC_PORT:-24443}"
 XUI_PRESET_PROFILE="${XUI_PRESET_PROFILE:-stable}"
 
@@ -30,7 +31,7 @@ Usage:
   sudo bash generate-xui-v3.sh --count 15 --prefix auto --yes
   sudo bash generate-xui-v3.sh --reset-inbounds --domain x.example.com --reality-dest r.example.com --yes
   sudo bash generate-xui-v3.sh --reset-inbounds --extended-presets --domain x.example.com --reality-dest r.example.com --yes
-  sudo bash generate-xui-v3.sh --xui-warp-presets --hy2-warp-port 24443 --yes
+  sudo bash generate-xui-v3.sh --xui-warp-presets --hy2-port 24443 --hy2-warp-port 24444 --yes
 
 Creates one v3 client entity per profile and attaches it to every generated
 compatible inbound through client_inbounds. This script is only for 3x-ui v3.
@@ -60,6 +61,7 @@ while [[ $# -gt 0 ]]; do
     --extended-presets) XUI_PRESET_PROFILE="extended"; shift ;;
     --xui-warp-presets) XUI_CREATE_WARP_PRESETS=1; shift ;;
     --no-xui-warp-presets) XUI_CREATE_WARP_PRESETS=0; shift ;;
+    --hy2-port) HY2_PUBLIC_PORT="${2:-}"; shift 2 ;;
     --hy2-warp-port) HY2_WARP_PUBLIC_PORT="${2:-}"; shift 2 ;;
     --warp-reality-decoy) REALITY_WARP_TCP_DECOY="${2:-}"; shift 2 ;;
     --warp-xhttp-decoy) REALITY_WARP_XHTTP_DECOY="${2:-}"; shift 2 ;;
@@ -75,6 +77,7 @@ done
 [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -gt 0 ]] || upm_die "--count must be a positive number"
 [[ "$PREFIX" =~ ^[A-Za-z0-9_.-]+$ ]] || upm_die "--prefix may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
 [[ "$XUI_PRESET_PROFILE" == "stable" || "$XUI_PRESET_PROFILE" == "extended" ]] || upm_die "--preset-profile must be stable or extended"
+[[ "$HY2_PUBLIC_PORT" =~ ^[0-9]+$ && "$HY2_PUBLIC_PORT" -gt 0 && "$HY2_PUBLIC_PORT" -le 65535 ]] || upm_die "--hy2-port must be 1..65535"
 [[ "$HY2_WARP_PUBLIC_PORT" =~ ^[0-9]+$ && "$HY2_WARP_PUBLIC_PORT" -gt 0 && "$HY2_WARP_PUBLIC_PORT" -le 65535 ]] || upm_die "--hy2-warp-port must be 1..65535"
 for cmd in sqlite3 jq openssl; do
   command_exists "$cmd" || upm_die "$cmd is required"
@@ -124,7 +127,7 @@ if [[ "$RESET_INBOUNDS" == "1" ]]; then
   private_key="$(awk -F': *' 'tolower($1) ~ /^private[ _-]?key$/ {print $2; exit}' <<<"$output")"
   public_key="$(awk -F': *' 'tolower($1) ~ /^public[ _-]?key$/ || tolower($1) ~ /publickey/ {print $2; exit}' <<<"$output")"
   [[ -n "$private_key" && -n "$public_key" ]] || upm_die "Could not parse xray x25519 key pair"
-  XUI_DB="$XUI_DB" XUI_PRESET_PROFILE="$XUI_PRESET_PROFILE" REALITY_DEST="$REALITY_DEST" xui_install_3dp_reference_presets \
+  XUI_DB="$XUI_DB" XUI_PRESET_PROFILE="$XUI_PRESET_PROFILE" REALITY_DEST="$REALITY_DEST" HY2_PUBLIC_PORT="$HY2_PUBLIC_PORT" xui_install_3dp_reference_presets \
     "$XUI_DB" "$DOMAIN" "$private_key" "$public_key" "$XUI_EMOJI_FLAG" \
     "/root/cert/${DOMAIN}/fullchain.pem" "/root/cert/${DOMAIN}/privkey.pem"
 fi
@@ -142,7 +145,7 @@ upm_sqlite_setting_set "$XUI_DB" "subEmailInRemark" "false"
 
 report_file="/etc/x-ui/generated-clients-v3.txt"
 mkdir -p "$(dirname "$report_file")"
-XUI_DB="$XUI_DB" XUI_PUBLIC_DOMAIN="$DOMAIN" xui_ensure_v3_hysteria2_preset "$XUI_DB" "$DOMAIN"
+XUI_DB="$XUI_DB" XUI_PUBLIC_DOMAIN="$DOMAIN" HY2_PUBLIC_PORT="$HY2_PUBLIC_PORT" xui_ensure_v3_hysteria2_preset "$XUI_DB" "$DOMAIN"
 XUI_DB="$XUI_DB" \
 XUI_CREATE_WARP_PRESETS="$XUI_CREATE_WARP_PRESETS" \
 HY2_WARP_PUBLIC_PORT="$HY2_WARP_PUBLIC_PORT" \
