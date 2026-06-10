@@ -22,16 +22,23 @@ RESTART_XUI=1
 ASSUME_YES=0
 XUI_CREATE_WARP_PRESETS="${XUI_CREATE_WARP_PRESETS:-0}"
 HY2_WARP_PUBLIC_PORT="${HY2_WARP_PUBLIC_PORT:-24443}"
+XUI_PRESET_PROFILE="${XUI_PRESET_PROFILE:-stable}"
 
 usage() {
   cat <<EOF
 Usage:
   sudo bash generate-xui-v3.sh --count 15 --prefix auto --yes
   sudo bash generate-xui-v3.sh --reset-inbounds --domain x.example.com --reality-dest r.example.com --yes
+  sudo bash generate-xui-v3.sh --reset-inbounds --extended-presets --domain x.example.com --reality-dest r.example.com --yes
   sudo bash generate-xui-v3.sh --xui-warp-presets --hy2-warp-port 24443 --yes
 
 Creates one v3 client entity per profile and attaches it to every generated
 compatible inbound through client_inbounds. This script is only for 3x-ui v3.
+
+Default reset preset profile is stable x-ui-pro-like core:
+  vless tcp reality, vless ws, vless xhttp, trojan grpc.
+Use --extended-presets only when you explicitly want the larger experimental
+mix with extra REALITY decoys, Shadowsocks, Hysteria2, and Trojan TCP REALITY.
 
 --xui-warp-presets creates enabled manual WARP prep inbounds:
   vless tcp reality, vless xhttp reality, hysteria2 udp.
@@ -47,6 +54,9 @@ while [[ $# -gt 0 ]]; do
     --domain|--xui-domain) DOMAIN="${2:-}"; shift 2 ;;
     --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
     --reset-inbounds) RESET_INBOUNDS=1; shift ;;
+    --preset-profile) XUI_PRESET_PROFILE="${2:-}"; shift 2 ;;
+    --stable-core|--stable-presets) XUI_PRESET_PROFILE="stable"; shift ;;
+    --extended-presets) XUI_PRESET_PROFILE="extended"; shift ;;
     --xui-warp-presets) XUI_CREATE_WARP_PRESETS=1; shift ;;
     --no-xui-warp-presets) XUI_CREATE_WARP_PRESETS=0; shift ;;
     --hy2-warp-port) HY2_WARP_PUBLIC_PORT="${2:-}"; shift 2 ;;
@@ -63,6 +73,7 @@ done
 [[ "$ASSUME_YES" == "1" ]] || upm_die "Add --yes after reading what this script changes"
 [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -gt 0 ]] || upm_die "--count must be a positive number"
 [[ "$PREFIX" =~ ^[A-Za-z0-9_.-]+$ ]] || upm_die "--prefix may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
+[[ "$XUI_PRESET_PROFILE" == "stable" || "$XUI_PRESET_PROFILE" == "extended" ]] || upm_die "--preset-profile must be stable or extended"
 [[ "$HY2_WARP_PUBLIC_PORT" =~ ^[0-9]+$ && "$HY2_WARP_PUBLIC_PORT" -gt 0 && "$HY2_WARP_PUBLIC_PORT" -le 65535 ]] || upm_die "--hy2-warp-port must be 1..65535"
 for cmd in sqlite3 jq openssl; do
   command_exists "$cmd" || upm_die "$cmd is required"
@@ -112,7 +123,7 @@ if [[ "$RESET_INBOUNDS" == "1" ]]; then
   private_key="$(awk -F': *' 'tolower($1) ~ /^private[ _-]?key$/ {print $2; exit}' <<<"$output")"
   public_key="$(awk -F': *' 'tolower($1) ~ /^public[ _-]?key$/ || tolower($1) ~ /publickey/ {print $2; exit}' <<<"$output")"
   [[ -n "$private_key" && -n "$public_key" ]] || upm_die "Could not parse xray x25519 key pair"
-  XUI_DB="$XUI_DB" xui_install_3dp_reference_presets \
+  XUI_DB="$XUI_DB" XUI_PRESET_PROFILE="$XUI_PRESET_PROFILE" REALITY_DEST="$REALITY_DEST" xui_install_3dp_reference_presets \
     "$XUI_DB" "$DOMAIN" "$private_key" "$public_key" "$XUI_EMOJI_FLAG" \
     "/root/cert/${DOMAIN}/fullchain.pem" "/root/cert/${DOMAIN}/privkey.pem"
 fi
@@ -154,6 +165,7 @@ if [[ "$RESTART_XUI" == "1" ]] && command_exists systemctl; then
 fi
 
 upm_log_ok "3x-ui v3 clients generated: $COUNT client entities attached to every preset inbound"
+upm_log_ok "x-ui preset profile: $XUI_PRESET_PROFILE"
 if [[ "$XUI_CREATE_WARP_PRESETS" == "1" ]]; then
   upm_log_ok "Manual WARP prep inbounds: vless reality, vless xhttp, hysteria2"
 fi

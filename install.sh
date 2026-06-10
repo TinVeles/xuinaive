@@ -64,7 +64,8 @@ WARP_ROUTE_PORT="${WARP_ROUTE_PORT:-443}"
 XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-0}"
 XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
-XUI_PANEL_LINE="${XUI_PANEL_LINE:-legacy}"
+XUI_PANEL_LINE="${XUI_PANEL_LINE:-latest}"
+XUI_PRESET_PROFILE="${XUI_PRESET_PROFILE:-stable}"
 GENERATE_PROFILES="${GENERATE_PROFILES:-auto}"
 PROFILE_COUNT="${PROFILE_COUNT:-15}"
 PROFILE_PREFIX="${PROFILE_PREFIX:-auto}"
@@ -103,7 +104,7 @@ Usage:
   ./install.sh --mode xui --xui-panel-line latest --xui-domain x.example.com --reality-dest r.example.com --install --yes
   ./install.sh --mode naive --naive-domain n.example.com [--dry-run]
   ./install.sh --mode all --xui-domain x.example.com --rixxx-domain n.example.com --reality-dest r.example.com --rixxx-email admin@example.com --install --yes
-  ./install.sh --mode all --xui-panel-line latest --xui-domain x.example.com --rixxx-domain n.example.com --reality-dest r.example.com --rixxx-email admin@example.com --install --yes
+  ./install.sh --mode all --xui-extended-presets --xui-domain x.example.com --rixxx-domain n.example.com --reality-dest r.example.com --rixxx-email admin@example.com --install --yes
   ./install.sh --mode all --xui-domain x.example.com --rixxx-domain n.example.com --reality-dest r.example.com --rixxx-email admin@example.com --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem --install --yes
   ./install.sh --mode nh --domain vpn.example.com --proxy-email admin@example.com --install --yes
   bash <(wget -qO- RAW_INSTALL_URL)
@@ -115,7 +116,8 @@ Mode all installs 3x-ui + RIXXX Panel + NaiveProxy + Mieru on one VPS.
 Real --mode all generates subscriptions by default.
 Use --install-warp only when Cloudflare WARP should be installed and used for AI routing.
 Use --no-generate-profiles only for minimal/manual recovery installs.
-The default x-ui panel line is legacy (fixed 2.9.4). Use --xui-panel-line latest for the current upstream v3 release with SQLite.
+The default x-ui panel line is latest (current upstream v3 release with SQLite). Use --xui-panel-line legacy for fixed 2.9.4.
+Latest mode uses a stable x-ui-pro-like core preset set by default. Use --xui-extended-presets to opt into the larger experimental preset mix.
 Mode nh installs only the standalone RIXXX NaiveProxy + Mieru web panel.
 Use --rixxx-domain/--rixxx-email for RIXXX Panel installs.
 EOF
@@ -483,6 +485,7 @@ validate_real_install_args() {
   [[ "$PROFILE_COUNT" =~ ^[0-9]+$ && "$PROFILE_COUNT" -gt 0 ]] || die "--profile-count must be a positive number"
   [[ "$PROFILE_PREFIX" =~ ^[A-Za-z0-9_.-]+$ ]] || die "--profile-prefix may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
   [[ "$XUI_PANEL_LINE" == "legacy" || "$XUI_PANEL_LINE" == "latest" ]] || die "--xui-panel-line must be legacy or latest"
+  [[ "$XUI_PRESET_PROFILE" == "stable" || "$XUI_PRESET_PROFILE" == "extended" ]] || die "--xui-preset-profile must be stable or extended"
   if [[ "$XUI_PANEL_LINE" == "latest" && "$MODE" != "xui" && "$MODE" != "all" ]]; then
     die "--xui-panel-line latest currently supports --mode xui and --mode all only."
   fi
@@ -662,6 +665,7 @@ WARP auto-install: $xui_auto_install_warp
 WARP template DB apply: $xui_apply_warp_template
 Profiles:       ${GENERATE_PROFILES} (${PROFILE_COUNT}, prefix ${PROFILE_PREFIX})
 x-ui line:      $XUI_PANEL_LINE
+x-ui presets:   $XUI_PRESET_PROFILE
 
 This will install only x-ui-pro / 3x-ui / Xray / nginx.
 RIXXX Panel, NaiveProxy, and Mieru will not be installed.
@@ -694,11 +698,13 @@ EOF
       info "Pre-fetching and SHA256-verifying x-ui-pro upstream artifacts"
       xui_runtime="$(UPM_X_UI_RELEASE_CHANNEL="$xui_release_channel" UPM_X_UI_VERSION_OVERRIDE="$xui_version" bash "$xui_verifier" | tail -n1)"
       [[ -x "$xui_runtime" ]] || die "verify-upstream-binaries.sh did not produce a runnable patched script"
+      [[ "$XUI_PANEL_LINE" != "latest" ]] || upm_assert_xui_latest_min_version "$xui_runtime" "v3.3.0"
     else
       if [[ "${UPM_SKIP_UPSTREAM_VERIFY:-0}" != "1" ]]; then
         warn "Missing verifier: $xui_verifier"
         warn "Skipping SHA256 verification. Set UPM_SKIP_UPSTREAM_VERIFY=1 to silence."
       fi
+      [[ "$XUI_PANEL_LINE" != "latest" ]] || die "Cannot validate latest 3x-ui version without $xui_verifier"
       xui_runtime="$xui_installer"
     fi
 
@@ -720,6 +726,7 @@ EOF
     if [[ "$XUI_PANEL_LINE" == "latest" && "$GENERATE_PROFILES" == "1" ]]; then
       bash "$PROJECT_DIR/generate-xui-v3.sh" \
         --reset-inbounds \
+        --preset-profile "$XUI_PRESET_PROFILE" \
         --domain "$XUI_DOMAIN" \
         --reality-dest "$REALITY_DEST" \
         --count "$PROFILE_COUNT" \
@@ -746,6 +753,7 @@ RIXXX domain: $NH_PROXY_DOMAIN
 REALITY dest:   $REALITY_DEST
 RIXXX email:  $NH_PROXY_EMAIL
 x-ui line:      $XUI_PANEL_LINE
+x-ui presets:   $XUI_PRESET_PROFILE
 
 This will install 3x-ui + RIXXX Panel + NaiveProxy + Mieru.
 WARP install: $INSTALL_WARP
@@ -774,6 +782,7 @@ EOF
     XUI_APPLY_WARP_TEMPLATE="$XUI_APPLY_WARP_TEMPLATE" \
     XUI_AUTO_INSTALL_WARP="$AUTO_INSTALL_WARP" \
     XUI_CREATE_DIRECT="$XUI_CREATE_DIRECT" \
+    XUI_PRESET_PROFILE="$XUI_PRESET_PROFILE" \
     GENERATE_PROFILES="$GENERATE_PROFILES" \
     AUTO_INSTALL_WARP="$AUTO_INSTALL_WARP" \
     WARP_PROXY_PORT="$WARP_PROXY_PORT" \
@@ -956,6 +965,9 @@ while [[ $# -gt 0 ]]; do
     --mode) MODE="${2:-}"; shift 2 ;;
     --xui-domain) XUI_DOMAIN="${2:-}"; shift 2 ;;
     --xui-panel-line) XUI_PANEL_LINE="${2:-}"; shift 2 ;;
+    --xui-preset-profile|--preset-profile) XUI_PRESET_PROFILE="${2:-}"; shift 2 ;;
+    --xui-stable-core|--stable-core|--stable-presets) XUI_PRESET_PROFILE="stable"; shift ;;
+    --xui-extended-presets|--extended-presets) XUI_PRESET_PROFILE="extended"; shift ;;
     --naive-domain) NAIVE_DOMAIN="${2:-}"; shift 2 ;;
     --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
     --naive-email) NAIVE_EMAIL="${2:-}"; shift 2 ;;

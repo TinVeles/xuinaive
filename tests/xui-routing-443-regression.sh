@@ -59,8 +59,10 @@ ufw() {
 }
 
 install_presets() {
-  local hy2_port="${1:-443}"
+  local profile="${1:-extended}" hy2_port="${2:-443}"
   HY2_PUBLIC_PORT="$hy2_port" \
+  XUI_PRESET_PROFILE="$profile" \
+  REALITY_DEST="reality.example.com" \
     xui_install_3dp_reference_presets \
       "$db" vpn.example.com private-key public-key flag \
       /etc/x-ui/server.crt /etc/x-ui/server.key
@@ -81,7 +83,28 @@ install_presets() {
   XUI_DB="$db" xui_normalize_reference_preset_external_proxy_ports
 }
 
-install_presets 443
+install_presets stable 443
+
+[[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM inbounds;')" == "4" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE remark GLOB '*vless-tcp-reality-1';")" == "1" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE remark GLOB '*vless-ws';")" == "1" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE remark GLOB '*vless-xhttp';")" == "1" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE remark GLOB '*trojan-grpc';")" == "1" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE protocol='shadowsocks' OR protocol IN ('hysteria','hysteria2');")" == "0" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE json_extract(stream_settings,'$.security')='reality' AND json_extract(stream_settings,'$.sockopt.acceptProxyProtocol')=1;")" == "1" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE json_extract(stream_settings,'$.externalProxy[0].port')=443;")" == "4" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT json_extract(stream_settings,'$.xhttpSettings.path') FROM inbounds WHERE remark LIKE '%vless-xhttp';")" =~ ^/[0-9]+/$ ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT json_extract(stream_settings,'$.grpcSettings.serviceName') FROM inbounds WHERE remark LIKE '%trojan-grpc';")" =~ ^[0-9]+/ ]]
+
+XUI_DB="$db" \
+NGINX_STREAM_CONF="$stream_conf" \
+NGINX_XUI_REALITY_UPSTREAM_CONF="$upstream_conf" \
+  xui_ensure_nginx_reality_sni_routes
+
+[[ "$(grep -c '^upstream upm_xui_reality_' "$upstream_conf")" == "1" ]]
+grep -Eq 'reality\.example\.com[[:space:]]+upm_xui_reality_[0-9]+;' "$stream_conf"
+
+install_presets extended 443
 
 [[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM inbounds;')" == "10" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE remark GLOB '*vless-tcp-reality-[1-4]';")" == "4" ]]
@@ -143,7 +166,7 @@ if XUI_DB="$db" \
 fi
 cmp "$tmp_dir/stream.before-duplicate.conf" "$stream_conf"
 
-install_presets 24443
+install_presets extended 24443
 [[ "$(sqlite3 -readonly "$db" "SELECT port || ':' || json_extract(stream_settings,'$.externalProxy[0].port') FROM inbounds WHERE remark LIKE '%hysteria2-udp';")" == "24443:24443" ]]
 
 : > "$ufw_log"
@@ -152,7 +175,7 @@ grep -q '^allow 443/tcp$' "$ufw_log"
 grep -q '^allow 8388/tcp$' "$ufw_log"
 grep -q '^allow 24443/udp$' "$ufw_log"
 
-install_presets 443
+install_presets extended 443
 sqlite3 "$db" "
   UPDATE inbounds
   SET settings='{\"clients\":['

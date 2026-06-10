@@ -196,6 +196,35 @@ upm_assert_xui_creds_rotated() {
   fi
 }
 
+upm_version_ge() {
+  local current="${1#v}" minimum="${2#v}"
+  [[ -n "$current" && -n "$minimum" ]] || return 1
+  [[ "$(printf '%s\n%s\n' "$minimum" "$current" | sort -V | head -n1)" == "$minimum" ]]
+}
+
+upm_xui_runtime_version() {
+  local runtime_script="${1:-}"
+  [[ -n "$runtime_script" && -f "$runtime_script" ]] || return 1
+  awk -F= '
+    /^export UPM_X_UI_VERSION=/ {
+      value=$2
+      gsub(/^'\''|'\''$/, "", value)
+      gsub(/^"|"$/, "", value)
+      print value
+      exit
+    }
+  ' "$runtime_script"
+}
+
+upm_assert_xui_latest_min_version() {
+  local runtime_script="$1" minimum="${2:-v3.3.0}" resolved
+  resolved="$(upm_xui_runtime_version "$runtime_script" 2>/dev/null || true)"
+  [[ -n "$resolved" ]] || upm_die "Cannot validate resolved latest 3x-ui version from $runtime_script"
+  upm_version_ge "$resolved" "$minimum" || \
+    upm_die "Resolved 3x-ui latest version $resolved is older than required $minimum"
+  upm_log_ok "Resolved 3x-ui latest version: $resolved"
+}
+
 
 nginx_enable_stream_include() {
   local main_conf="/etc/nginx/nginx.conf" backup

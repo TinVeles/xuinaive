@@ -63,7 +63,8 @@ Real installation is gated behind `--install --yes`.
 - RIXXX Caddy/NaiveProxy binds only `127.0.0.1:9445`;
 - nginx stream routes the RIXXX/NaiveProxy SNI domain to `127.0.0.1:9445`;
 - Mieru binds its configured public TCP/UDP port range, usually starting at `2012`;
-- the x-ui Hysteria2 preset binds separate `24443/udp` by default in all mode.
+- x-ui extended presets can add separate ports such as Hysteria2 UDP, but stable
+  core keeps x-ui public entrypoints on nginx-managed `443/tcp`.
 
 ## RIXXX Standalone Mode
 

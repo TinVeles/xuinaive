@@ -270,7 +270,7 @@ xui_preset_inbound_filter_sql() {
              AND json_extract(stream_settings,'$.network') IN ('ws','xhttp','grpc'))
          OR (protocol='trojan'
              AND json_valid(stream_settings)=1
-             AND json_extract(stream_settings,'$.network')='tcp')
+             AND json_extract(stream_settings,'$.network') IN ('tcp','grpc'))
          OR (protocol='shadowsocks'
              AND json_valid(stream_settings)=1
              AND json_extract(stream_settings,'$.network')='tcp')
@@ -331,6 +331,7 @@ xui_disable_experimental_trojan_grpc_presets() {
       AND protocol='trojan'
       AND json_valid(stream_settings)=1
       AND json_extract(stream_settings,'$.network')='grpc'
+      AND COALESCE(json_extract(stream_settings,'$.security'), 'none') != 'none'
       AND lower(COALESCE(remark,'')) LIKE '%trojan-grpc%';
 
     SELECT changes();
@@ -372,6 +373,55 @@ xui_normalize_reference_preset_external_proxy_ports() {
         OR lower(COALESCE(remark,'')) LIKE '%vless-grpc%'
         OR lower(COALESCE(remark,'')) LIKE '%trojan-tcp-reality%'
         OR lower(COALESCE(remark,'')) LIKE '%trojan-grpc%'
+      );
+
+    UPDATE inbounds
+    SET stream_settings=json_set(
+      stream_settings,
+      '$.externalProxy[0].port', 443,
+      '$.externalProxy[0].forceTls', 'tls',
+      '$.xhttpSettings.path',
+        CASE
+          WHEN COALESCE(json_extract(stream_settings, '$.xhttpSettings.path'), '') LIKE '/' || port || '/%'
+            THEN json_extract(stream_settings, '$.xhttpSettings.path')
+          ELSE '/' || port || '/' || ltrim(COALESCE(json_extract(stream_settings, '$.xhttpSettings.path'), ''), '/')
+        END,
+      '$.sockopt.acceptProxyProtocol', json('false')
+    )
+    WHERE json_valid(stream_settings)=1
+      AND json_type(stream_settings, '$.externalProxy[0]')='object'
+      AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+      AND lower(COALESCE(remark,'')) LIKE '%vless-xhttp%'
+      AND (
+        CAST(COALESCE(json_extract(stream_settings, '$.externalProxy[0].port'), 0) AS INTEGER) != 443
+        OR COALESCE(json_extract(stream_settings, '$.externalProxy[0].forceTls'), '') != 'tls'
+        OR COALESCE(json_extract(stream_settings, '$.xhttpSettings.path'), '') NOT LIKE '/' || port || '/%'
+        OR COALESCE(json_extract(stream_settings, '$.sockopt.acceptProxyProtocol'), 0) != 0
+      );
+
+    UPDATE inbounds
+    SET stream_settings=json_set(
+      stream_settings,
+      '$.externalProxy[0].port', 443,
+      '$.externalProxy[0].forceTls', 'tls',
+      '$.grpcSettings.serviceName',
+        CASE
+          WHEN COALESCE(json_extract(stream_settings, '$.grpcSettings.serviceName'), '') LIKE port || '/%'
+            THEN json_extract(stream_settings, '$.grpcSettings.serviceName')
+          ELSE port || '/' || ltrim(COALESCE(json_extract(stream_settings, '$.grpcSettings.serviceName'), 'trojan-grpc'), '/')
+        END
+    )
+    WHERE json_valid(stream_settings)=1
+      AND json_type(stream_settings, '$.externalProxy[0]')='object'
+      AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+      AND protocol='trojan'
+      AND json_extract(stream_settings, '$.network')='grpc'
+      AND (
+        CAST(COALESCE(json_extract(stream_settings, '$.externalProxy[0].port'), 0) AS INTEGER) != 443
+        OR COALESCE(json_extract(stream_settings, '$.externalProxy[0].forceTls'), '') != 'tls'
+        OR COALESCE(json_extract(stream_settings, '$.grpcSettings.serviceName'), '') NOT LIKE port || '/%'
       );
 
     UPDATE inbounds
@@ -462,6 +512,62 @@ $(xui_preset_inbound_filter_sql)
       ' <<<"$stream")" || continue
       sqlite3 "$db" "UPDATE inbounds SET stream_settings=$(sql_quote "$new_stream") WHERE id=$inbound_id;"
     done <<<"$ws_rows"
+
+    local xhttp_rows grpc_rows
+    xhttp_rows="$(sqlite3 -separator $'\t' "$db" "
+      SELECT id, port, json(stream_settings)
+      FROM inbounds
+      WHERE json_valid(stream_settings)=1
+        AND json_extract(stream_settings,'$.network')='xhttp'
+        AND COALESCE(tag,'') NOT LIKE '%-warp'
+        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+        AND lower(COALESCE(remark,'')) LIKE '%vless-xhttp%';
+    " 2>/dev/null || true)"
+    while IFS=$'\t' read -r inbound_id inbound_port stream; do
+      [[ "$inbound_id" =~ ^[0-9]+$ && "$inbound_port" =~ ^[0-9]+$ && -n "$stream" ]] || continue
+      new_stream="$(jq -c --arg domain "$public_domain" --argjson port "$inbound_port" '
+        .security = "none"
+        | .externalProxy = (if ((.externalProxy // []) | length) > 0 then .externalProxy else [{forceTls:"tls",dest:"",port:443,remark:""}] end)
+        | .externalProxy[0].forceTls = "tls"
+        | .externalProxy[0].dest = $domain
+        | .externalProxy[0].port = 443
+        | .externalProxy[0].remark = ""
+        | .xhttpSettings = (.xhttpSettings // {})
+        | .xhttpSettings.host = $domain
+        | .xhttpSettings.path = ("/" + ($port|tostring) + "/")
+        | .xhttpSettings.mode = (.xhttpSettings.mode // "packet-up")
+        | .xhttpSettings.headers = (.xhttpSettings.headers // {})
+        | .sockopt = (.sockopt // {})
+        | .sockopt.acceptProxyProtocol = false
+      ' <<<"$stream")" || continue
+      sqlite3 "$db" "UPDATE inbounds SET stream_settings=$(sql_quote "$new_stream") WHERE id=$inbound_id;"
+    done <<<"$xhttp_rows"
+
+    grpc_rows="$(sqlite3 -separator $'\t' "$db" "
+      SELECT id, port, json(stream_settings)
+      FROM inbounds
+      WHERE json_valid(stream_settings)=1
+        AND protocol='trojan'
+        AND json_extract(stream_settings,'$.network')='grpc'
+        AND COALESCE(tag,'') NOT LIKE '%-warp'
+        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
+    " 2>/dev/null || true)"
+    while IFS=$'\t' read -r inbound_id inbound_port stream; do
+      [[ "$inbound_id" =~ ^[0-9]+$ && "$inbound_port" =~ ^[0-9]+$ && -n "$stream" ]] || continue
+      new_stream="$(jq -c --arg domain "$public_domain" --argjson port "$inbound_port" '
+        .security = "none"
+        | .externalProxy = (if ((.externalProxy // []) | length) > 0 then .externalProxy else [{forceTls:"tls",dest:"",port:443,remark:""}] end)
+        | .externalProxy[0].forceTls = "tls"
+        | .externalProxy[0].dest = $domain
+        | .externalProxy[0].port = 443
+        | .externalProxy[0].remark = ""
+        | .grpcSettings = (.grpcSettings // {})
+        | .grpcSettings.authority = $domain
+        | .grpcSettings.serviceName = (($port|tostring) + "/" + (((.grpcSettings.serviceName // "trojan-grpc") | tostring) | sub("^/*[0-9]+/*"; "") | sub("^/+"; "")))
+        | .grpcSettings.multiMode = (.grpcSettings.multiMode // false)
+      ' <<<"$stream")" || continue
+      sqlite3 "$db" "UPDATE inbounds SET stream_settings=$(sql_quote "$new_stream") WHERE id=$inbound_id;"
+    done <<<"$grpc_rows"
   fi
 }
 
@@ -506,6 +612,12 @@ xui_normalize_reference_preset_remarks() {
       AND json_extract(stream_settings,'$.security')='reality'
       AND COALESCE(tag,'') NOT LIKE '%-warp' AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
 
+    UPDATE inbounds SET remark=$(sql_quote "${prefix}vless-xhttp")
+    WHERE protocol='vless' AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='xhttp'
+      AND COALESCE(json_extract(stream_settings,'$.security'),'none')!='reality'
+      AND COALESCE(tag,'') NOT LIKE '%-warp' AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
+
     UPDATE inbounds SET remark=$(sql_quote "${prefix}vless-grpc-reality")
     WHERE protocol='vless' AND json_valid(stream_settings)=1
       AND json_extract(stream_settings,'$.network')='grpc'
@@ -529,6 +641,11 @@ xui_normalize_reference_preset_remarks() {
     WHERE protocol='trojan' AND json_valid(stream_settings)=1
       AND json_extract(stream_settings,'$.network')='tcp'
       AND json_extract(stream_settings,'$.security')='reality'
+      AND COALESCE(tag,'') NOT LIKE '%-warp' AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
+
+    UPDATE inbounds SET remark=$(sql_quote "${prefix}trojan-grpc")
+    WHERE protocol='trojan' AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.network')='grpc'
       AND COALESCE(tag,'') NOT LIKE '%-warp' AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
 
     UPDATE inbounds SET remark=$(sql_quote "${prefix}vless-reality-warp")
@@ -1013,9 +1130,11 @@ xui_open_public_preset_ports() {
 xui_install_3dp_reference_presets() {
   local db="$1" public_domain="$2" private_key="$3" public_key="$4" emoji_flag="$5"
   local certificate_file="$6" key_file="$7"
-  local sniffing settings stream port sni tag remark password auth obfs_password reality_index
+  local sniffing settings stream port sni tag remark password auth obfs_password reality_index preset_profile
 
   [[ -f "$db" ]] || return 0
+  preset_profile="${XUI_PRESET_PROFILE:-stable}"
+  [[ "$preset_profile" == "stable" || "$preset_profile" == "extended" ]] || upm_die "XUI_PRESET_PROFILE must be stable or extended"
 
   xui_3dp_random_port() {
     local candidate
@@ -1084,24 +1203,45 @@ xui_install_3dp_reference_presets() {
 
   settings='{"clients":[],"decryption":"none","encryption":"none","fallbacks":[]}'
   reality_index=0
-  for sni in ya.ru vk.com ok.ru ozon.ru; do
+  if [[ "$preset_profile" == "extended" ]]; then
+    for sni in ya.ru vk.com ok.ru ozon.ru; do
+      reality_index=$((reality_index + 1))
+      port="$(xui_3dp_random_port)"
+      stream="$(xui_3dp_reality_stream tcp "$sni" "$port" '{"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}')"
+      xui_3dp_insert vless "$port" "$(xui_3dp_remark "vless-tcp-reality-${reality_index}")" "$settings" "$stream"
+    done
+  else
+    sni="${REALITY_DEST:-www.microsoft.com}"
     reality_index=$((reality_index + 1))
     port="$(xui_3dp_random_port)"
     stream="$(xui_3dp_reality_stream tcp "$sni" "$port" '{"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}')"
     xui_3dp_insert vless "$port" "$(xui_3dp_remark "vless-tcp-reality-${reality_index}")" "$settings" "$stream"
-  done
+  fi
 
   port="$(xui_3dp_random_port)"
-  sni="avito.ru"
-  stream="$(xui_3dp_reality_stream xhttp "$sni" "$port" '{"xhttpSettings":{"host":"avito.ru","path":"/","mode":"auto","noSSEHeader":false,"scMaxBufferedPosts":30,"scMaxEachPostBytes":"1000000","scStreamUpServerSecs":"20-80","xPaddingBytes":"100-1000"}}')"
-  xui_3dp_insert vless "$port" "$(xui_3dp_remark "vless-xhttp-reality")" "$settings" "$stream"
+  if [[ "$preset_profile" == "extended" ]]; then
+    sni="avito.ru"
+    stream="$(xui_3dp_reality_stream xhttp "$sni" "$port" '{"xhttpSettings":{"host":"avito.ru","path":"/","mode":"auto","noSSEHeader":false,"scMaxBufferedPosts":30,"scMaxEachPostBytes":"1000000","scStreamUpServerSecs":"20-80","xPaddingBytes":"100-1000"}}')"
+    xui_3dp_insert vless "$port" "$(xui_3dp_remark "vless-xhttp-reality")" "$settings" "$stream"
+  else
+    stream="$(jq -cn --arg publicDomain "$public_domain" --argjson port "$port" '{
+      network:"xhttp",
+      security:"none",
+      externalProxy:[{forceTls:"tls",dest:$publicDomain,port:443,remark:""}],
+      xhttpSettings:{host:$publicDomain,path:("/" + ($port|tostring) + "/"),mode:"packet-up",headers:{},noSSEHeader:false,scMaxBufferedPosts:30,scMaxEachPostBytes:"1000000",xPaddingBytes:"100-1000"},
+      sockopt:{acceptProxyProtocol:false}
+    }')"
+    xui_3dp_insert vless "$port" "$(xui_3dp_remark "vless-xhttp")" "$settings" "$stream"
+  fi
 
-  port="$(xui_3dp_random_port)"
-  # gosuslugi.ru geoblocks many hosting/datacenter IPs. Keep the gRPC REALITY
-  # preset on a reachable TLS 1.3 decoy and allow an operator override.
-  sni="${REALITY_GRPC_DECOY:-dzen.ru}"
-  stream="$(xui_3dp_reality_stream grpc "$sni" "$port" "$(jq -cn --arg authority "$sni" '{grpcSettings:{serviceName:"myservice",authority:$authority,multiMode:false}}')")"
-  xui_3dp_insert vless "$port" "$(xui_3dp_remark "vless-grpc-reality")" "$settings" "$stream"
+  if [[ "$preset_profile" == "extended" ]]; then
+    port="$(xui_3dp_random_port)"
+    # gosuslugi.ru geoblocks many hosting/datacenter IPs. Keep the gRPC REALITY
+    # preset on a reachable TLS 1.3 decoy and allow an operator override.
+    sni="${REALITY_GRPC_DECOY:-dzen.ru}"
+    stream="$(xui_3dp_reality_stream grpc "$sni" "$port" "$(jq -cn --arg authority "$sni" '{grpcSettings:{serviceName:"myservice",authority:$authority,multiMode:false}}')")"
+    xui_3dp_insert vless "$port" "$(xui_3dp_remark "vless-grpc-reality")" "$settings" "$stream"
+  fi
 
   port="$(xui_3dp_random_port)"
   # vless-ws is fronted on public 443 by the nginx domain vhost (www upstream),
@@ -1117,52 +1257,64 @@ xui_install_3dp_reference_presets() {
   }')"
   xui_3dp_insert vless "$port" "$(xui_3dp_remark "vless-ws")" "$settings" "$stream"
 
-  # shadowsocks has no SNI/TLS, so it cannot share nginx's 443. It keeps a
-  # stable dedicated port (default 8388, override SS_PUBLIC_PORT) that you open
-  # once in the provider firewall/security group.
-  port="$(xui_next_free_inbound_port "$db" "${SS_PUBLIC_PORT:-8388}")"
-  password="$(openssl rand -base64 32 | tr -d '\n')"
-  settings="$(jq -cn --arg password "$password" '{clients:[],ivCheck:false,method:"2022-blake3-aes-256-gcm",network:"tcp",password:$password}')"
-  stream="$(jq -cn --arg publicDomain "$public_domain" --argjson port "$port" '{
-    network:"tcp",
-    security:"none",
-    externalProxy:[{forceTls:"none",dest:$publicDomain,port:$port,remark:""}],
-    tcpSettings:{acceptProxyProtocol:false,header:{type:"none"}}
-  }')"
-  xui_3dp_insert shadowsocks "$port" "$(xui_3dp_remark "shadowsocks")" "$settings" "$stream"
-
-  # hysteria2 is QUIC/UDP and cannot share nginx's TCP 443. In xui-only mode it
-  # binds public UDP 443. Unified installs override HY2_PUBLIC_PORT because the
-  # In all-in-one mode nginx owns TCP 443; x-ui Hysteria2 uses a separate UDP port.
-  port="${HY2_PUBLIC_PORT:-443}"
-  if [[ "$port" != "443" ]]; then
-    port="$(xui_next_free_inbound_port "$db" "$port")"
-  fi
-  auth="$(openssl rand -hex 16)"
-  obfs_password="$(openssl rand -hex 8)"
-  settings="$(jq -cn --arg auth "$auth" '{clients:[],version:2}')"
-  stream="$(jq -cn \
-    --arg publicDomain "$public_domain" \
-    --arg certificateFile "$certificate_file" \
-    --arg keyFile "$key_file" \
-    --arg auth "$auth" \
-    --arg obfsPassword "$obfs_password" \
-    --argjson port "$port" \
-    '{
-      network:"hysteria",
-      security:"tls",
-      externalProxy:[{forceTls:"tls",dest:$publicDomain,port:$port,remark:""}],
-      finalmask:{udp:[{type:"salamander",settings:{password:$obfsPassword}}]},
-      hysteriaSettings:{auth:$auth,masquerade:{content:"",dir:"",headers:{},insecure:true,rewriteHost:false,statusCode:0,type:"proxy",url:"https://google.com"},udpIdleTimeout:60,version:2},
-      tlsSettings:{serverName:$publicDomain,alpn:["h3"],certificates:[{buildChain:false,certificateFile:$certificateFile,keyFile:$keyFile,oneTimeLoading:false,usage:"encipherment"}],cipherSuites:"",disableSystemRoot:false,echForceQuery:"none",echServerKeys:"",enableSessionResumption:false,maxVersion:"1.3",minVersion:"1.2",rejectUnknownSni:false}
-    }')"
-  xui_3dp_insert hysteria "$port" "$(xui_3dp_remark "hysteria2")" "$settings" "$stream"
-
-  port="$(xui_3dp_random_port)"
-  sni="kinopoisk.ru"
   settings='{"clients":[],"fallbacks":[]}'
-  stream="$(xui_3dp_reality_stream tcp "$sni" "$port" '{"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}')"
-  xui_3dp_insert trojan "$port" "$(xui_3dp_remark "trojan-tcp-reality")" "$settings" "$stream"
+  if [[ "$preset_profile" == "extended" ]]; then
+    # shadowsocks has no SNI/TLS, so it cannot share nginx's 443. It keeps a
+    # stable dedicated port (default 8388, override SS_PUBLIC_PORT) that you open
+    # once in the provider firewall/security group.
+    port="$(xui_next_free_inbound_port "$db" "${SS_PUBLIC_PORT:-8388}")"
+    password="$(openssl rand -base64 32 | tr -d '\n')"
+    settings="$(jq -cn --arg password "$password" '{clients:[],ivCheck:false,method:"2022-blake3-aes-256-gcm",network:"tcp",password:$password}')"
+    stream="$(jq -cn --arg publicDomain "$public_domain" --argjson port "$port" '{
+      network:"tcp",
+      security:"none",
+      externalProxy:[{forceTls:"none",dest:$publicDomain,port:$port,remark:""}],
+      tcpSettings:{acceptProxyProtocol:false,header:{type:"none"}}
+    }')"
+    xui_3dp_insert shadowsocks "$port" "$(xui_3dp_remark "shadowsocks")" "$settings" "$stream"
+
+    # hysteria2 is QUIC/UDP and cannot share nginx's TCP 443. In xui-only mode it
+    # binds public UDP 443. Unified installs override HY2_PUBLIC_PORT because
+    # nginx owns TCP 443 in all-in-one mode.
+    port="${HY2_PUBLIC_PORT:-443}"
+    if [[ "$port" != "443" ]]; then
+      port="$(xui_next_free_inbound_port "$db" "$port")"
+    fi
+    auth="$(openssl rand -hex 16)"
+    obfs_password="$(openssl rand -hex 8)"
+    settings="$(jq -cn --arg auth "$auth" '{clients:[],version:2}')"
+    stream="$(jq -cn \
+      --arg publicDomain "$public_domain" \
+      --arg certificateFile "$certificate_file" \
+      --arg keyFile "$key_file" \
+      --arg auth "$auth" \
+      --arg obfsPassword "$obfs_password" \
+      --argjson port "$port" \
+      '{
+        network:"hysteria",
+        security:"tls",
+        externalProxy:[{forceTls:"tls",dest:$publicDomain,port:$port,remark:""}],
+        finalmask:{udp:[{type:"salamander",settings:{password:$obfsPassword}}]},
+        hysteriaSettings:{auth:$auth,masquerade:{content:"",dir:"",headers:{},insecure:true,rewriteHost:false,statusCode:0,type:"proxy",url:"https://google.com"},udpIdleTimeout:60,version:2},
+        tlsSettings:{serverName:$publicDomain,alpn:["h3"],certificates:[{buildChain:false,certificateFile:$certificateFile,keyFile:$keyFile,oneTimeLoading:false,usage:"encipherment"}],cipherSuites:"",disableSystemRoot:false,echForceQuery:"none",echServerKeys:"",enableSessionResumption:false,maxVersion:"1.3",minVersion:"1.2",rejectUnknownSni:false}
+      }')"
+    xui_3dp_insert hysteria "$port" "$(xui_3dp_remark "hysteria2")" "$settings" "$stream"
+
+    port="$(xui_3dp_random_port)"
+    sni="kinopoisk.ru"
+    settings='{"clients":[],"fallbacks":[]}'
+    stream="$(xui_3dp_reality_stream tcp "$sni" "$port" '{"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}')"
+    xui_3dp_insert trojan "$port" "$(xui_3dp_remark "trojan-tcp-reality")" "$settings" "$stream"
+  else
+    port="$(xui_3dp_random_port)"
+    stream="$(jq -cn --arg publicDomain "$public_domain" --arg serviceName "${port}/trojan-grpc" '{
+      network:"grpc",
+      security:"none",
+      externalProxy:[{forceTls:"tls",dest:$publicDomain,port:443,remark:""}],
+      grpcSettings:{serviceName:$serviceName,authority:$publicDomain,multiMode:false}
+    }')"
+    xui_3dp_insert trojan "$port" "$(xui_3dp_remark "trojan-grpc")" "$settings" "$stream"
+  fi
 }
 
 xui_v3_warp_base_public_domain() {
@@ -1241,6 +1393,34 @@ xui_v3_warp_clone_insert_or_update() {
   fi
 }
 
+xui_v3_warp_insert_or_update_raw() {
+  local db="$1" tag="$2" remark="$3" protocol="$4" port="$5" settings="$6" stream="$7" sniffing="$8" report_file="$9"
+  local mirror_id
+  mirror_id="$(sqlite3 -readonly "$db" "SELECT id FROM inbounds WHERE tag=$(sql_quote "$tag") LIMIT 1;" 2>/dev/null || true)"
+  if [[ -n "$mirror_id" ]]; then
+    sqlite3 "$db" "
+      UPDATE inbounds
+      SET remark=$(sql_quote "$remark"),
+          enable=1,
+          listen='',
+          port=$port,
+          protocol=$(sql_quote "$protocol"),
+          settings=$(sql_quote "$settings"),
+          stream_settings=$(sql_quote "$stream"),
+          sniffing=$(sql_quote "$sniffing")
+      WHERE id=$mirror_id;
+    "
+    [[ -n "$report_file" ]] && printf 'warp-preset=%s id=%s action=updated\n' "$tag" "$mirror_id" >> "$report_file"
+  else
+    sqlite3 "$db" "
+      INSERT INTO inbounds (user_id, up, down, total, remark, enable, expiry_time, listen, port, protocol, settings, stream_settings, tag, sniffing)
+      VALUES (1, 0, 0, 0, $(sql_quote "$remark"), 1, 0, '', $port, $(sql_quote "$protocol"), $(sql_quote "$settings"), $(sql_quote "$stream"), $(sql_quote "$tag"), $(sql_quote "$sniffing"));
+    "
+    mirror_id="$(sqlite3 -readonly "$db" "SELECT id FROM inbounds WHERE tag=$(sql_quote "$tag") LIMIT 1;" 2>/dev/null || true)"
+    [[ -n "$report_file" ]] && printf 'warp-preset=%s id=%s action=created\n' "$tag" "$mirror_id" >> "$report_file"
+  fi
+}
+
 xui_json_or_empty_object() {
   local value="${1:-}"
   if jq -e . >/dev/null 2>&1 <<<"$value"; then
@@ -1252,7 +1432,7 @@ xui_json_or_empty_object() {
 
 xui_ensure_v3_manual_warp_presets() {
   local db="$1" public_domain="${2:-}" report_file="${3:-}"
-  local base_id base_port base_stream new_port new_stream decoy tag emoji_flag
+  local base_id base_port base_stream new_port new_stream decoy tag emoji_flag reality_template reality_settings
   [[ -f "$db" ]] || return 0
   [[ "${XUI_CREATE_WARP_PRESETS:-0}" == "1" ]] || return 0
   public_domain="$(xui_v3_warp_base_public_domain "$db" "$public_domain")"
@@ -1322,7 +1502,6 @@ xui_ensure_v3_manual_warp_presets() {
     WHERE protocol='vless'
       AND json_valid(stream_settings)=1
       AND json_extract(stream_settings,'$.network')='xhttp'
-      AND json_extract(stream_settings,'$.security')='reality'
       AND COALESCE(tag,'') NOT LIKE '%-warp'
       AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
     ORDER BY id LIMIT 1;
@@ -1333,8 +1512,23 @@ xui_ensure_v3_manual_warp_presets() {
     base_stream="$(xui_json_or_empty_object "$base_stream")"
     new_port="$(xui_v3_warp_clone_port "$db" "$tag" "$((base_port + 1000))")"
     decoy="${REALITY_WARP_XHTTP_DECOY:-www.cloudflare.com}"
-    new_stream="$(jq -c --arg publicDomain "$public_domain" --arg decoy "$decoy" '
-      .externalProxy = (if ((.externalProxy // []) | length) > 0 then .externalProxy else [{forceTls:"same",dest:"",port:443,remark:""}] end)
+    reality_template="$(sqlite3 -readonly "$db" "
+      SELECT CASE WHEN json_valid(stream_settings)=1 THEN json(stream_settings) ELSE '{}' END
+      FROM inbounds
+      WHERE protocol='vless'
+        AND json_valid(stream_settings)=1
+        AND json_extract(stream_settings,'$.network')='tcp'
+        AND json_extract(stream_settings,'$.security')='reality'
+        AND COALESCE(tag,'') NOT LIKE '%-warp'
+        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%'
+      ORDER BY id LIMIT 1;
+    " 2>/dev/null || echo '{}')"
+    reality_template="$(xui_json_or_empty_object "$reality_template")"
+    reality_settings="$(jq -c '.realitySettings // {}' <<<"$reality_template")"
+    [[ "$reality_settings" != "{}" ]] || upm_die "Cannot create WARP XHTTP preset: no base REALITY settings found"
+    new_stream="$(jq -c --arg publicDomain "$public_domain" --arg decoy "$decoy" --argjson realitySettings "$reality_settings" '
+      .security = "reality"
+      | .externalProxy = (if ((.externalProxy // []) | length) > 0 then .externalProxy else [{forceTls:"same",dest:"",port:443,remark:""}] end)
       | .externalProxy[0].forceTls = "same"
       | .externalProxy[0].dest = $publicDomain
       | .externalProxy[0].port = 443
@@ -1343,7 +1537,7 @@ xui_ensure_v3_manual_warp_presets() {
       | .sockopt.acceptProxyProtocol = true
       | .xhttpSettings = (.xhttpSettings // {})
       | .xhttpSettings.host = $decoy
-      | .realitySettings = (.realitySettings // {})
+      | .realitySettings = $realitySettings
       | .realitySettings.target = ($decoy + ":443")
       | .realitySettings.dest = ($decoy + ":443")
       | .realitySettings.serverNames = [$decoy]
@@ -1353,7 +1547,7 @@ xui_ensure_v3_manual_warp_presets() {
     [[ -n "$new_stream" ]] || upm_die "Cannot build WARP XHTTP stream settings from inbound id=$base_id"
     xui_v3_warp_clone_insert_or_update "$db" "$base_id" "$tag" "$(xui_v3_warp_remark "vless-xhttp-warp")" "$new_port" "$new_stream" "$report_file"
   else
-    warn "Cannot create WARP XHTTP preset: base vless xhttp reality inbound not found"
+    warn "Cannot create WARP XHTTP preset: base vless xhttp inbound not found"
   fi
 
   tag="upm-v3-warp-hysteria2"
@@ -1382,7 +1576,30 @@ xui_ensure_v3_manual_warp_presets() {
     [[ -n "$new_stream" ]] || upm_die "Cannot build WARP Hysteria2 stream settings from inbound id=$base_id"
     xui_v3_warp_clone_insert_or_update "$db" "$base_id" "$tag" "$(xui_v3_warp_remark "hysteria2-warp")" "$new_port" "$new_stream" "$report_file"
   else
-    warn "Cannot create WARP Hysteria2 preset: base hysteria2 inbound not found"
+    new_port="$(xui_v3_warp_clone_port "$db" "$tag" "${HY2_WARP_PUBLIC_PORT:-24443}")"
+    local auth obfs_password settings sniffing certificate_file key_file
+    auth="$(openssl rand -hex 16)"
+    obfs_password="$(openssl rand -hex 8)"
+    settings='{"clients":[],"version":2}'
+    sniffing='{"enabled":true,"destOverride":["http","tls","quic","fakedns"],"metadataOnly":false,"routeOnly":true}'
+    certificate_file="/root/cert/${public_domain}/fullchain.pem"
+    key_file="/root/cert/${public_domain}/privkey.pem"
+    new_stream="$(jq -cn \
+      --arg publicDomain "$public_domain" \
+      --arg certificateFile "$certificate_file" \
+      --arg keyFile "$key_file" \
+      --arg auth "$auth" \
+      --arg obfsPassword "$obfs_password" \
+      --argjson port "$new_port" \
+      '{
+        network:"hysteria",
+        security:"tls",
+        externalProxy:[{forceTls:"tls",dest:$publicDomain,port:$port,remark:""}],
+        finalmask:{udp:[{type:"salamander",settings:{password:$obfsPassword}}]},
+        hysteriaSettings:{auth:$auth,masquerade:{content:"",dir:"",headers:{},insecure:true,rewriteHost:false,statusCode:0,type:"proxy",url:"https://google.com"},udpIdleTimeout:60,version:2},
+        tlsSettings:{serverName:$publicDomain,alpn:["h3"],certificates:[{buildChain:false,certificateFile:$certificateFile,keyFile:$keyFile,oneTimeLoading:false,usage:"encipherment"}],cipherSuites:"",disableSystemRoot:false,echForceQuery:"none",echServerKeys:"",enableSessionResumption:false,maxVersion:"1.3",minVersion:"1.2",rejectUnknownSni:false}
+      }')"
+    xui_v3_warp_insert_or_update_raw "$db" "$tag" "$(xui_v3_warp_remark "hysteria2-warp")" hysteria "$new_port" "$settings" "$new_stream" "$sniffing" "$report_file"
   fi
 }
 

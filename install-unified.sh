@@ -33,7 +33,8 @@ XUI_ENABLE_WARP_ROUTING="${XUI_ENABLE_WARP_ROUTING:-0}"
 XUI_APPLY_WARP_TEMPLATE="${XUI_APPLY_WARP_TEMPLATE:-0}"
 XUI_CREATE_DIRECT="${XUI_CREATE_DIRECT:-1}"
 XUI_HY2_PUBLIC_PORT="${XUI_HY2_PUBLIC_PORT:-24443}"
-XUI_PANEL_LINE="${XUI_PANEL_LINE:-legacy}"
+XUI_PANEL_LINE="${XUI_PANEL_LINE:-latest}"
+XUI_PRESET_PROFILE="${XUI_PRESET_PROFILE:-stable}"
 PRINT_ACCESS_INFO=1
 RIXXX_ENABLE_MIERU=1
 ALLOW_DESTROY_EXISTING="${UPM_ALLOW_DESTROY_EXISTING:-0}"
@@ -47,6 +48,7 @@ Usage:
     --reality-dest reality.example.com \
     --rixxx-email admin@example.com \
     [--xui-panel-line legacy|latest] \
+    [--xui-extended-presets] \
     [--tls-cert /path/fullchain.pem --tls-key /path/privkey.pem] \
     [--install-warp] \
     [--no-install-warp] \
@@ -56,7 +58,8 @@ Usage:
 This is the explicit real installer. It runs vendored component scripts.
 It generates profiles/subscriptions by default. Add --install-warp to install WARP and enable AI routing through it.
 Naive+Mieru is installed through RIXXX Panel. Hysteria2 panel backend is no longer installed.
-The default x-ui panel line is legacy 2.9.4. Use --xui-panel-line latest for upstream 3x-ui v3 with SQLite.
+The default x-ui panel line is latest upstream 3x-ui v3 with SQLite. Use --xui-panel-line legacy for fixed 2.9.4.
+Latest mode uses stable x-ui-pro-like presets by default; add --xui-extended-presets for the larger experimental mix.
 For dry-run checks use ./install.sh.
 EOF
 }
@@ -185,6 +188,9 @@ while [[ $# -gt 0 ]]; do
     --mode) MODE="${2:-}"; shift 2 ;;
     --xui-domain) XUI_DOMAIN="${2:-}"; shift 2 ;;
     --xui-panel-line) XUI_PANEL_LINE="${2:-}"; shift 2 ;;
+    --xui-preset-profile|--preset-profile) XUI_PRESET_PROFILE="${2:-}"; shift 2 ;;
+    --xui-stable-core|--stable-core|--stable-presets) XUI_PRESET_PROFILE="stable"; shift ;;
+    --xui-extended-presets|--extended-presets) XUI_PRESET_PROFILE="extended"; shift ;;
     --naive-domain) NAIVE_DOMAIN="${2:-}"; shift 2 ;;
     --rixxx-domain) RIXXX_DOMAIN_VALUE="${2:-}"; shift 2 ;;
     --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
@@ -235,6 +241,7 @@ is_valid_email "$RIXXX_EMAIL_VALUE" || die "--rixxx-email is invalid: $RIXXX_EMA
 is_valid_port "$PANEL_PUBLIC_PORT" || die "--panel-public-port must be 1..65535"
 is_valid_port "$XUI_HY2_PUBLIC_PORT" || die "XUI_HY2_PUBLIC_PORT must be 1..65535"
 [[ "$XUI_PANEL_LINE" == "legacy" || "$XUI_PANEL_LINE" == "latest" ]] || die "--xui-panel-line must be legacy or latest"
+[[ "$XUI_PRESET_PROFILE" == "stable" || "$XUI_PRESET_PROFILE" == "extended" ]] || die "--xui-preset-profile must be stable or extended"
 is_valid_hostport "$RIXXX_BACKEND_VALUE" || die "--naive-backend must be safe host:port"
 if [[ -n "$TLS_CERT" || -n "$TLS_KEY" ]]; then
   [[ -f "$TLS_CERT" ]] || die "--tls-cert file not found: $TLS_CERT"
@@ -262,6 +269,7 @@ RIXXX domain:       ${RIXXX_DOMAIN_VALUE}
 Reality dest:        ${REALITY_DEST}
 RIXXX email:        ${RIXXX_EMAIL_VALUE}
 x-ui line:           ${XUI_PANEL_LINE}
+x-ui preset profile: ${XUI_PRESET_PROFILE}
 Panel port:          ${PANEL_PUBLIC_PORT}
 Backend listen:      ${RIXXX_BACKEND_VALUE}
 x-ui Hysteria2 UDP:  ${XUI_HY2_PUBLIC_PORT}
@@ -315,12 +323,14 @@ if [[ -x "$XUI_VERIFIER" ]]; then
   info "Pre-fetching and SHA256-verifying x-ui-pro upstream artifacts"
   XUI_RUNTIME_SCRIPT="$(UPM_X_UI_RELEASE_CHANNEL="$XUI_RELEASE_CHANNEL" UPM_X_UI_VERSION_OVERRIDE="$XUI_VERSION_OVERRIDE" bash "$XUI_VERIFIER" | tail -n1)"
   [[ -x "$XUI_RUNTIME_SCRIPT" ]] || die "verify-upstream-binaries.sh did not produce a runnable patched script"
+  [[ "$XUI_PANEL_LINE" != "latest" ]] || upm_assert_xui_latest_min_version "$XUI_RUNTIME_SCRIPT" "v3.3.0"
 else
   if [[ "${UPM_SKIP_UPSTREAM_VERIFY:-0}" != "1" ]]; then
     warn "Missing verifier: $XUI_VERIFIER"
     warn "Skipping SHA256 verification. Set UPM_SKIP_UPSTREAM_VERIFY=1 to silence this warning."
     warn "Fetch the verifier (recommended): scp components/x-ui-pro/verify-upstream-binaries.sh root@HOST:$SCRIPT_DIR/components/x-ui-pro/"
   fi
+  [[ "$XUI_PANEL_LINE" != "latest" ]] || die "Cannot validate latest 3x-ui version without $XUI_VERIFIER"
   XUI_RUNTIME_SCRIPT="$XUI_SCRIPT"
 fi
 
@@ -395,6 +405,7 @@ XUI_PANEL_PASSWORD_FINAL="$(config_value XUI_PANEL_PASSWORD /etc/x-ui/access-inf
 
 config_set XUI_DOMAIN "$XUI_DOMAIN"
 config_set XUI_PANEL_LINE "$XUI_PANEL_LINE"
+config_set XUI_PRESET_PROFILE "$XUI_PRESET_PROFILE"
 config_set XUI_PANEL_URL "$XUI_PANEL_URL_FINAL"
 config_set XUI_PANEL_LOGIN "$XUI_PANEL_LOGIN_FINAL"
 config_set XUI_PANEL_PASSWORD "$XUI_PANEL_PASSWORD_FINAL"
@@ -440,6 +451,7 @@ if [[ "$GENERATE_PROFILES" == "1" ]]; then
     HY2_PUBLIC_PORT="$XUI_HY2_PUBLIC_PORT" \
     bash "$SCRIPT_DIR/generate-xui-v3.sh" \
       --reset-inbounds \
+      --preset-profile "$XUI_PRESET_PROFILE" \
       --domain "$XUI_DOMAIN" \
       --reality-dest "$REALITY_DEST" \
       --count "${PROFILE_COUNT:-15}" \

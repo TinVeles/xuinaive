@@ -37,13 +37,17 @@ sudo bash install.sh --mode all \
   --yes
 ```
 
-The default panel line remains the fixed legacy `2.9.4` release for existing
-deployments. For a fresh VPS with the current upstream 3x-ui v3 line plus
-RIXXX Panel, NaiveProxy, and Mieru, use:
+The default panel line is the current upstream 3x-ui v3 release, resolved at
+install time from `MHSanaei/3x-ui` and validated as `v3.3.0` or newer. SQLite is
+selected explicitly. The default inbound set is the stable x-ui-pro-like core:
+one VLESS TCP REALITY, one VLESS WS, one VLESS XHTTP, and one Trojan gRPC.
+
+If you explicitly want the larger experimental preset mix, add
+`--xui-extended-presets`:
 
 ```bash
 sudo bash install.sh --mode all \
-  --xui-panel-line latest \
+  --xui-extended-presets \
   --xui-domain xui.example.com \
   --rixxx-domain naive.example.com \
   --reality-dest reality.example.com \
@@ -82,7 +86,7 @@ NaiveProxy/Mieru users through its own panel.
 This gives you:
 
 - x-ui and RIXXX on one VPS.
-- 15 generated 3x-ui profiles on each enabled preset inbound.
+- 15 generated 3x-ui profiles attached to the stable core inbounds.
 - NaiveProxy and Mieru users managed in RIXXX Panel.
 - No WARP by default.
 - Final access summary in the terminal and `access-info.txt`.
@@ -100,9 +104,6 @@ Internet 443/tcp
 
 Internet 2012/tcp and configured Mieru range
   -> mita / Mieru
-
-Internet 24443/udp
-  -> x-ui Hysteria2 preset in --mode all
 
 RIXXX Panel
   -> 127.0.0.1:3000 internally
@@ -217,28 +218,18 @@ When WARP is enabled, the routing model is AI-only:
 
 For x-ui, WARP mode prepares one `warp-cli` SOCKS outbound and one AI-domain routing snippet. By default it does not write directly into the x-ui routing settings DB, because that path can make 3x-ui inbound edits unstable on some panel versions. Generated clients stay on enabled preset inbounds.
 
-Fresh installs that include x-ui (`--mode xui`, `--mode both`, or `--mode all`)
-install a modernized [3dp-manager](https://github.com/denpiligrim/3dp-manager)
-derived mix plus one Trojan preset:
+Fresh latest installs that include x-ui (`--mode xui`, `--mode both`, or
+`--mode all`) install the stable x-ui-pro-like core by default:
 
-- one Hysteria2 UDP inbound;
-- one VLESS XHTTP REALITY inbound;
-- four VLESS TCP REALITY inbounds with different decoy SNI sites;
-- one VLESS gRPC REALITY inbound;
-- one VLESS WS inbound;
-- one Shadowsocks 2022 TCP inbound;
-- one Trojan TCP REALITY inbound.
+- one VLESS TCP REALITY inbound routed by nginx stream SNI to its backend port;
+- one VLESS WS inbound routed through the x-ui HTTPS vhost path proxy;
+- one VLESS XHTTP inbound routed through the same path proxy;
+- one Trojan gRPC inbound routed through the same path proxy.
 
-VMess is intentionally omitted because it is deprecated. Profile regeneration
-also removes old project-generated `vmess-tcp` preset inbounds and repairs
-public-port metadata left by older generated Shadowsocks presets.
-
-`3dp-manager` provides VLESS gRPC REALITY and Trojan TCP REALITY, not Trojan
-gRPC. Profile regeneration disables older project-generated Trojan gRPC
-experiments so they are not advertised as supported inbounds.
-The x-ui presets listen on random public ports. The installer opens them in UFW;
-also allow those generated TCP ports and the Hysteria2 UDP port in your VPS
-provider firewall when it is enabled.
+VMess is intentionally omitted because it is deprecated. The older broad preset
+mix is still available with `--xui-extended-presets`; it adds extra REALITY
+decoys, Shadowsocks, Hysteria2, and Trojan TCP REALITY. Use it only when you
+need those links and accept the larger nginx/SNI surface.
 
 When testing REALITY profiles through a client-side TUN inbound, disable
 destination override sniffing or set its `routeOnly` option to `true`. Otherwise
@@ -275,10 +266,12 @@ Generate or refresh profiles after installation:
 sudo bash generate-profiles.sh --yes
 ```
 
-By default this creates 15 x-ui clients on each selected preset inbound. It does not install WARP and does not write WARP routing. Fresh x-ui installs also include a separate 3x-ui-managed Hysteria2 UDP preset.
+By default this creates 15 x-ui clients on each selected preset inbound. It does
+not install WARP and does not write WARP routing.
 
-The default supported x-ui line is the fixed legacy `2.9.4` release.
-`generate-profiles.sh` writes clients through its classic
+The default supported x-ui line for fresh installs is latest v3. Use
+`install-xui-legacy.sh` only when you intentionally need the fixed `2.9.4`
+schema. `generate-profiles.sh` writes clients through the classic
 `inbounds.settings.clients` model. For the latest v3 line use:
 
 ```bash
@@ -290,6 +283,9 @@ sudo bash generate-xui-v3.sh \
 
 The v3 generator writes one row per profile to `clients`, then attaches that
 row to every compatible generated inbound through `client_inbounds`.
+
+`generate-xui-v3.sh --reset-inbounds` uses the stable core by default. Add
+`--extended-presets` only when you want the larger experimental preset set.
 
 To prepare extra v3 inbounds for manual WARP routing without installing or
 writing WARP outbound/routing rules:
@@ -460,10 +456,10 @@ Apply recommended hardening:
 sudo bash security-hardening.sh --apply --yes
 ```
 
-The recommended profile keeps SSH, `80/tcp`, `443/tcp`, `443/udp`, and the
-published ports of enabled x-ui presets open. This includes `8388/tcp` for the
-default Shadowsocks preset and `24443/udp` for the x-ui Hysteria2 preset in
-`--mode all`. It closes public RIXXX Panel port `8081/tcp`, installs fail2ban and
+The recommended profile keeps SSH, `80/tcp`, `443/tcp`, and the published ports
+of enabled x-ui presets open. In stable core this is normally just public
+`443/tcp`; extended presets can add ports such as Shadowsocks TCP or Hysteria2
+UDP. It closes public RIXXX Panel port `8081/tcp`, installs fail2ban and
 unattended-upgrades, enables `probe_resistance` in `/etc/caddy-naive/Caddyfile`,
 and restricts access files to `0600`.
 
