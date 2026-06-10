@@ -105,6 +105,76 @@ NGINX_XUI_REALITY_UPSTREAM_CONF="$upstream_conf" \
 [[ "$(grep -c '^upstream upm_xui_reality_' "$upstream_conf")" == "1" ]]
 grep -Eq 'reality\.example\.com[[:space:]]+upm_xui_reality_[0-9]+;' "$stream_conf"
 
+cat > "$stream_conf" <<'EOF'
+map $ssl_preread_server_name $sni_name {
+    hostnames;
+    vpn.example.com rixxx_naive;
+    default xray;
+}
+
+upstream xray {
+    server 127.0.0.1:8443;
+}
+
+upstream rixxx_naive {
+    server 127.0.0.1:9445;
+}
+EOF
+XUI_DB="$db" \
+NGINX_STREAM_CONF="$stream_conf" \
+  xui_ensure_nginx_xui_domain_route
+grep -Eq 'vpn\.example\.com[[:space:]]+www; # upm-xui-domain' "$stream_conf"
+! grep -Eq 'vpn\.example\.com[[:space:]]+rixxx_naive;' "$stream_conf"
+
+sqlite3 "$db" "
+  UPDATE inbounds
+  SET stream_settings=json_set(
+    stream_settings,
+    '$.realitySettings.serverNames', json_array('www.microsoft.com'),
+    '$.realitySettings.target', 'www.microsoft.com:443',
+    '$.realitySettings.dest', 'www.microsoft.com:443'
+  )
+  WHERE json_valid(stream_settings)=1
+    AND json_extract(stream_settings,'$.security')='reality'
+    AND remark LIKE '%vless-tcp-reality-1';
+"
+
+XUI_DB="$db" \
+XUI_CREATE_WARP_PRESETS=1 \
+HY2_WARP_PUBLIC_PORT=24443 \
+  xui_ensure_v3_manual_warp_presets "$db" "" "$tmp_dir/stable-warp-report.txt"
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE tag LIKE 'upm-v3-warp-%';")" == "3" ]]
+[[ "$(sqlite3 -readonly "$db" "
+  WITH names AS (
+    SELECT lower(json_extract(stream_settings,'$.realitySettings.serverNames[0]')) AS sni
+    FROM inbounds
+    WHERE json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.security')='reality'
+  )
+  SELECT COUNT(*) FROM (
+    SELECT sni FROM names WHERE sni <> '' GROUP BY sni HAVING COUNT(*) > 1
+  );
+")" == "0" ]]
+
+cat > "$stream_conf" <<'EOF'
+map $ssl_preread_server_name $sni_name {
+    hostnames;
+    vpn.example.com www;
+    default xray;
+}
+
+upstream xray {
+    server 127.0.0.1:8443;
+}
+EOF
+XUI_DB="$db" \
+NGINX_STREAM_CONF="$stream_conf" \
+NGINX_XUI_REALITY_UPSTREAM_CONF="$upstream_conf" \
+  xui_ensure_nginx_reality_sni_routes
+[[ "$(grep -c '^upstream upm_xui_reality_' "$upstream_conf")" == "3" ]]
+grep -Eq 'www\.microsoft\.com[[:space:]]+upm_xui_reality_[0-9]+;' "$stream_conf"
+grep -Eq 'www\.apple\.com|www\.amazon\.com|www\.cloudflare\.com|www\.google\.com' "$stream_conf"
+
 install_presets extended 443
 
 [[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM inbounds;')" == "10" ]]

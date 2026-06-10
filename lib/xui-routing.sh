@@ -844,8 +844,12 @@ xui_disable_nginx_enabled_backup_configs() {
 }
 
 xui_ensure_nginx_xui_domain_route() {
-  local domain domain_key stream_conf backup tmp_stream
+  local db domain domain_key stream_conf backup tmp_stream
+  db="$(xui_db_path)"
   domain="${XUI_PUBLIC_DOMAIN:-${XUI_DOMAIN:-}}"
+  if [[ ! "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ && -f "$db" ]]; then
+    domain="$(xui_v3_warp_base_public_domain "$db" "")"
+  fi
   stream_conf="${NGINX_STREAM_CONF:-/etc/nginx/stream-enabled/stream.conf}"
   [[ "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || return 0
   [[ -f "$stream_conf" ]] || return 0
@@ -950,8 +954,11 @@ xui_ensure_nginx_reality_sni_routes() {
   stream_conf="${NGINX_STREAM_CONF:-/etc/nginx/stream-enabled/stream.conf}"
   upstream_conf="${NGINX_XUI_REALITY_UPSTREAM_CONF:-/etc/nginx/stream-enabled/upm-xui-reality.conf}"
   public_domain="${XUI_PUBLIC_DOMAIN:-${XUI_DOMAIN:-}}"
-  public_domain_key="${public_domain,,}"
   [[ -f "$db" && -f "$stream_conf" ]] || return 0
+  if [[ ! "$public_domain" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]]; then
+    public_domain="$(xui_v3_warp_base_public_domain "$db" "")"
+  fi
+  public_domain_key="${public_domain,,}"
   command -v sqlite3 >/dev/null 2>&1 || return 0
   grep -q 'map[[:space:]]\+\$ssl_preread_server_name[[:space:]]\+\$sni_name' "$stream_conf" 2>/dev/null || return 0
 
@@ -1495,6 +1502,58 @@ xui_v3_warp_base_public_domain() {
   printf '%s\n' "$domain"
 }
 
+xui_reality_sni_usage_count() {
+  local db="$1" sni="$2" exclude_tag="${3:-}" exclude_sql=""
+  [[ -f "$db" && "$sni" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || {
+    printf '0\n'
+    return 0
+  }
+  if [[ -n "$exclude_tag" ]]; then
+    exclude_sql="AND COALESCE(tag,'') != $(sql_quote "$exclude_tag")"
+  fi
+  sqlite3 -readonly "$db" "
+    SELECT COUNT(*)
+    FROM inbounds
+    WHERE enable=1
+      AND json_valid(stream_settings)=1
+      AND json_extract(stream_settings,'$.security')='reality'
+      $exclude_sql
+      AND (
+        lower(trim(COALESCE(json_extract(stream_settings,'$.realitySettings.settings.serverName'),''))) = lower($(sql_quote "$sni"))
+        OR EXISTS (
+          SELECT 1
+          FROM json_each(COALESCE(json_extract(stream_settings,'$.realitySettings.serverNames'),'[]')) AS server_name
+          WHERE lower(trim(COALESCE(server_name.value,''))) = lower($(sql_quote "$sni"))
+        )
+      );
+  " 2>/dev/null || printf '0\n'
+}
+
+xui_pick_unique_reality_decoy() {
+  local db="$1" requested="$2" exclude_tag="$3" candidate
+  shift 3
+  if [[ "$requested" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]]; then
+    if [[ "$(xui_reality_sni_usage_count "$db" "$requested" "$exclude_tag")" == "0" ]]; then
+      printf '%s\n' "$requested"
+      return 0
+    fi
+    warn "REALITY SNI $requested already exists; picking a separate decoy for ${exclude_tag:-new preset}" >&2
+  fi
+  for candidate in "$@"; do
+    [[ "$candidate" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || continue
+    [[ "$candidate" == "$requested" ]] && continue
+    if [[ "$(xui_reality_sni_usage_count "$db" "$candidate" "$exclude_tag")" == "0" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  if [[ "$requested" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]]; then
+    printf '%s\n' "$requested"
+  else
+    printf 'www.apple.com\n'
+  fi
+}
+
 xui_v3_warp_clone_port() {
   local db="$1" tag="$2" candidate="$3" existing
   existing="$(sqlite3 -readonly "$db" "SELECT COALESCE(port,0) FROM inbounds WHERE tag=$(sql_quote "$tag") LIMIT 1;" 2>/dev/null || true)"
@@ -1633,7 +1692,8 @@ xui_ensure_v3_manual_warp_presets() {
     base_stream="$(sqlite3 -readonly "$db" "SELECT CASE WHEN json_valid(stream_settings)=1 THEN json(stream_settings) ELSE '{}' END FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
     base_stream="$(xui_json_or_empty_object "$base_stream")"
     new_port="$(xui_v3_warp_clone_port "$db" "$tag" "$((base_port + 1000))")"
-    decoy="${REALITY_WARP_TCP_DECOY:-www.microsoft.com}"
+    decoy="$(xui_pick_unique_reality_decoy "$db" "${REALITY_WARP_TCP_DECOY:-www.apple.com}" "$tag" \
+      "www.apple.com" "www.amazon.com" "www.cloudflare.com" "www.google.com" "www.microsoft.com")"
     new_stream="$(jq -c --arg publicDomain "$public_domain" --arg decoy "$decoy" '
       .externalProxy = (if ((.externalProxy // []) | length) > 0 then .externalProxy else [{forceTls:"same",dest:"",port:443,remark:""}] end)
       | .externalProxy[0].forceTls = "same"
@@ -1670,7 +1730,8 @@ xui_ensure_v3_manual_warp_presets() {
     base_stream="$(sqlite3 -readonly "$db" "SELECT CASE WHEN json_valid(stream_settings)=1 THEN json(stream_settings) ELSE '{}' END FROM inbounds WHERE id=$base_id;" 2>/dev/null || echo '{}')"
     base_stream="$(xui_json_or_empty_object "$base_stream")"
     new_port="$(xui_v3_warp_clone_port "$db" "$tag" "$((base_port + 1000))")"
-    decoy="${REALITY_WARP_XHTTP_DECOY:-www.cloudflare.com}"
+    decoy="$(xui_pick_unique_reality_decoy "$db" "${REALITY_WARP_XHTTP_DECOY:-www.cloudflare.com}" "$tag" \
+      "www.cloudflare.com" "www.apple.com" "www.amazon.com" "www.google.com" "www.microsoft.com")"
     reality_template="$(sqlite3 -readonly "$db" "
       SELECT CASE WHEN json_valid(stream_settings)=1 THEN json(stream_settings) ELSE '{}' END
       FROM inbounds
