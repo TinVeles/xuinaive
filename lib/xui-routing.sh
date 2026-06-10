@@ -1379,33 +1379,6 @@ xui_install_3dp_reference_presets() {
     }')"
     xui_3dp_insert shadowsocks "$port" "$(xui_3dp_remark "shadowsocks")" "$settings" "$stream"
 
-    # hysteria2 is QUIC/UDP and cannot share nginx's TCP 443. In xui-only mode it
-    # binds public UDP 443. Unified installs override HY2_PUBLIC_PORT because
-    # nginx owns TCP 443 in all-in-one mode.
-    port="${HY2_PUBLIC_PORT:-443}"
-    if [[ "$port" != "443" ]]; then
-      port="$(xui_next_free_inbound_port "$db" "$port")"
-    fi
-    auth="$(openssl rand -hex 16)"
-    obfs_password="$(openssl rand -hex 8)"
-    settings="$(jq -cn --arg auth "$auth" '{clients:[],version:2}')"
-    stream="$(jq -cn \
-      --arg publicDomain "$public_domain" \
-      --arg certificateFile "$certificate_file" \
-      --arg keyFile "$key_file" \
-      --arg auth "$auth" \
-      --arg obfsPassword "$obfs_password" \
-      --argjson port "$port" \
-      '{
-        network:"hysteria",
-        security:"tls",
-        externalProxy:[{forceTls:"tls",dest:$publicDomain,port:$port,remark:""}],
-        finalmask:{udp:[{type:"salamander",settings:{password:$obfsPassword}}]},
-        hysteriaSettings:{auth:$auth,masquerade:{content:"",dir:"",headers:{},insecure:true,rewriteHost:false,statusCode:0,type:"proxy",url:"https://google.com"},udpIdleTimeout:60,version:2},
-        tlsSettings:{serverName:$publicDomain,alpn:["h3"],certificates:[{buildChain:false,certificateFile:$certificateFile,keyFile:$keyFile,oneTimeLoading:false,usage:"encipherment"}],cipherSuites:"",disableSystemRoot:false,echForceQuery:"none",echServerKeys:"",enableSessionResumption:false,maxVersion:"1.3",minVersion:"1.2",rejectUnknownSni:false}
-      }')"
-    xui_3dp_insert hysteria "$port" "$(xui_3dp_remark "hysteria2")" "$settings" "$stream"
-
     port="$(xui_3dp_random_port)"
     sni="kinopoisk.ru"
     settings='{"clients":[],"fallbacks":[]}'
@@ -1421,6 +1394,33 @@ xui_install_3dp_reference_presets() {
     }')"
     xui_3dp_insert trojan "$port" "$(xui_3dp_remark "trojan-grpc")" "$settings" "$stream"
   fi
+
+  # Hysteria2 is QUIC/UDP and cannot share nginx's TCP 443. In xui-only mode it
+  # binds public UDP 443. Unified installs override HY2_PUBLIC_PORT because
+  # nginx owns TCP 443 in all-in-one mode.
+  port="${HY2_PUBLIC_PORT:-443}"
+  if [[ "$port" != "443" ]]; then
+    port="$(xui_next_free_inbound_port "$db" "$port")"
+  fi
+  auth="$(openssl rand -hex 16)"
+  obfs_password="$(openssl rand -hex 8)"
+  settings="$(jq -cn --arg auth "$auth" '{clients:[],version:2}')"
+  stream="$(jq -cn \
+    --arg publicDomain "$public_domain" \
+    --arg certificateFile "$certificate_file" \
+    --arg keyFile "$key_file" \
+    --arg auth "$auth" \
+    --arg obfsPassword "$obfs_password" \
+    --argjson port "$port" \
+    '{
+      network:"hysteria",
+      security:"tls",
+      externalProxy:[{forceTls:"tls",dest:$publicDomain,port:$port,remark:""}],
+      finalmask:{udp:[{type:"salamander",settings:{password:$obfsPassword}}]},
+      hysteriaSettings:{auth:$auth,masquerade:{content:"",dir:"",headers:{},insecure:true,rewriteHost:false,statusCode:0,type:"proxy",url:"https://google.com"},udpIdleTimeout:60,version:2},
+      tlsSettings:{serverName:$publicDomain,alpn:["h3"],certificates:[{buildChain:false,certificateFile:$certificateFile,keyFile:$keyFile,oneTimeLoading:false,usage:"encipherment"}],cipherSuites:"",disableSystemRoot:false,echForceQuery:"none",echServerKeys:"",enableSessionResumption:false,maxVersion:"1.3",minVersion:"1.2",rejectUnknownSni:false}
+    }')"
+  xui_3dp_insert hysteria "$port" "$(xui_3dp_remark "hysteria2")" "$settings" "$stream"
 }
 
 xui_v3_warp_base_public_domain() {

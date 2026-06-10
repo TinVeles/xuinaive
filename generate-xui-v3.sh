@@ -20,7 +20,7 @@ REALITY_DEST="${REALITY_DEST:-}"
 RESET_INBOUNDS=0
 RESTART_XUI=1
 ASSUME_YES=0
-XUI_CREATE_WARP_PRESETS="${XUI_CREATE_WARP_PRESETS:-0}"
+XUI_CREATE_WARP_PRESETS="${XUI_CREATE_WARP_PRESETS:-1}"
 HY2_WARP_PUBLIC_PORT="${HY2_WARP_PUBLIC_PORT:-24443}"
 XUI_PRESET_PROFILE="${XUI_PRESET_PROFILE:-stable}"
 
@@ -35,14 +35,15 @@ Usage:
 Creates one v3 client entity per profile and attaches it to every generated
 compatible inbound through client_inbounds. This script is only for 3x-ui v3.
 
-Default reset preset profile is stable x-ui-pro-like core:
-  vless tcp reality, vless ws, vless xhttp, trojan grpc.
+Default reset preset profile is stable x-ui-pro-like core plus Hysteria2:
+  vless tcp reality, vless ws, vless xhttp, trojan grpc, hysteria2 udp.
 Use --extended-presets only when you explicitly want the larger experimental
 mix with extra REALITY decoys, Shadowsocks, Hysteria2, and Trojan TCP REALITY.
 
---xui-warp-presets creates enabled manual WARP prep inbounds:
+Manual WARP prep inbounds are created by default:
   vless tcp reality, vless xhttp reality, hysteria2 udp.
 It does not create WARP outbound or routing rules.
+Use --no-xui-warp-presets to skip those prep inbounds.
 EOF
 }
 

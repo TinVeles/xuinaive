@@ -284,11 +284,13 @@ sudo bash generate-xui-v3.sh \
 The v3 generator writes one row per profile to `clients`, then attaches that
 row to every compatible generated inbound through `client_inbounds`.
 
-`generate-xui-v3.sh --reset-inbounds` uses the stable core by default. Add
-`--extended-presets` only when you want the larger experimental preset set.
+`generate-xui-v3.sh --reset-inbounds` uses the stable core by default:
+`vless tcp reality`, `vless ws`, `vless xhttp`, `trojan grpc`, and
+`hysteria2 udp`. Add `--extended-presets` only when you want the larger
+experimental preset set.
 
-To prepare extra v3 inbounds for manual WARP routing without installing or
-writing WARP outbound/routing rules:
+Extra v3 inbounds for manual WARP routing are created by default without
+installing WARP and without writing WARP outbound/routing rules:
 
 ```bash
 sudo bash generate-xui-v3.sh \
@@ -301,6 +303,7 @@ This creates enabled manual WARP prep inbounds for `vless tcp reality`,
 `vless xhttp reality`, and `hysteria2 udp`, then attaches the same generated
 client entities to them. REALITY/XHTTP are still published through public TCP
 443 by nginx SNI routing; Hysteria2 uses the UDP port from `--hy2-warp-port`.
+Use `--no-xui-warp-presets` if you do not want the WARP prep inbounds.
 
 Default output:
 
@@ -308,7 +311,7 @@ Default output:
 x-ui:
   15 generated clients per selected preset inbound
   one x-ui subscription subId per client index
-  no WARP routing unless explicitly enabled
+  WARP prep inbounds generated, but no WARP routing unless explicitly enabled
 
 RIXXX:
   NaiveProxy and Mieru users are managed in RIXXX Panel
@@ -457,9 +460,10 @@ sudo bash security-hardening.sh --apply --yes
 ```
 
 The recommended profile keeps SSH, `80/tcp`, `443/tcp`, and the published ports
-of enabled x-ui presets open. In stable core this is normally just public
-`443/tcp`; extended presets can add ports such as Shadowsocks TCP or Hysteria2
-UDP. It closes public RIXXX Panel port `8081/tcp`, installs fail2ban and
+of enabled x-ui presets open. In stable core this normally includes public
+`443/tcp` plus Hysteria2 UDP ports such as `443/udp` and the WARP prep HY2 UDP
+port. Extended presets can add ports such as Shadowsocks TCP. It closes public
+RIXXX Panel port `8081/tcp`, installs fail2ban and
 unattended-upgrades, enables `probe_resistance` in `/etc/caddy-naive/Caddyfile`,
 and restricts access files to `0600`.
 

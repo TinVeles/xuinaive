@@ -85,14 +85,15 @@ install_presets() {
 
 install_presets stable 443
 
-[[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM inbounds;')" == "4" ]]
+[[ "$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM inbounds;')" == "5" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE remark GLOB '*vless-tcp-reality-1';")" == "1" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE remark GLOB '*vless-ws';")" == "1" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE remark GLOB '*vless-xhttp';")" == "1" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE remark GLOB '*trojan-grpc';")" == "1" ]]
-[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE protocol='shadowsocks' OR protocol IN ('hysteria','hysteria2');")" == "0" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE remark GLOB '*hysteria2';")" == "1" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE protocol='shadowsocks';")" == "0" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE json_extract(stream_settings,'$.security')='reality' AND json_extract(stream_settings,'$.sockopt.acceptProxyProtocol')=1;")" == "1" ]]
-[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE json_extract(stream_settings,'$.externalProxy[0].port')=443;")" == "4" ]]
+[[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE json_extract(stream_settings,'$.externalProxy[0].port')=443;")" == "5" ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT json_extract(stream_settings,'$.xhttpSettings.path') FROM inbounds WHERE remark LIKE '%vless-xhttp';")" =~ ^/[0-9]+/$ ]]
 [[ "$(sqlite3 -readonly "$db" "SELECT json_extract(stream_settings,'$.grpcSettings.serviceName') FROM inbounds WHERE remark LIKE '%trojan-grpc';")" =~ ^[0-9]+/ ]]
 
