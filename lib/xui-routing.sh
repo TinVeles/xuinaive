@@ -1406,31 +1406,35 @@ xui_install_3dp_reference_presets() {
   # the rest of the config. Unified installs keep nginx on TCP 443, so the safe
   # default is a dedicated public UDP port. x-ui-only installs can still opt into
   # 443 explicitly with HY2_PUBLIC_PORT=443.
-  port="${HY2_PUBLIC_PORT:-24443}"
-  if [[ "$port" != "443" ]]; then
-    port="$(xui_next_free_inbound_port "$db" "$port")"
-  elif [[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE port=$port;" 2>/dev/null || echo 0)" != "0" ]]; then
-    port="$(xui_next_free_inbound_port "$db" 24443)"
+  if [[ "$certificate_file" != /root/cert/* ]] || xui_ensure_domain_cert_links "$public_domain"; then
+    port="${HY2_PUBLIC_PORT:-24443}"
+    if [[ "$port" != "443" ]]; then
+      port="$(xui_next_free_inbound_port "$db" "$port")"
+    elif [[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE port=$port;" 2>/dev/null || echo 0)" != "0" ]]; then
+      port="$(xui_next_free_inbound_port "$db" 24443)"
+    fi
+    auth="$(openssl rand -hex 16)"
+    obfs_password="$(openssl rand -hex 8)"
+    settings="$(jq -cn --arg auth "$auth" '{clients:[],version:2}')"
+    stream="$(jq -cn \
+      --arg publicDomain "$public_domain" \
+      --arg certificateFile "$certificate_file" \
+      --arg keyFile "$key_file" \
+      --arg auth "$auth" \
+      --arg obfsPassword "$obfs_password" \
+      --argjson port "$port" \
+      '{
+        network:"hysteria",
+        security:"tls",
+        externalProxy:[{forceTls:"tls",dest:$publicDomain,port:$port,remark:""}],
+        finalmask:{udp:[{type:"salamander",settings:{password:$obfsPassword}}]},
+        hysteriaSettings:{auth:$auth,masquerade:{content:"",dir:"",headers:{},insecure:true,rewriteHost:false,statusCode:0,type:"proxy",url:"https://google.com"},udpIdleTimeout:60,version:2},
+        tlsSettings:{serverName:$publicDomain,alpn:["h3"],certificates:[{buildChain:false,certificateFile:$certificateFile,keyFile:$keyFile,oneTimeLoading:false,usage:"encipherment"}],cipherSuites:"",disableSystemRoot:false,echForceQuery:"none",echServerKeys:"",enableSessionResumption:false,maxVersion:"1.3",minVersion:"1.2",rejectUnknownSni:false}
+      }')"
+    xui_3dp_insert hysteria "$port" "$(xui_3dp_remark "hysteria2")" "$settings" "$stream"
+  else
+    upm_log_warn "Skipping Hysteria2 preset: TLS certificate for $public_domain was not found under /root/cert or /etc/letsencrypt/live"
   fi
-  auth="$(openssl rand -hex 16)"
-  obfs_password="$(openssl rand -hex 8)"
-  settings="$(jq -cn --arg auth "$auth" '{clients:[],version:2}')"
-  stream="$(jq -cn \
-    --arg publicDomain "$public_domain" \
-    --arg certificateFile "$certificate_file" \
-    --arg keyFile "$key_file" \
-    --arg auth "$auth" \
-    --arg obfsPassword "$obfs_password" \
-    --argjson port "$port" \
-    '{
-      network:"hysteria",
-      security:"tls",
-      externalProxy:[{forceTls:"tls",dest:$publicDomain,port:$port,remark:""}],
-      finalmask:{udp:[{type:"salamander",settings:{password:$obfsPassword}}]},
-      hysteriaSettings:{auth:$auth,masquerade:{content:"",dir:"",headers:{},insecure:true,rewriteHost:false,statusCode:0,type:"proxy",url:"https://google.com"},udpIdleTimeout:60,version:2},
-      tlsSettings:{serverName:$publicDomain,alpn:["h3"],certificates:[{buildChain:false,certificateFile:$certificateFile,keyFile:$keyFile,oneTimeLoading:false,usage:"encipherment"}],cipherSuites:"",disableSystemRoot:false,echForceQuery:"none",echServerKeys:"",enableSessionResumption:false,maxVersion:"1.3",minVersion:"1.2",rejectUnknownSni:false}
-    }')"
-  xui_3dp_insert hysteria "$port" "$(xui_3dp_remark "hysteria2")" "$settings" "$stream"
 }
 
 xui_ensure_v3_hysteria2_preset() {
@@ -1438,6 +1442,17 @@ xui_ensure_v3_hysteria2_preset() {
   [[ -f "$db" ]] || return 0
   public_domain="$(xui_v3_warp_base_public_domain "$db" "$public_domain")"
   [[ "$public_domain" =~ ^[A-Za-z0-9.-]+$ ]] || return 0
+  if ! xui_ensure_domain_cert_links "$public_domain"; then
+    upm_log_warn "Skipping Hysteria2 preset: TLS certificate for $public_domain was not found under /root/cert or /etc/letsencrypt/live"
+    sqlite3 "$db" "
+      UPDATE inbounds
+      SET enable=0
+      WHERE protocol IN ('hysteria','hysteria2')
+        AND COALESCE(tag,'') NOT LIKE '%-warp'
+        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
+    "
+    return 0
+  fi
   xui_normalize_v3_hysteria2_preset_port "$db" "$public_domain"
   exists="$(sqlite3 -readonly "$db" "
     SELECT COUNT(*)
@@ -1492,6 +1507,17 @@ xui_normalize_v3_hysteria2_preset_port() {
   local certificate_file key_file
   [[ -f "$db" ]] || return 0
   [[ "$public_domain" =~ ^[A-Za-z0-9.-]+$ ]] || return 0
+  if ! xui_ensure_domain_cert_links "$public_domain"; then
+    upm_log_warn "Disabling Hysteria2 presets: TLS certificate for $public_domain was not found under /root/cert or /etc/letsencrypt/live"
+    sqlite3 "$db" "
+      UPDATE inbounds
+      SET enable=0
+      WHERE protocol IN ('hysteria','hysteria2')
+        AND COALESCE(tag,'') NOT LIKE '%-warp'
+        AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
+    "
+    return 0
+  fi
   target_port="${HY2_PUBLIC_PORT:-24443}"
   [[ "$target_port" =~ ^[0-9]+$ && "$target_port" -gt 0 && "$target_port" -le 65535 ]] || target_port=24443
 
@@ -1549,6 +1575,27 @@ xui_normalize_v3_hysteria2_preset_port() {
       WHERE id=$inbound_id;
     "
   done <<<"$rows"
+}
+
+xui_ensure_domain_cert_links() {
+  local domain="$1" cert_dir le_dir
+  [[ "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || return 1
+
+  cert_dir="/root/cert/${domain}"
+  le_dir="/etc/letsencrypt/live/${domain}"
+  mkdir -p "$cert_dir" 2>/dev/null || return 1
+  chmod 755 /root/cert "$cert_dir" 2>/dev/null || true
+
+  if [[ -e "$cert_dir/fullchain.pem" && -e "$cert_dir/privkey.pem" ]]; then
+    return 0
+  fi
+
+  if [[ -e "$le_dir/fullchain.pem" && -e "$le_dir/privkey.pem" ]]; then
+    ln -sfn "$le_dir/fullchain.pem" "$cert_dir/fullchain.pem"
+    ln -sfn "$le_dir/privkey.pem" "$cert_dir/privkey.pem"
+  fi
+
+  [[ -e "$cert_dir/fullchain.pem" && -e "$cert_dir/privkey.pem" ]]
 }
 
 xui_v3_warp_base_public_domain() {
@@ -1839,6 +1886,19 @@ xui_ensure_v3_manual_warp_presets() {
   fi
 
   tag="upm-v3-warp-hysteria2"
+  if ! xui_ensure_domain_cert_links "$public_domain"; then
+    upm_log_warn "Skipping WARP Hysteria2 preset: TLS certificate for $public_domain was not found under /root/cert or /etc/letsencrypt/live"
+    sqlite3 "$db" "
+      UPDATE inbounds
+      SET enable=0
+      WHERE protocol IN ('hysteria','hysteria2')
+        AND (
+          COALESCE(tag,'')='upm-v3-warp-hysteria2'
+          OR lower(COALESCE(remark,'')) LIKE '%hysteria2%warp%'
+        );
+    "
+    return 0
+  fi
   base_id="$(sqlite3 -readonly "$db" "
     SELECT id FROM inbounds
     WHERE protocol IN ('hysteria','hysteria2')
