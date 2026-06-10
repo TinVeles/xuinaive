@@ -1598,6 +1598,36 @@ xui_ensure_domain_cert_links() {
   [[ -e "$cert_dir/fullchain.pem" && -e "$cert_dir/privkey.pem" ]]
 }
 
+xui_disable_hysteria_inbounds_with_missing_certs() {
+  local db rows inbound_id remark cert_file key_file disabled=0
+  db="$(xui_db_path)"
+  [[ -f "$db" ]] || return 0
+
+  rows="$(sqlite3 -separator $'\t' "$db" "
+    SELECT id,
+           COALESCE(remark,''),
+           COALESCE(json_extract(stream_settings,'$.tlsSettings.certificates[0].certificateFile'),''),
+           COALESCE(json_extract(stream_settings,'$.tlsSettings.certificates[0].keyFile'),'')
+    FROM inbounds
+    WHERE enable=1
+      AND protocol IN ('hysteria','hysteria2')
+      AND json_valid(stream_settings)=1
+      AND COALESCE(json_extract(stream_settings,'$.network'),'')='hysteria'
+      AND COALESCE(json_extract(stream_settings,'$.security'),'')='tls';
+  " 2>/dev/null || true)"
+
+  while IFS=$'\t' read -r inbound_id remark cert_file key_file; do
+    [[ -n "$inbound_id" ]] || continue
+    if [[ -z "$cert_file" || -z "$key_file" || ! -e "$cert_file" || ! -e "$key_file" ]]; then
+      sqlite3 "$db" "UPDATE inbounds SET enable=0 WHERE id=$inbound_id;"
+      disabled=$((disabled + 1))
+      upm_log_warn "Disabled Hysteria2 inbound id=$inbound_id remark=${remark:-unknown}: TLS certificate file is missing"
+    fi
+  done <<<"$rows"
+
+  [[ "$disabled" -eq 0 ]] || upm_log_warn "Disabled $disabled Hysteria2 inbound(s) with missing TLS certificate files"
+}
+
 xui_v3_warp_base_public_domain() {
   local db="$1" fallback="$2" domain
   if [[ -n "$fallback" ]]; then

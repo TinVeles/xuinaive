@@ -153,6 +153,7 @@ XUI_EMOJI_FLAG="$XUI_EMOJI_FLAG" \
 REALITY_WARP_TCP_DECOY="${REALITY_WARP_TCP_DECOY:-}" \
 REALITY_WARP_XHTTP_DECOY="${REALITY_WARP_XHTTP_DECOY:-}" \
   xui_ensure_v3_manual_warp_presets "$XUI_DB" "$DOMAIN" "$report_file"
+XUI_DB="$XUI_DB" xui_disable_hysteria_inbounds_with_missing_certs
 XUI_DB="$XUI_DB" XUI_EMOJI_FLAG="$XUI_EMOJI_FLAG" xui_normalize_reference_preset_remarks
 XUI_DB="$XUI_DB" \
 XUI_V3_INCLUDE_WARP_PRESETS="$XUI_CREATE_WARP_PRESETS" \
