@@ -843,12 +843,114 @@ xui_disable_nginx_enabled_backup_configs() {
   shopt -u nullglob
 }
 
+xui_ensure_nginx_xui_domain_route() {
+  local domain domain_key stream_conf backup tmp_stream
+  domain="${XUI_PUBLIC_DOMAIN:-${XUI_DOMAIN:-}}"
+  stream_conf="${NGINX_STREAM_CONF:-/etc/nginx/stream-enabled/stream.conf}"
+  [[ "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || return 0
+  [[ -f "$stream_conf" ]] || return 0
+  grep -q 'map[[:space:]]\+\$ssl_preread_server_name[[:space:]]\+\$sni_name' "$stream_conf" 2>/dev/null || return 0
+
+  domain_key="${domain,,}"
+  backup="$(mktemp)"
+  tmp_stream="$(mktemp)"
+  cp -a "$stream_conf" "$backup"
+
+  awk -v domain="$domain" -v domain_key="$domain_key" '
+    BEGIN {
+      in_map = 0
+      inserted_route = 0
+      skip_upstream_www = 0
+      upstream_depth = 0
+    }
+    function route_key(line,    cleaned, parts) {
+      cleaned = line
+      sub(/#.*/, "", cleaned)
+      gsub(/;/, "", cleaned)
+      sub(/^[[:space:]]+/, "", cleaned)
+      sub(/[[:space:]]+$/, "", cleaned)
+      split(cleaned, parts, /[[:space:]]+/)
+      return tolower(parts[1])
+    }
+    function print_xui_route() {
+      if (inserted_route) return
+      printf "    %-32s www; # upm-xui-domain\n", domain
+      inserted_route = 1
+    }
+    function brace_delta(line,    opens, closes, tmp) {
+      tmp = line
+      opens = gsub(/\{/, "{", tmp)
+      tmp = line
+      closes = gsub(/\}/, "}", tmp)
+      return opens - closes
+    }
+    $0 ~ /^[[:space:]]*upstream[[:space:]]+www[[:space:]]*\{/ {
+      skip_upstream_www = 1
+      upstream_depth = brace_delta($0)
+      if (upstream_depth <= 0) skip_upstream_www = 0
+      next
+    }
+    skip_upstream_www {
+      upstream_depth += brace_delta($0)
+      if (upstream_depth <= 0) skip_upstream_www = 0
+      next
+    }
+    $0 ~ /^[[:space:]]*map[[:space:]]+\$ssl_preread_server_name[[:space:]]+\$sni_name[[:space:]]*\{/ {
+      in_map = 1
+      print
+      next
+    }
+    in_map && $0 ~ /^[[:space:]]*hostnames;[[:space:]]*$/ {
+      print
+      print_xui_route()
+      next
+    }
+    in_map && $0 ~ /^[[:space:]]*\}/ {
+      print_xui_route()
+      in_map = 0
+      print
+      next
+    }
+    in_map {
+      if (route_key($0) == domain_key) next
+      if ($0 ~ /#[[:space:]]*upm-xui-domain[[:space:]]*$/) next
+    }
+    { print }
+    END {
+      print ""
+      print "upstream www {"
+      print "    server 127.0.0.1:7443;"
+      print "}"
+      if (!inserted_route) exit 42
+    }
+  ' "$stream_conf" > "$tmp_stream" || {
+    rm -f "$backup" "$tmp_stream"
+    return 1
+  }
+
+  install -m 0644 "$tmp_stream" "$stream_conf"
+  if command -v nginx >/dev/null 2>&1; then
+    if nginx -t >/dev/null 2>&1; then
+      systemctl reload nginx 2>/dev/null || true
+    else
+      cp -a "$backup" "$stream_conf" 2>/dev/null || true
+      warn "nginx x-ui public domain stream route update failed validation; restored $stream_conf"
+      rm -f "$backup" "$tmp_stream"
+      return 1
+    fi
+  fi
+  rm -f "$backup" "$tmp_stream"
+}
+
 xui_ensure_nginx_reality_sni_routes() {
   local db stream_conf upstream_conf backup_stream backup_upstreams had_upstreams=0
   local tmp_stream tmp_upstreams map_routes map_keys rows inbound_id port sni upstream key
+  local public_domain public_domain_key
   db="$(xui_db_path)"
   stream_conf="${NGINX_STREAM_CONF:-/etc/nginx/stream-enabled/stream.conf}"
   upstream_conf="${NGINX_XUI_REALITY_UPSTREAM_CONF:-/etc/nginx/stream-enabled/upm-xui-reality.conf}"
+  public_domain="${XUI_PUBLIC_DOMAIN:-${XUI_DOMAIN:-}}"
+  public_domain_key="${public_domain,,}"
   [[ -f "$db" && -f "$stream_conf" ]] || return 0
   command -v sqlite3 >/dev/null 2>&1 || return 0
   grep -q 'map[[:space:]]\+\$ssl_preread_server_name[[:space:]]\+\$sni_name' "$stream_conf" 2>/dev/null || return 0
@@ -907,6 +1009,10 @@ xui_ensure_nginx_reality_sni_routes() {
       return 1
     }
     key="${sni,,}"
+    if [[ -n "$public_domain_key" && "$key" == "$public_domain_key" ]]; then
+      warn "REALITY SNI $sni conflicts with x-ui public domain; keeping $sni routed to nginx www upstream"
+      continue
+    fi
     if [[ -n "${route_ports[$key]:-}" && "${route_ports[$key]}" != "$port" ]]; then
       warn "REALITY SNI $sni is assigned to multiple backend ports (${route_ports[$key]} and $port); each public-443 REALITY preset needs a unique SNI"
       rm -f "$map_routes" "$map_keys" "$tmp_stream" "$tmp_upstreams"

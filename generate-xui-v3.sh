@@ -154,7 +154,8 @@ XUI_V3_INCLUDE_WARP_PRESETS="$XUI_CREATE_WARP_PRESETS" \
   xui_v3_replace_generated_clients "$XUI_DB" "$COUNT" "$PREFIX" "$report_file"
 
 XUI_DB="$XUI_DB" xui_ensure_nginx_dynamic_proxy
-XUI_DB="$XUI_DB" XUI_CREATE_WARP_PRESETS="$XUI_CREATE_WARP_PRESETS" xui_ensure_nginx_reality_sni_routes
+XUI_DB="$XUI_DB" XUI_PUBLIC_DOMAIN="$DOMAIN" xui_ensure_nginx_xui_domain_route
+XUI_DB="$XUI_DB" XUI_PUBLIC_DOMAIN="$DOMAIN" XUI_CREATE_WARP_PRESETS="$XUI_CREATE_WARP_PRESETS" xui_ensure_nginx_reality_sni_routes
 XUI_DB="$XUI_DB" xui_open_public_preset_ports
 
 if [[ "$RESTART_XUI" == "1" ]] && command_exists systemctl; then

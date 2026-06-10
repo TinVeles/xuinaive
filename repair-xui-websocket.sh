@@ -45,7 +45,7 @@ done
 backup_dir="/opt/unified-proxy-manager/backups/xui-ws-$(date '+%Y-%m-%d-%H-%M-%S')"
 mkdir -p "$backup_dir"
 cp -a "$XUI_DB" "$backup_dir/x-ui.db"
-for path in /etc/nginx/snippets/includes.conf /etc/nginx/nginx.conf; do
+for path in /etc/nginx/snippets/includes.conf /etc/nginx/nginx.conf /etc/nginx/stream-enabled/stream.conf; do
   if [[ -e "$path" || -L "$path" ]]; then
     mkdir -p "$backup_dir$(dirname "$path")"
     cp -a "$path" "$backup_dir$(dirname "$path")/"
@@ -89,6 +89,7 @@ done <<<"$rows"
 
 XUI_DB="$XUI_DB" XUI_PUBLIC_DOMAIN="$DOMAIN" xui_normalize_reference_preset_external_proxy_ports
 XUI_DB="$XUI_DB" xui_ensure_nginx_dynamic_proxy
+XUI_DB="$XUI_DB" XUI_PUBLIC_DOMAIN="$DOMAIN" xui_ensure_nginx_xui_domain_route
 
 if command_exists nginx; then
   nginx -t

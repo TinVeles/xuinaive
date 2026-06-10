@@ -59,7 +59,8 @@ XUI_DB="$XUI_DB" xui_repair_invalid_inbound_json
 XUI_DB="$XUI_DB" XUI_PUBLIC_DOMAIN="$DOMAIN" xui_normalize_reference_preset_external_proxy_ports
 XUI_DB="$XUI_DB" xui_normalize_grpc_service_names
 XUI_DB="$XUI_DB" xui_ensure_nginx_dynamic_proxy
-XUI_DB="$XUI_DB" xui_ensure_nginx_reality_sni_routes
+XUI_DB="$XUI_DB" XUI_PUBLIC_DOMAIN="$DOMAIN" xui_ensure_nginx_xui_domain_route
+XUI_DB="$XUI_DB" XUI_PUBLIC_DOMAIN="$DOMAIN" xui_ensure_nginx_reality_sni_routes
 XUI_DB="$XUI_DB" xui_open_public_preset_ports
 
 if command_exists nginx; then
