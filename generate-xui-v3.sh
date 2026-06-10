@@ -142,6 +142,7 @@ upm_sqlite_setting_set "$XUI_DB" "subEmailInRemark" "false"
 
 report_file="/etc/x-ui/generated-clients-v3.txt"
 mkdir -p "$(dirname "$report_file")"
+XUI_DB="$XUI_DB" XUI_PUBLIC_DOMAIN="$DOMAIN" xui_ensure_v3_hysteria2_preset "$XUI_DB" "$DOMAIN"
 XUI_DB="$XUI_DB" \
 XUI_CREATE_WARP_PRESETS="$XUI_CREATE_WARP_PRESETS" \
 HY2_WARP_PUBLIC_PORT="$HY2_WARP_PUBLIC_PORT" \

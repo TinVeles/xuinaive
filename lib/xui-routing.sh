@@ -1423,6 +1423,59 @@ xui_install_3dp_reference_presets() {
   xui_3dp_insert hysteria "$port" "$(xui_3dp_remark "hysteria2")" "$settings" "$stream"
 }
 
+xui_ensure_v3_hysteria2_preset() {
+  local db="$1" public_domain="${2:-}" port auth obfs_password settings stream sniffing certificate_file key_file emoji_flag prefix exists
+  [[ -f "$db" ]] || return 0
+  public_domain="$(xui_v3_warp_base_public_domain "$db" "$public_domain")"
+  [[ "$public_domain" =~ ^[A-Za-z0-9.-]+$ ]] || return 0
+  exists="$(sqlite3 -readonly "$db" "
+    SELECT COUNT(*)
+    FROM inbounds
+    WHERE protocol IN ('hysteria','hysteria2')
+      AND COALESCE(tag,'') NOT LIKE '%-warp'
+      AND lower(COALESCE(remark,'')) NOT LIKE '%warp%';
+  " 2>/dev/null || echo 0)"
+  [[ "$exists" == "0" ]] || return 0
+
+  port="${HY2_PUBLIC_PORT:-443}"
+  if [[ "$(sqlite3 -readonly "$db" "SELECT COUNT(*) FROM inbounds WHERE port=$port;" 2>/dev/null || echo 0)" != "0" ]]; then
+    port="$(xui_next_free_inbound_port "$db" "${HY2_PUBLIC_PORT:-24443}")"
+  fi
+  auth="$(openssl rand -hex 16)"
+  obfs_password="$(openssl rand -hex 8)"
+  settings='{"clients":[],"version":2}'
+  sniffing='{"enabled":true,"destOverride":["http","tls","quic","fakedns"],"metadataOnly":false,"routeOnly":true}'
+  certificate_file="/root/cert/${public_domain}/fullchain.pem"
+  key_file="/root/cert/${public_domain}/privkey.pem"
+  emoji_flag="${XUI_EMOJI_FLAG:-🇫🇮}"
+  if [[ -n "$emoji_flag" ]]; then
+    prefix="${emoji_flag} "
+  else
+    prefix=""
+  fi
+  stream="$(jq -cn \
+    --arg publicDomain "$public_domain" \
+    --arg certificateFile "$certificate_file" \
+    --arg keyFile "$key_file" \
+    --arg auth "$auth" \
+    --arg obfsPassword "$obfs_password" \
+    --argjson port "$port" \
+    '{
+      network:"hysteria",
+      security:"tls",
+      externalProxy:[{forceTls:"tls",dest:$publicDomain,port:$port,remark:""}],
+      finalmask:{udp:[{type:"salamander",settings:{password:$obfsPassword}}]},
+      hysteriaSettings:{auth:$auth,masquerade:{content:"",dir:"",headers:{},insecure:true,rewriteHost:false,statusCode:0,type:"proxy",url:"https://google.com"},udpIdleTimeout:60,version:2},
+      tlsSettings:{serverName:$publicDomain,alpn:["h3"],certificates:[{buildChain:false,certificateFile:$certificateFile,keyFile:$keyFile,oneTimeLoading:false,usage:"encipherment"}],cipherSuites:"",disableSystemRoot:false,echForceQuery:"none",echServerKeys:"",enableSessionResumption:false,maxVersion:"1.3",minVersion:"1.2",rejectUnknownSni:false}
+    }')"
+  sqlite3 "$db" "
+    INSERT INTO inbounds
+      (user_id, up, down, total, remark, enable, expiry_time, listen, port, protocol, settings, stream_settings, tag, sniffing)
+    VALUES
+      (1, 0, 0, 0, $(sql_quote "${prefix}hysteria2"), 1, 0, '', $port, 'hysteria', $(sql_quote "$settings"), $(sql_quote "$stream"), $(sql_quote "inbound-${port}"), $(sql_quote "$sniffing"));
+  "
+}
+
 xui_v3_warp_base_public_domain() {
   local db="$1" fallback="$2" domain
   if [[ -n "$fallback" ]]; then
