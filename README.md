@@ -1,22 +1,15 @@
 # xuinaive
 
-Unified installer for running 3x-ui plus RIXXX Panel with NaiveProxy and Mieru on one VPS.
+Installer for running 3x-ui on one VPS. RIXXX/Naive/Mieru remains available as
+an explicit advanced mode, but the default install path is 3x-ui only.
 
 The default command is a dry run. Real installation always requires `--install --yes`.
 
 ## What It Installs
 
 - 3x-ui / x-ui-pro with Xray and nginx.
-- RIXXX Panel for NaiveProxy and Mieru management.
-- NaiveProxy behind a dedicated Caddy backend.
-- Mieru on its own public TCP/UDP port range.
 - Generated 3x-ui profiles by default.
 - Optional Cloudflare WARP local proxy on `127.0.0.1:40000` when `--install-warp` is used.
-
-The full stack still uses two panels:
-
-- 3x-ui manages Xray inbounds and Xray routing.
-- RIXXX Panel manages NaiveProxy, Mieru users, subscriptions, tuning, and diagnostics.
 
 ## Recommended Install
 
@@ -28,11 +21,9 @@ rm -rf unified-proxy-manager
 git clone https://github.com/TinVeles/xuinaive.git unified-proxy-manager
 cd unified-proxy-manager
 
-sudo bash install.sh --mode all \
-  --xui-domain xui.example.com \
-  --rixxx-domain naive.example.com \
-  --reality-dest reality.example.com \
-  --rixxx-email admin@example.com \
+sudo bash install.sh \
+  --xui-domain x.example.com \
+  --reality-dest www.microsoft.com \
   --install \
   --yes
 ```
@@ -40,18 +31,18 @@ sudo bash install.sh --mode all \
 The default panel line is the current upstream 3x-ui v3 release, resolved at
 install time from `MHSanaei/3x-ui` and validated as `v3.3.0` or newer. SQLite is
 selected explicitly. The default inbound set is the stable x-ui-pro-like core:
-one VLESS TCP REALITY, one VLESS WS, one VLESS XHTTP, and one Trojan gRPC.
+one VLESS TCP REALITY, one VLESS WS, one VLESS XHTTP, one Trojan gRPC, and
+Hysteria2. Manual WARP prep inbounds are created but WARP routing is not
+enabled unless you configure it explicitly.
 
 If you explicitly want the larger experimental preset mix, add
 `--xui-extended-presets`:
 
 ```bash
-sudo bash install.sh --mode all \
+sudo bash install.sh \
   --xui-extended-presets \
-  --xui-domain xui.example.com \
-  --rixxx-domain naive.example.com \
-  --reality-dest reality.example.com \
-  --rixxx-email admin@example.com \
+  --xui-domain x.example.com \
+  --reality-dest www.microsoft.com \
   --install \
   --yes
 ```

@@ -1012,7 +1012,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$REAL_INSTALL" == "1" ]]; then
-  [[ -n "$MODE" ]] || MODE="all"
+  [[ -n "$MODE" ]] || MODE="xui"
   collect_real_install_inputs
 else
   collect_interactive_inputs
