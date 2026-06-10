@@ -342,7 +342,7 @@ xui_disable_experimental_trojan_grpc_presets() {
 }
 
 xui_normalize_reference_preset_external_proxy_ports() {
-  local db updated public_domain ws_rows inbound_id inbound_port stream new_stream
+  local db updated domain_updated public_domain ws_rows inbound_id inbound_port stream new_stream
   db="$(xui_db_path)"
   [[ -f "$db" ]] || return 0
   public_domain="${XUI_PUBLIC_DOMAIN:-${XUI_DOMAIN:-}}"
@@ -414,6 +414,22 @@ xui_normalize_reference_preset_external_proxy_ports() {
   updated="${updated##*$'\n'}"
   if [[ "$updated" =~ ^[0-9]+$ && "$updated" -gt 0 ]]; then
     printf 'INFO: Normalized reference preset public port(s): %s\n' "$updated"
+  fi
+  if [[ "$public_domain" =~ ^[A-Za-z0-9.-]+$ ]]; then
+    domain_updated="$(sqlite3 "$db" "
+      UPDATE inbounds
+      SET stream_settings=json_set(stream_settings, '$.externalProxy[0].dest', $(sql_quote "$public_domain"))
+      WHERE json_valid(stream_settings)=1
+        AND json_type(stream_settings, '$.externalProxy[0]')='object'
+$(xui_preset_inbound_filter_sql)
+        AND COALESCE(json_extract(stream_settings, '$.externalProxy[0].dest'), '') != $(sql_quote "$public_domain");
+
+      SELECT changes();
+    " 2>/dev/null || true)"
+    domain_updated="${domain_updated##*$'\n'}"
+    if [[ "$domain_updated" =~ ^[0-9]+$ && "$domain_updated" -gt 0 ]]; then
+      printf 'INFO: Normalized reference preset public domain(s): %s -> %s\n' "$domain_updated" "$public_domain"
+    fi
   fi
   if [[ "$public_domain" =~ ^[A-Za-z0-9.-]+$ ]] && command -v jq >/dev/null 2>&1; then
     ws_rows="$(sqlite3 -separator $'\t' "$db" "
