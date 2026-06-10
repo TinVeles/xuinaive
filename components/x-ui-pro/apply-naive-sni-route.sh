@@ -5,6 +5,7 @@ ROUTE_DOMAIN=""
 ROUTE_BACKEND="127.0.0.1:9445"
 ROUTE_NAME="naive"
 STREAM_CONF="/etc/nginx/stream-enabled/stream.conf"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 usage() {
   cat <<'EOF'
@@ -29,6 +30,16 @@ is_valid_hostport() {
   [[ "$port" =~ ^[0-9]+$ && "$port" -ge 1 && "$port" -le 65535 ]]
 }
 
+config_value() {
+  local key="$1" file="$SCRIPT_DIR/config.env" value
+  [[ -f "$file" ]] || return 1
+  value="$(grep -E "^${key}=" "$file" | tail -n1 | cut -d= -f2- || true)"
+  value="${value%\"}"
+  value="${value#\"}"
+  [[ -n "$value" ]] || return 1
+  printf '%s\n' "$value"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain) ROUTE_DOMAIN="${2:-}"; shift 2 ;;
@@ -46,6 +57,11 @@ is_valid_domain "$ROUTE_DOMAIN" || die "--domain is invalid: $ROUTE_DOMAIN"
 [[ "$ROUTE_NAME" =~ ^[A-Za-z0-9_]+$ ]] || die "--name must contain only letters, digits, and underscore"
 is_valid_hostport "$ROUTE_BACKEND" || die "--backend must be safe host:port"
 [[ -f "$STREAM_CONF" ]] || die "nginx stream config not found: $STREAM_CONF"
+
+XUI_DOMAIN_CONFIG="${XUI_DOMAIN:-$(config_value XUI_DOMAIN || true)}"
+if [[ -n "$XUI_DOMAIN_CONFIG" && "${ROUTE_DOMAIN,,}" == "${XUI_DOMAIN_CONFIG,,}" && "$ROUTE_NAME" == "rixxx_naive" ]]; then
+  die "RIXXX/Naive domain conflicts with x-ui domain ($ROUTE_DOMAIN). Use a separate RIXXX domain, for example kuruma.$ROUTE_DOMAIN"
+fi
 
 backup_dir="/opt/unified-proxy-manager/backups/$(date '+%Y-%m-%d-%H-%M-%S')"
 mkdir -p "$backup_dir"
