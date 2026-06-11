@@ -14,6 +14,7 @@ source "$SCRIPT_DIR/lib/xui-v3.sh"
 XUI_DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
 COUNT="${COUNT:-15}"
 PREFIX="${PREFIX:-auto}"
+CLIENTS_FILE="${CLIENTS_FILE:-}"
 DOMAIN="${XUI_DOMAIN:-}"
 XUI_EMOJI_FLAG="${XUI_EMOJI_FLAG:-🇫🇮}"
 REALITY_DEST="${REALITY_DEST:-}"
@@ -29,6 +30,7 @@ usage() {
   cat <<EOF
 Usage:
   sudo bash generate-xui-v3.sh --count 15 --prefix auto --yes
+  sudo bash generate-xui-v3.sh --clients-file config/xui-clients.txt --domain x.example.com --yes
   sudo bash generate-xui-v3.sh --reset-inbounds --domain x.example.com --reality-dest r.example.com --yes
   sudo bash generate-xui-v3.sh --reset-inbounds --extended-presets --domain x.example.com --reality-dest r.example.com --yes
   sudo bash generate-xui-v3.sh --xui-warp-presets --hy2-port 24443 --hy2-warp-port 24444 --yes
@@ -53,6 +55,7 @@ while [[ $# -gt 0 ]]; do
     --xui-db) XUI_DB="${2:-}"; shift 2 ;;
     --count) COUNT="${2:-}"; shift 2 ;;
     --prefix) PREFIX="${2:-}"; shift 2 ;;
+    --clients-file) CLIENTS_FILE="${2:-}"; shift 2 ;;
     --domain|--xui-domain) DOMAIN="${2:-}"; shift 2 ;;
     --reality-dest) REALITY_DEST="${2:-}"; shift 2 ;;
     --reset-inbounds) RESET_INBOUNDS=1; shift ;;
@@ -74,8 +77,13 @@ done
 
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || upm_die "Run as root"
 [[ "$ASSUME_YES" == "1" ]] || upm_die "Add --yes after reading what this script changes"
-[[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -gt 0 ]] || upm_die "--count must be a positive number"
+if [[ -z "$CLIENTS_FILE" ]]; then
+  [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -gt 0 ]] || upm_die "--count must be a positive number"
+fi
 [[ "$PREFIX" =~ ^[A-Za-z0-9_.-]+$ ]] || upm_die "--prefix may contain only A-Z, a-z, 0-9, dot, underscore, and dash"
+if [[ -n "$CLIENTS_FILE" ]]; then
+  [[ -f "$CLIENTS_FILE" ]] || upm_die "--clients-file not found: $CLIENTS_FILE"
+fi
 [[ "$XUI_PRESET_PROFILE" == "stable" || "$XUI_PRESET_PROFILE" == "extended" ]] || upm_die "--preset-profile must be stable or extended"
 [[ "$HY2_PUBLIC_PORT" =~ ^[0-9]+$ && "$HY2_PUBLIC_PORT" -gt 0 && "$HY2_PUBLIC_PORT" -le 65535 ]] || upm_die "--hy2-port must be 1..65535"
 [[ "$HY2_WARP_PUBLIC_PORT" =~ ^[0-9]+$ && "$HY2_WARP_PUBLIC_PORT" -gt 0 && "$HY2_WARP_PUBLIC_PORT" -le 65535 ]] || upm_die "--hy2-warp-port must be 1..65535"
@@ -155,9 +163,17 @@ REALITY_WARP_XHTTP_DECOY="${REALITY_WARP_XHTTP_DECOY:-}" \
   xui_ensure_v3_manual_warp_presets "$XUI_DB" "$DOMAIN" "$report_file"
 XUI_DB="$XUI_DB" xui_disable_hysteria_inbounds_with_missing_certs
 XUI_DB="$XUI_DB" XUI_EMOJI_FLAG="$XUI_EMOJI_FLAG" xui_normalize_reference_preset_remarks
-XUI_DB="$XUI_DB" \
-XUI_V3_INCLUDE_WARP_PRESETS="$XUI_CREATE_WARP_PRESETS" \
-  xui_v3_replace_generated_clients "$XUI_DB" "$COUNT" "$PREFIX" "$report_file"
+if [[ -n "$CLIENTS_FILE" ]]; then
+  XUI_DB="$XUI_DB" \
+  XUI_V3_INCLUDE_WARP_PRESETS="$XUI_CREATE_WARP_PRESETS" \
+    xui_v3_replace_named_clients "$XUI_DB" "$CLIENTS_FILE" "$PREFIX" "$report_file"
+  generated_count="$(grep -Ev '^[[:space:]]*(#|$)' "$CLIENTS_FILE" | wc -l | tr -d '[:space:]')"
+else
+  XUI_DB="$XUI_DB" \
+  XUI_V3_INCLUDE_WARP_PRESETS="$XUI_CREATE_WARP_PRESETS" \
+    xui_v3_replace_generated_clients "$XUI_DB" "$COUNT" "$PREFIX" "$report_file"
+  generated_count="$COUNT"
+fi
 
 XUI_DB="$XUI_DB" xui_ensure_nginx_dynamic_proxy
 XUI_DB="$XUI_DB" XUI_PUBLIC_DOMAIN="$DOMAIN" xui_ensure_nginx_xui_domain_route
@@ -171,7 +187,7 @@ if [[ "$RESTART_XUI" == "1" ]] && command_exists systemctl; then
     upm_die "x-ui service is active but Xray core did not start. Run: journalctl -u x-ui -n 120 --no-pager -l"
 fi
 
-upm_log_ok "3x-ui v3 clients generated: $COUNT client entities attached to every preset inbound"
+upm_log_ok "3x-ui v3 clients generated: $generated_count client entities attached to every preset inbound"
 upm_log_ok "x-ui preset profile: $XUI_PRESET_PROFILE"
 if [[ "$XUI_CREATE_WARP_PRESETS" == "1" ]]; then
   upm_log_ok "Manual WARP prep inbounds: vless reality, vless xhttp, hysteria2"
